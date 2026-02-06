@@ -37,9 +37,14 @@ export const createUser = async (email: string, password: string, role: UserRole
     // Create user ONLY in Firestore database (not in Firebase Auth yet)
     // They will be created in Auth when they log in for the first time
     
-    // Check if user already exists in Firestore
+    const normalizedEmail = email.trim().toLowerCase()
+    if (!normalizedEmail || !normalizedEmail.includes("@")) {
+      return { user: null, error: "Please enter a valid email address" }
+    }
+
+    // Check if user already exists in Firestore (case-insensitive)
     const usersRef = collection(db, "users")
-    const q = query(usersRef, where("email", "==", email))
+    const q = query(usersRef, where("email", "==", normalizedEmail))
     const existingUsers = await getDocs(q)
     
     if (!existingUsers.empty) {
@@ -52,7 +57,7 @@ export const createUser = async (email: string, password: string, role: UserRole
     // Create user profile in Firestore with pending status
     const userProfile = {
       uid: pendingUserId, // Temporary ID until they log in
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       role,
       displayName: displayName || email.split("@")[0],
       createdAt: new Date(),

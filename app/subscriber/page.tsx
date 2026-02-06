@@ -3,7 +3,7 @@
 import { ProtectedRoute } from "@/components/auth/protected-route"
 import { RealTimeStreams } from "@/components/subscriber/real-time-streams"
 import { SubscriberZoomCalls } from "@/components/subscriber/zoom-calls"
-import { TodaysScheduleViewer } from "@/components/subscriber/todays-schedule"
+import { TodaysSchedule } from "@/components/subscriber/todays-schedule"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -129,14 +129,14 @@ export default function SubscriberDashboard() {
                   <Radio className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>Audio Streams</span>
                 </TabsTrigger>
-                <TabsTrigger value="zoom" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                  <Headphones className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>Zoom Calls</span>
-                </TabsTrigger>
                 <TabsTrigger value="schedule" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
                   <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span className="hidden xs:inline">Today&apos;s Schedule</span>
                   <span className="xs:hidden">Schedule</span>
+                </TabsTrigger>
+                <TabsTrigger value="zoom" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
+                  <Headphones className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span>Zoom Calls</span>
                 </TabsTrigger>
               </TabsList>
 
@@ -144,12 +144,12 @@ export default function SubscriberDashboard() {
                 <RealTimeStreams />
               </TabsContent>
 
-              <TabsContent value="zoom">
-                <SubscriberZoomCalls />
+              <TabsContent value="schedule">
+                <TodaysSchedule />
               </TabsContent>
 
-              <TabsContent value="schedule">
-                <TodaysScheduleViewer />
+              <TabsContent value="zoom">
+                <SubscriberZoomCalls />
               </TabsContent>
             </Tabs>
           )}

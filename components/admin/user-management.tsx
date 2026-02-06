@@ -128,8 +128,17 @@ export function UserManagement() {
     setLoading(false)
   }
 
+  const emailExists = useMemo(
+    () => users.some((u) => u.email.toLowerCase() === email.trim().toLowerCase()) && email.trim(),
+    [users, email]
+  )
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (emailExists) {
+      setError("A user with this email already exists")
+      return
+    }
     setCreateLoading(true)
     setError("")
     setSuccess("")
@@ -381,7 +390,17 @@ export function UserManagement() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className={emailExists ? "border-destructive" : ""}
+                  />
+                  {emailExists && (
+                    <p className="text-xs text-destructive">This email is already registered</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -423,7 +442,7 @@ export function UserManagement() {
               </div>
 
               <div className="flex flex-col sm:flex-row gap-2">
-                <Button type="submit" disabled={createLoading}>
+                <Button type="submit" disabled={createLoading || emailExists}>
                   {createLoading ? "Creating..." : "Create User"}
                 </Button>
                 <Button type="button" variant="outline" onClick={() => setShowCreateForm(false)}>

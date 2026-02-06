@@ -8,10 +8,10 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Square, Mic, MicOff, Radio } from "lucide-react"
+import { Square, Mic, MicOff, Radio, History } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 import { agoraManager } from "@/lib/agora"
-import { createStreamSession, endStreamSession, generateRoomId, type StreamSession } from "@/lib/streaming"
+import { createStreamSession, endStreamSession, generateRoomId, getPublisherStreams, type StreamSession } from "@/lib/streaming"
 
 interface StreamControlsProps {
   onStreamStart?: (session: StreamSession) => void
@@ -30,6 +30,17 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
   // Stream setup form
   const [streamTitle, setStreamTitle] = useState("")
   const [streamDescription, setStreamDescription] = useState("")
+  const [lastStream, setLastStream] = useState<StreamSession | null>(null)
+
+  // Load last stream for "Use Last Details" button
+  useEffect(() => {
+    if (!user?.uid || isStreaming) return
+    getPublisherStreams(user.uid).then((streams) => {
+      // Get most recent ended stream (not active)
+      const ended = streams.filter((s) => !s.isActive)
+      setLastStream(ended[0] ?? null)
+    })
+  }, [user?.uid, isStreaming])
 
   useEffect(() => {
     return () => {
@@ -105,6 +116,12 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
     setLoading(false)
   }
 
+  const handleUseLastDetails = () => {
+    if (!lastStream) return
+    setStreamTitle(lastStream.title || "")
+    setStreamDescription(lastStream.description || "")
+  }
+
   const handleToggleAudio = async () => {
     try {
       if (isAudioMuted) {
@@ -164,10 +181,27 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
               />
             </div>
 
-            <Button onClick={handleStartStream} disabled={loading} className="w-full text-sm sm:text-base py-2 sm:py-2.5">
-              <Radio className="h-4 w-4 mr-2 flex-shrink-0" />
-              <span className="truncate">{loading ? "Starting..." : "Start Audio Stream"}</span>
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2 min-w-0 w-full">
+              {lastStream && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleUseLastDetails}
+                  className="w-full sm:w-auto sm:flex-shrink-0 text-sm sm:text-base"
+                >
+                  <History className="h-4 w-4 mr-2 flex-shrink-0" />
+                  Use Last Details
+                </Button>
+              )}
+              <Button
+                onClick={handleStartStream}
+                disabled={loading}
+                className="w-full sm:flex-1 sm:min-w-0 text-sm sm:text-base py-2 sm:py-2.5"
+              >
+                <Radio className="h-4 w-4 mr-2 flex-shrink-0" />
+                <span className="truncate">{loading ? "Starting..." : "Start Audio Stream"}</span>
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
