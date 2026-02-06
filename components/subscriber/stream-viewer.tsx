@@ -27,7 +27,10 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
   const [joinTime, setJoinTime] = useState<Date | null>(null)
   const jitsiContainerRef = useRef<HTMLDivElement>(null)
   const currentStreamIdRef = useRef<string | null>(null)
+  /** Permission for the stream we're currently in (for correct leave analytics when switching) */
+  const currentPermissionRef = useRef<SubscriberPermission | null>(null)
   const isJoiningRef = useRef(false)
+  const switchGenerationRef = useRef(0)
 
   const handleJoinStream = async () => {
     if (isJoiningRef.current) return // Prevent duplicate join calls
@@ -49,6 +52,7 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
       const joinTimestamp = new Date()
       setJoinTime(joinTimestamp)
       setIsConnected(true)
+      currentPermissionRef.current = permission
       setLoading(false)
       onJoinStream?.(permission)
 
@@ -71,19 +75,21 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
     }
   }
 
-  const handleLeaveStream = async () => {
-    if (!user || !userProfile || !permission.streamSession) return
+  /** Leave current stream. Pass explicit permission for analytics when switching (so we record leave for the stream we're leaving, not the new one). */
+  const handleLeaveStream = async (permissionForAnalytics?: SubscriberPermission) => {
+    const forAnalytics = permissionForAnalytics ?? permission
+    if (!user || !userProfile || !forAnalytics.streamSession) return
 
     // Calculate viewing duration
     const duration = joinTime ? Math.floor((Date.now() - joinTime.getTime()) / 1000) : 0
 
-    // Track analytics before leaving
+    // Track analytics before leaving (use the stream we're actually leaving)
     await trackSubscriberActivity({
-      streamSessionId: permission.streamSession.id!,
+      streamSessionId: forAnalytics.streamSession.id!,
       subscriberId: user.uid,
       subscriberName: userProfile.displayName || userProfile.email,
-      publisherId: permission.publisherId,
-      publisherName: permission.publisherName,
+      publisherId: forAnalytics.publisherId,
+      publisherName: forAnalytics.publisherName,
       action: 'leave',
       duration
     })
@@ -92,6 +98,8 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
     setIsConnected(false)
     setLoading(false)
     setJoinTime(null)
+    currentPermissionRef.current = null
+    currentStreamIdRef.current = null
     onLeaveStream?.()
   }
 
@@ -108,11 +116,12 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
     }
   }
 
-  // Auto-join when component mounts or stream changes
+  // Auto-join when component mounts or stream changes (do not depend on isConnected to avoid double leave/join on switch)
   useEffect(() => {
     if (!autoJoin || !permission.streamSession || !user || !userProfile) return
 
     const streamId = permission.streamSession.roomId
+    const generation = ++switchGenerationRef.current
 
     // Wait for container to be ready
     const attemptJoin = () => {
@@ -121,31 +130,35 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
         return
       }
 
-      // If switching to a different stream, leave current and join new
+      // If switching to a different stream: leave current (with correct analytics) then join new
       if (currentStreamIdRef.current && currentStreamIdRef.current !== streamId) {
-        handleLeaveStream().then(() => {
+        const permissionToLeave = currentPermissionRef.current ?? permission
+        handleLeaveStream(permissionToLeave).then(() => {
+          // Only proceed if this is still the latest switch (user didn't switch again)
+          if (generation !== switchGenerationRef.current) return
           currentStreamIdRef.current = streamId
           handleJoinStream()
         })
-      } else if (!currentStreamIdRef.current && !isConnected) {
-        // First time joining
+      } else if (!currentStreamIdRef.current) {
+        // First time joining (or re-join after unmount)
         currentStreamIdRef.current = streamId
         handleJoinStream()
       }
     }
 
     attemptJoin()
-  }, [permission.streamSession?.roomId, autoJoin, user, userProfile, isConnected])
+  }, [permission.streamSession?.roomId, autoJoin, user, userProfile])
 
-  // Cleanup on unmount
+  // Cleanup only on unmount (not when isConnected changes) to avoid double leave when switching streams
   useEffect(() => {
     return () => {
-      if (isConnected) {
+      if (currentStreamIdRef.current) {
         agoraManager.leave()
         currentStreamIdRef.current = null
+        currentPermissionRef.current = null
       }
     }
-  }, [isConnected])
+  }, [])
 
   if (!permission.streamSession) {
     return (

@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Play, Square, Mic, MicOff, Users, Clock, Radio } from "lucide-react"
+import { Square, Mic, MicOff, Radio } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 import { agoraManager } from "@/lib/agora"
 import { createStreamSession, endStreamSession, generateRoomId, type StreamSession } from "@/lib/streaming"
@@ -30,9 +30,6 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
   // Stream setup form
   const [streamTitle, setStreamTitle] = useState("")
   const [streamDescription, setStreamDescription] = useState("")
-  const [gameName, setGameName] = useState("")
-  const [league, setLeague] = useState("")
-  const [match, setMatch] = useState("")
 
   useEffect(() => {
     return () => {
@@ -59,9 +56,6 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
         isActive: true,
         title: streamTitle || "Untitled Stream",
         description: streamDescription,
-        gameName: gameName || undefined,
-        league: league || undefined,
-        match: match || undefined,
       })
 
       if (!sessionResult.success) {
@@ -102,9 +96,6 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
       setCurrentSession(null)
       setStreamTitle("")
       setStreamDescription("")
-      setGameName("")
-      setLeague("")
-      setMatch("")
       setSuccess("Stream ended successfully!")
       onStreamEnd?.()
     } catch (err: any) {
@@ -173,41 +164,6 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="gameName" className="text-sm">Game Name</Label>
-                <Input
-                  id="gameName"
-                  value={gameName}
-                  onChange={(e) => setGameName(e.target.value)}
-                  placeholder="e.g., League of Legends"
-                  className="text-sm sm:text-base"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="league" className="text-sm">League</Label>
-                <Input
-                  id="league"
-                  value={league}
-                  onChange={(e) => setLeague(e.target.value)}
-                  placeholder="e.g., LCS, LEC, Worlds"
-                  className="text-sm sm:text-base"
-                />
-              </div>
-
-              <div className="space-y-2 sm:col-span-2 lg:col-span-1">
-                <Label htmlFor="match" className="text-sm">Match</Label>
-                <Input
-                  id="match"
-                  value={match}
-                  onChange={(e) => setMatch(e.target.value)}
-                  placeholder="e.g., Team A vs Team B"
-                  className="text-sm sm:text-base"
-                />
-              </div>
-            </div>
-
             <Button onClick={handleStartStream} disabled={loading} className="w-full text-sm sm:text-base py-2 sm:py-2.5">
               <Radio className="h-4 w-4 mr-2 flex-shrink-0" />
               <span className="truncate">{loading ? "Starting..." : "Start Audio Stream"}</span>
@@ -228,22 +184,10 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
                   </Badge>
                   <span className="break-words">{currentSession.title}</span>
                 </CardTitle>
-                <CardDescription className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mt-2">
-                  <span className="flex items-center space-x-1">
-                    <Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-                    <span className="text-xs sm:text-sm">Started: {new Date(currentSession.createdAt).toLocaleTimeString()}</span>
-                  </span>
-                  <span className="flex items-center space-x-1">
-                    <Users className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-                    <span className="text-xs sm:text-sm truncate">Room: {currentSession.roomId}</span>
-                  </span>
-                </CardDescription>
-                {(currentSession.gameName || currentSession.league || currentSession.match) && (
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {currentSession.gameName && <Badge variant="outline" className="text-xs">Game: {currentSession.gameName}</Badge>}
-                    {currentSession.league && <Badge variant="outline" className="text-xs">League: {currentSession.league}</Badge>}
-                    {currentSession.match && <Badge variant="outline" className="text-xs">Match: {currentSession.match}</Badge>}
-                  </div>
+                {currentSession.description && (
+                  <CardDescription className="mt-2">
+                    {currentSession.description}
+                  </CardDescription>
                 )}
               </div>
               <Button variant="destructive" onClick={handleEndStream} disabled={loading} className="w-full sm:w-auto text-sm sm:text-base">

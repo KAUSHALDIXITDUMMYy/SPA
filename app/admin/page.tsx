@@ -9,9 +9,10 @@ import { signOut } from "@/lib/auth"
 import { logoutAllUsers } from "@/lib/admin"
 import { useAuth } from "@/hooks/use-auth"
 import { useRouter } from "next/navigation"
-import { Settings, Users, Shield, LogOut, BarChart3, UserX } from "lucide-react"
+import { Settings, Users, Shield, LogOut, BarChart3, UserX, Calendar } from "lucide-react"
 import { SubscriberAssignments } from "@/components/admin/subscriber-assignments"
 import { StreamAssignments } from "@/components/admin/stream-assignments"
+import { TodaysScheduleAdmin } from "@/components/admin/todays-schedule"
 import { useState } from "react"
 import { toast } from "@/hooks/use-toast"
 import {
@@ -116,7 +117,7 @@ export default function AdminDashboard() {
         {/* Main Content */}
         <main className="container mx-auto px-2 sm:px-4 py-4 sm:py-8">
           <Tabs defaultValue="users" className="space-y-4 sm:space-y-6">
-            <TabsList className="grid w-full grid-cols-4 h-auto">
+            <TabsList className="grid w-full grid-cols-5 h-auto">
               <TabsTrigger value="users" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
                 <Users className="h-3 w-3 sm:h-4 sm:w-4" />
                 <span className="hidden xs:inline">User Management</span>
@@ -136,6 +137,11 @@ export default function AdminDashboard() {
                 <span className="hidden xs:inline">Stream Assignments</span>
                 <span className="xs:hidden">Streams</span>
               </TabsTrigger>
+              <TabsTrigger value="schedule" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
+                <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Today&apos;s Schedule</span>
+                <span className="xs:hidden">Schedule</span>
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="users">
@@ -152,6 +158,10 @@ export default function AdminDashboard() {
 
             <TabsContent value="stream-assignments">
               <StreamAssignments />
+            </TabsContent>
+
+            <TabsContent value="schedule">
+              <TodaysScheduleAdmin />
             </TabsContent>
           </Tabs>
         </main>
