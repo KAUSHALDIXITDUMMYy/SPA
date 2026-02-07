@@ -1,5 +1,5 @@
 import { db } from "./firebase"
-import { collection, addDoc, doc, updateDoc, query, where, getDocs } from "firebase/firestore"
+import { collection, addDoc, doc, updateDoc, query, where, getDocs, onSnapshot } from "firebase/firestore"
 
 export interface StreamSession {
   id?: string
@@ -98,6 +98,29 @@ export const getPublisherStreams = async (publisherId: string) => {
     console.error("Error fetching publisher streams:", error)
     return []
   }
+}
+
+/** Get the publisher's currently active stream (if any). Used for rejoin after refresh. */
+export const getPublisherActiveStream = async (publisherId: string): Promise<StreamSession | null> => {
+  const streams = await getPublisherStreams(publisherId)
+  return streams.find((s) => s.isActive) ?? null
+}
+
+/** Subscribe to the publisher's active stream in real-time (for rejoin detection). */
+export function subscribeToPublisherActiveStream(
+  publisherId: string,
+  onActiveStream: (session: StreamSession | null) => void
+): () => void {
+  const streamsRef = collection(db, "streamSessions")
+  const q = query(streamsRef, where("publisherId", "==", publisherId))
+  return onSnapshot(q, (snapshot) => {
+    const sessions = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as StreamSession[]
+    const active = sessions.find((s) => s.isActive) ?? null
+    onActiveStream(active)
+  })
 }
 
 export const getAllStreams = async () => {

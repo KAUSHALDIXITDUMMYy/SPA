@@ -8,11 +8,11 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Square, Mic, MicOff, Radio, History, ExternalLink } from "lucide-react"
+import { Square, Mic, MicOff, Radio, History, ExternalLink, RefreshCw } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
 import { agoraManager } from "@/lib/agora"
-import { createStreamSession, endStreamSession, generateRoomId, getPublisherStreams, type StreamSession } from "@/lib/streaming"
+import { createStreamSession, endStreamSession, generateRoomId, getPublisherStreams, subscribeToPublisherActiveStream, type StreamSession } from "@/lib/streaming"
 import { startSilentAudio, stopSilentAudio } from "@/lib/silent-audio"
 
 interface StreamControlsProps {
@@ -33,6 +33,17 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
   const [streamTitle, setStreamTitle] = useState("")
   const [streamDescription, setStreamDescription] = useState("")
   const [lastStream, setLastStream] = useState<StreamSession | null>(null)
+  /** Active stream in DB that we can rejoin (e.g. after page refresh) */
+  const [activeStreamToRejoin, setActiveStreamToRejoin] = useState<StreamSession | null>(null)
+
+  // Subscribe to publisher's active stream for rejoin-after-refresh
+  useEffect(() => {
+    if (!user?.uid) return
+    const unsub = subscribeToPublisherActiveStream(user.uid, (session) => {
+      setActiveStreamToRejoin(session)
+    })
+    return unsub
+  }, [user?.uid])
 
   // Load last stream for "Use Last Details" button
   useEffect(() => {
@@ -99,6 +110,38 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
     setLoading(false)
   }
 
+  const handleRejoinStream = async () => {
+    if (!activeStreamToRejoin || !user || !userProfile) return
+
+    setLoading(true)
+    setError("")
+    setSuccess("")
+
+    try {
+      // Rejoin Agora with existing roomId (session already exists in DB)
+      await agoraManager.join({
+        channelName: activeStreamToRejoin.roomId,
+        role: "publisher",
+        container: document.body,
+        width: "100%",
+        height: 500,
+      })
+
+      setIsStreaming(true)
+      setIsAudioMuted(false)
+      setCurrentSession(activeStreamToRejoin)
+      setStreamTitle(activeStreamToRejoin.title || "")
+      setStreamDescription(activeStreamToRejoin.description || "")
+      setSuccess("Rejoined stream successfully!")
+      onStreamStart?.(activeStreamToRejoin)
+      startSilentAudio()
+    } catch (err: any) {
+      setError(err.message || "Failed to rejoin stream")
+    }
+
+    setLoading(false)
+  }
+
   const handleEndStream = async () => {
     if (!currentSession) return
 
@@ -158,6 +201,41 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
 
   return (
     <div className="space-y-6">
+      {/* Rejoin active stream (after refresh) */}
+      {!isStreaming && activeStreamToRejoin && (
+        <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-amber-600" />
+              Rejoin Your Active Stream
+            </CardTitle>
+            <CardDescription>
+              Your stream &quot;{activeStreamToRejoin.title}&quot; is still active. Rejoin to continue broadcasting.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {error && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            {success && (
+              <Alert className="mb-4">
+                <AlertDescription>{success}</AlertDescription>
+              </Alert>
+            )}
+            <Button
+              onClick={handleRejoinStream}
+              disabled={loading}
+              className="w-full sm:w-auto"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              {loading ? "Rejoining..." : "Rejoin Stream"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stream Setup */}
       {!isStreaming && (
         <Card>
