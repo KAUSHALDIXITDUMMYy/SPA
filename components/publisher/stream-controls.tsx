@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Square, Mic, MicOff, Radio, History, ExternalWindow } from "lucide-react"
+import { Square, Mic, MicOff, Radio, History, ExternalLink } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 import { agoraManager } from "@/lib/agora"
 import { createStreamSession, endStreamSession, generateRoomId, getPublisherStreams, type StreamSession } from "@/lib/streaming"
@@ -229,7 +229,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
                 onClick={handleOpenInPopup}
                 className="w-full text-xs sm:text-sm text-muted-foreground"
               >
-                <ExternalWindow className="h-3 w-3 sm:h-4 sm:w-4 mr-2 flex-shrink-0" />
+                <ExternalLink className="h-3 w-3 sm:h-4 sm:w-4 mr-2 flex-shrink-0" />
                 Open in popup — keep broadcast active when main window is minimized
               </Button>
             </div>
