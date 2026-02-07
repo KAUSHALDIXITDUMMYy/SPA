@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Square, Mic, MicOff, Radio, History, ExternalLink } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
+import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
 import { agoraManager } from "@/lib/agora"
 import { createStreamSession, endStreamSession, generateRoomId, getPublisherStreams, type StreamSession } from "@/lib/streaming"
 import { startSilentAudio, stopSilentAudio } from "@/lib/silent-audio"
@@ -227,10 +228,11 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
                 variant="outline"
                 size="sm"
                 onClick={handleOpenInPopup}
-                className="w-full text-xs sm:text-sm text-muted-foreground"
+                className="w-full text-xs sm:text-sm text-muted-foreground justify-start sm:justify-center"
               >
                 <ExternalLink className="h-3 w-3 sm:h-4 sm:w-4 mr-2 flex-shrink-0" />
-                Open in popup — keep broadcast active when main window is minimized
+                <span className="hidden sm:inline">Open in popup — keep broadcast active when minimized</span>
+                <span className="sm:hidden">Open in new tab (use split screen on mobile)</span>
               </Button>
             </div>
           </CardContent>
@@ -262,8 +264,9 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
             </div>
           </CardHeader>
           <CardContent>
-            <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs sm:text-sm text-amber-800 dark:text-amber-200 mb-3">
-              If audio stops when you minimize, return to this tab to auto-reconnect. Next time: use &quot;Open in popup&quot; before starting.
+            <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs sm:text-sm text-amber-800 dark:text-amber-200 mb-3 break-words overflow-hidden">
+              <span className="hidden sm:inline">If audio stops when you minimize, return to this tab to auto-reconnect. Next time: use &quot;Open in popup&quot; before starting.</span>
+              <span className="sm:hidden">If audio stops, return to this tab to auto-reconnect. On mobile: use split screen.</span>
             </div>
             <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3">
               <Button 
@@ -285,6 +288,18 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
                 )}
               </Button>
             </div>
+            {currentSession?.id && user && userProfile && (
+              <div className="mt-4">
+                <StreamChatPanel
+                  streamSessionId={currentSession.id}
+                  streamTitle={currentSession.title}
+                  currentUserId={user.uid}
+                  currentUserName={userProfile.displayName || userProfile.email || ""}
+                  isPublisher={true}
+                  canChat={true}
+                />
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

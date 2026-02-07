@@ -114,7 +114,6 @@ export function RealTimePermissions() {
     const active = permissions.filter((p) => p.isActive).length
     const videoEnabled = permissions.filter((p) => p.allowVideo && p.isActive).length
     const audioEnabled = permissions.filter((p) => p.allowAudio && p.isActive).length
-
     return { total, active, videoEnabled, audioEnabled }
   }
 
@@ -194,6 +193,7 @@ export function RealTimePermissions() {
             </div>
           </CardContent>
         </Card>
+
       </div>
 
       {/* Alerts */}

@@ -123,6 +123,16 @@ export const updateUserStatus = async (userId: string, isActive: boolean) => {
   }
 }
 
+export const updateUserChatPermission = async (userId: string, allowChat: boolean) => {
+  try {
+    const userRef = doc(db, "users", userId)
+    await updateDoc(userRef, { allowChat })
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
 export const updatePublisherZoomMapping = async (userId: string, updates: { zoomUserId?: string; zoomUserEmail?: string }) => {
   try {
     const userRef = doc(db, "users", userId)

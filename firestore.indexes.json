@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "streamChatMessages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "streamSessionId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

@@ -11,6 +11,7 @@ import type { SubscriberPermission } from "@/lib/subscriber"
 import { trackSubscriberActivity } from "@/lib/analytics"
 import { useAuth } from "@/hooks/use-auth"
 import { Play, Square, Volume2, VolumeX, Users, Clock, Radio, Headphones } from "lucide-react"
+import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
 
 interface StreamViewerProps {
   permission: SubscriberPermission
@@ -274,6 +275,18 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
             )}
           </div>
         </div>
+        {permission.streamSession?.id && user && userProfile && (
+          <div className="mt-4">
+            <StreamChatPanel
+              streamSessionId={permission.streamSession.id}
+              streamTitle={permission.streamSession.title}
+              currentUserId={user.uid}
+              currentUserName={userProfile.displayName || userProfile.email || ""}
+              isPublisher={false}
+              canChat={userProfile?.allowChat ?? false}
+            />
+          </div>
+        )}
       </CardContent>
     </Card>
   )

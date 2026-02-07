@@ -15,9 +15,9 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
-import { createUser, getAllUsers, updateUserStatus, resetUserPassword } from "@/lib/admin"
+import { createUser, getAllUsers, updateUserStatus, updateUserChatPermission, resetUserPassword } from "@/lib/admin"
 import type { UserProfile, UserRole } from "@/lib/auth"
-import { Plus, Users, UserCheck, UserX, Shield, Video, Eye, ChevronDown, ChevronUp, KeyRound } from "lucide-react"
+import { Plus, Users, UserCheck, UserX, Shield, Video, Eye, ChevronDown, ChevronUp, KeyRound, MessageSquare, Search } from "lucide-react"
 import { db } from "@/lib/firebase"
 import { collection, onSnapshot } from "firebase/firestore"
 import { toast } from "@/hooks/use-toast"
@@ -82,6 +82,9 @@ export function UserManagement() {
   const [password, setPassword] = useState("")
   const [role, setRole] = useState<UserRole>("subscriber")
   const [displayName, setDisplayName] = useState("")
+
+  // Search state (for All Users tab)
+  const [searchQuery, setSearchQuery] = useState("")
 
   // Password reset state
   const [resetPasswordUserId, setResetPasswordUserId] = useState<string | null>(null)
@@ -158,6 +161,23 @@ export function UserManagement() {
     }
 
     setCreateLoading(false)
+  }
+
+  const handleToggleChat = async (userId: string, currentValue: boolean) => {
+    const result = await updateUserChatPermission(userId, !currentValue)
+    if (result.success) {
+      const u = users.find((x) => x.id === userId)
+      toast({
+        title: "Chat Updated",
+        description: `${u?.displayName || u?.email} can ${!currentValue ? "now" : "no longer"} chat with assigned publishers.`,
+      })
+    } else {
+      toast({
+        title: "Error",
+        description: result.error || "Failed to update chat permission",
+        variant: "destructive",
+      })
+    }
   }
 
   const handleToggleUserStatus = async (userId: string, currentStatus: boolean) => {
@@ -268,6 +288,19 @@ export function UserManagement() {
     const subscribers = sortUsersAlphabetically(users.filter((u) => u.role === "subscriber"))
     return { admins, publishers, subscribers }
   }, [users])
+
+  // Filter users for All Users tab based on search
+  const filteredUsers = useMemo(() => {
+    const sorted = sortUsersAlphabetically(users)
+    if (!searchQuery.trim()) return sorted
+    const q = searchQuery.trim().toLowerCase()
+    return sorted.filter(
+      (u) =>
+        u.email.toLowerCase().includes(q) ||
+        (u.displayName || "").toLowerCase().includes(q) ||
+        u.role.toLowerCase().includes(q)
+    )
+  }, [users, searchQuery])
 
   const getStats = () => {
     const total = users.length
@@ -489,13 +522,29 @@ export function UserManagement() {
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="all">
-              <UserTable 
-                users={sortUsersAlphabetically(users)} 
-                onToggleStatus={handleToggleUserStatus} 
-                getRoleBadgeVariant={getRoleBadgeVariant}
-                onResetPassword={openResetPasswordDialog}
-              />
+            <TabsContent value="all" className="space-y-4">
+              <div className="relative max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by email, name, or role..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              {filteredUsers.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  {searchQuery.trim() ? "No users match your search." : "No users found."}
+                </div>
+              ) : (
+                <UserTable 
+                  users={filteredUsers} 
+                  onToggleStatus={handleToggleUserStatus} 
+                  onToggleChat={handleToggleChat}
+                  getRoleBadgeVariant={getRoleBadgeVariant}
+                  onResetPassword={openResetPasswordDialog}
+                />
+              )}
             </TabsContent>
 
             <TabsContent value="admins">
@@ -505,6 +554,7 @@ export function UserManagement() {
                 <UserTable 
                   users={usersByRole.admins} 
                   onToggleStatus={handleToggleUserStatus} 
+                  onToggleChat={handleToggleChat}
                   getRoleBadgeVariant={getRoleBadgeVariant}
                   onResetPassword={openResetPasswordDialog}
                 />
@@ -518,6 +568,7 @@ export function UserManagement() {
                 <UserTable 
                   users={usersByRole.publishers} 
                   onToggleStatus={handleToggleUserStatus} 
+                  onToggleChat={handleToggleChat}
                   getRoleBadgeVariant={getRoleBadgeVariant}
                   onResetPassword={openResetPasswordDialog}
                 />
@@ -531,6 +582,7 @@ export function UserManagement() {
                 <UserTable 
                   users={usersByRole.subscribers} 
                   onToggleStatus={handleToggleUserStatus} 
+                  onToggleChat={handleToggleChat}
                   getRoleBadgeVariant={getRoleBadgeVariant}
                   onResetPassword={openResetPasswordDialog}
                 />
@@ -599,11 +651,13 @@ export function UserManagement() {
 function UserTable({
   users,
   onToggleStatus,
+  onToggleChat,
   getRoleBadgeVariant,
   onResetPassword,
 }: {
   users: (UserProfile & { id: string })[]
   onToggleStatus: (userId: string, currentStatus: boolean) => void
+  onToggleChat: (userId: string, currentValue: boolean) => void
   getRoleBadgeVariant: (role: UserRole) => any
   onResetPassword: (userId: string, userEmail: string) => void
 }) {
@@ -619,6 +673,12 @@ function UserTable({
               <TableHead className="min-w-[100px]">Status</TableHead>
               <TableHead className="hidden md:table-cell min-w-[120px]">Created</TableHead>
               <TableHead className="min-w-[80px]">Active</TableHead>
+              <TableHead className="min-w-[90px]">
+                <span className="flex items-center gap-1">
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  Chat
+                </span>
+              </TableHead>
               <TableHead className="min-w-[100px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -689,6 +749,16 @@ function UserTable({
                       checked={user.isActive}
                       onCheckedChange={() => onToggleStatus(user.id, user.isActive)}
                     />
+                  )}
+                </TableCell>
+                <TableCell>
+                  {user.role === "subscriber" && !(user as any).isPending ? (
+                    <Switch
+                      checked={(user as any).allowChat ?? false}
+                      onCheckedChange={() => onToggleChat(user.id, (user as any).allowChat ?? false)}
+                    />
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
                   )}
                 </TableCell>
                 <TableCell>

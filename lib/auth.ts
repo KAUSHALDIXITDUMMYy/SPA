@@ -19,6 +19,7 @@ export interface UserProfile {
   zoomUserEmail?: string
   createdAt: Date
   isActive: boolean
+  allowChat?: boolean // Subscribers only: can chat with assigned publishers
   sessionId?: string // For single-session enforcement
   lastLoginAt?: Date
   isPending?: boolean // Flag for users created by admin but not yet logged in
