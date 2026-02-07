@@ -12,6 +12,7 @@
     "cleanup-agora-direct": "node scripts/cleanup-agora-direct-simple.mjs",
     "check-agora-usage": "node scripts/check-agora-usage.mjs",
     "create-subscribers": "node scripts/create-subscribers.mjs",
+    "create-subscriber-ids": "node scripts/create-subscriber-ids.mjs",
     "delete-subscribers": "node scripts/delete-subscribers.mjs"
   },
   "dependencies": {

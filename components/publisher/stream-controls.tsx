@@ -12,6 +12,7 @@ import { Square, Mic, MicOff, Radio, History } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 import { agoraManager } from "@/lib/agora"
 import { createStreamSession, endStreamSession, generateRoomId, getPublisherStreams, type StreamSession } from "@/lib/streaming"
+import { startSilentAudio, stopSilentAudio } from "@/lib/silent-audio"
 
 interface StreamControlsProps {
   onStreamStart?: (session: StreamSession) => void
@@ -45,6 +46,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
   useEffect(() => {
     return () => {
       // Cleanup on unmount
+      stopSilentAudio()
       agoraManager.leave()
     }
   }, [])
@@ -87,6 +89,8 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
       setSuccess("Audio stream started successfully!")
       setCurrentSession(sessionResult.session!)
       onStreamStart?.(sessionResult.session!)
+      // Start silent audio to reduce tab throttling when backgrounded (minimized)
+      startSilentAudio()
     } catch (err: any) {
       setError(err.message || "Failed to start stream")
     }
@@ -102,6 +106,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
     try {
       await endStreamSession(currentSession.id!)
       await agoraManager.leave()
+      stopSilentAudio()
       setIsStreaming(false)
       setIsAudioMuted(false)
       setCurrentSession(null)

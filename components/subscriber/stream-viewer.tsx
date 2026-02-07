@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { agoraManager } from "@/lib/agora"
+import { startSilentAudio, stopSilentAudio } from "@/lib/silent-audio"
 import type { SubscriberPermission } from "@/lib/subscriber"
 import { trackSubscriberActivity } from "@/lib/analytics"
 import { useAuth } from "@/hooks/use-auth"
@@ -57,6 +58,8 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
       onJoinStream?.(permission)
 
       setAudioEnabled(true) // Audio is enabled by default for audio streams
+      // Start silent audio to reduce tab throttling when backgrounded (minimized)
+      startSilentAudio()
 
       // Track analytics
       await trackSubscriberActivity({
@@ -95,6 +98,7 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
     })
 
     agoraManager.leave()
+    stopSilentAudio()
     setIsConnected(false)
     setLoading(false)
     setJoinTime(null)
@@ -153,6 +157,7 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
   useEffect(() => {
     return () => {
       if (currentStreamIdRef.current) {
+        stopSilentAudio()
         agoraManager.leave()
         currentStreamIdRef.current = null
         currentPermissionRef.current = null
