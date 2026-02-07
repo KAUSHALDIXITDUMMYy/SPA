@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Square, Mic, MicOff, Radio, History } from "lucide-react"
+import { Square, Mic, MicOff, Radio, History, ExternalWindow } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 import { agoraManager } from "@/lib/agora"
 import { createStreamSession, endStreamSession, generateRoomId, getPublisherStreams, type StreamSession } from "@/lib/streaming"
@@ -127,6 +127,20 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
     setStreamDescription(lastStream.description || "")
   }
 
+  const handleOpenInPopup = () => {
+    const width = 420
+    const height = 700
+    const left = Math.max(0, (window.screen.width - width) / 2)
+    const top = Math.max(0, (window.screen.height - height) / 2)
+    const features = `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
+    const popup = window.open("/publisher", "broadcast-popup", features)
+    if (popup) {
+      popup.focus()
+    } else {
+      setError("Popup blocked. Please allow popups for this site and try again.")
+    }
+  }
+
   const handleToggleAudio = async () => {
     try {
       if (isAudioMuted) {
@@ -186,25 +200,37 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
               />
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-2 min-w-0 w-full">
-              {lastStream && (
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row gap-2 min-w-0 w-full">
+                {lastStream && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleUseLastDetails}
+                    className="w-full sm:w-auto sm:flex-shrink-0 text-sm sm:text-base"
+                  >
+                    <History className="h-4 w-4 mr-2 flex-shrink-0" />
+                    Use Last Details
+                  </Button>
+                )}
                 <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleUseLastDetails}
-                  className="w-full sm:w-auto sm:flex-shrink-0 text-sm sm:text-base"
+                  onClick={handleStartStream}
+                  disabled={loading}
+                  className="w-full sm:flex-1 sm:min-w-0 text-sm sm:text-base py-2 sm:py-2.5"
                 >
-                  <History className="h-4 w-4 mr-2 flex-shrink-0" />
-                  Use Last Details
+                  <Radio className="h-4 w-4 mr-2 flex-shrink-0" />
+                  <span className="truncate">{loading ? "Starting..." : "Start Audio Stream"}</span>
                 </Button>
-              )}
+              </div>
               <Button
-                onClick={handleStartStream}
-                disabled={loading}
-                className="w-full sm:flex-1 sm:min-w-0 text-sm sm:text-base py-2 sm:py-2.5"
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleOpenInPopup}
+                className="w-full text-xs sm:text-sm text-muted-foreground"
               >
-                <Radio className="h-4 w-4 mr-2 flex-shrink-0" />
-                <span className="truncate">{loading ? "Starting..." : "Start Audio Stream"}</span>
+                <ExternalWindow className="h-3 w-3 sm:h-4 sm:w-4 mr-2 flex-shrink-0" />
+                Open in popup — keep broadcast active when main window is minimized
               </Button>
             </div>
           </CardContent>
@@ -236,6 +262,9 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
             </div>
           </CardHeader>
           <CardContent>
+            <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs sm:text-sm text-amber-800 dark:text-amber-200 mb-3">
+              If audio stops when you minimize, return to this tab to auto-reconnect. Next time: use &quot;Open in popup&quot; before starting.
+            </div>
             <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3">
               <Button 
                 variant={isAudioMuted ? "destructive" : "default"} 

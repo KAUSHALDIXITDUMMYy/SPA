@@ -96,6 +96,9 @@ export class AgoraManager {
   // Track remote users and their stream types
   private remoteUsers: Map<number, { videoTrack?: IRemoteVideoTrack }> = new Map()
 
+  // Track-ended recovery (publisher): when mic track stops due to tab backgrounding
+  private trackEndedRecoveryCleanup: (() => void) | null = null
+
   // Network quality monitoring
   private networkQualityInterval: NodeJS.Timeout | null = null
   private lastNetworkQuality = {
@@ -291,6 +294,7 @@ export class AgoraManager {
         }
       }
     } finally {
+      this.clearTrackEndedRecovery()
       this.client = null
       this.localAudio = null
       this.localVideo = null
@@ -784,6 +788,9 @@ export class AgoraManager {
           // Publish with low latency settings
           await this.client?.publish([this.localAudio])
           
+          // Listen for track-ended (e.g. browser suspended mic when tab backgrounded)
+          this.localAudio.on("track-ended", () => this.handlePublisherTrackEnded())
+          
           console.log("Microphone audio track published with optimized settings (low latency, high sensitivity, noise reduction)")
         }
       } catch (e) {
@@ -868,6 +875,49 @@ export class AgoraManager {
   async setManualQuality(quality: keyof typeof this.QUALITY_PRESETS) {
     await this.updateVideoQuality(quality)
     this.consecutiveGoodReadings = 0 // Reset counter on manual change
+  }
+
+  /** When publisher's mic track ends (e.g. tab minimized, browser suspended capture) */
+  private handlePublisherTrackEnded() {
+    if (!this.client || !this.lastJoinConfig || this.lastJoinConfig.role !== "publisher") return
+    console.warn("[Agora] Local audio track ended - likely tab was backgrounded. Will try to recover when tab is visible again.")
+    const track = this.localAudio
+    this.localAudio = null
+    if (track) {
+      try {
+        track.close()
+      } catch {}
+    }
+    this.setupTrackEndedRecovery()
+  }
+
+  /** Set up visibility listener to recreate mic when user returns to tab */
+  private setupTrackEndedRecovery() {
+    this.clearTrackEndedRecovery()
+    const handler = async () => {
+      if (typeof document === "undefined" || document.visibilityState !== "visible") return
+      this.clearTrackEndedRecovery()
+      if (!this.client || !this.lastJoinConfig || this.lastJoinConfig.role !== "publisher") return
+      try {
+        console.log("[Agora] Tab visible again - attempting to recreate microphone...")
+        await this.enableMic()
+        console.log("[Agora] Microphone recreated successfully")
+      } catch (e) {
+        console.warn("[Agora] Failed to recreate microphone:", e)
+      }
+    }
+    document.addEventListener("visibilitychange", handler)
+    this.trackEndedRecoveryCleanup = () => {
+      document.removeEventListener("visibilitychange", handler)
+      this.trackEndedRecoveryCleanup = null
+    }
+  }
+
+  private clearTrackEndedRecovery() {
+    if (this.trackEndedRecoveryCleanup) {
+      this.trackEndedRecoveryCleanup()
+      this.trackEndedRecoveryCleanup = null
+    }
   }
 
   // Setup exceptions and reconnection handling
