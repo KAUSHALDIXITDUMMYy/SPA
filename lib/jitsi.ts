@@ -4,7 +4,7 @@ declare global {
   }
 }
 
-export interface JitsiConfig {
+export interface JitsiConfigsadsadsad {
   roomName: string
   width: string | number
   height: string | number
