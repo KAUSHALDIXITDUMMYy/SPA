@@ -69,6 +69,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           ...data,
           createdAt: data.createdAt instanceof Date ? data.createdAt : (data.createdAt as any).toDate?.() || new Date(),
           lastLoginAt: data.lastLoginAt instanceof Date ? data.lastLoginAt : (data.lastLoginAt as any)?.toDate?.() || undefined,
+          allowChat: data.allowChat === true,
         }
         
         // Update profile in real-time

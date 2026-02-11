@@ -77,7 +77,7 @@ export const signIn = async (email: string, password: string) => {
         // Wait for all migrations to complete
         await Promise.all(permissionUpdates)
         
-        // Update Firestore profile with real UID and remove pending flags
+        // Update Firestore profile with real UID and remove pending flags (preserve allowChat if admin set it)
         const userProfile = {
           uid: newAuthUid,
           email: authResult.user.email!,
@@ -85,6 +85,7 @@ export const signIn = async (email: string, password: string) => {
           displayName: pendingUserData.displayName,
           createdAt: pendingUserData.createdAt,
           isActive: pendingUserData.isActive,
+          allowChat: pendingUserData.allowChat ?? false,
           // Remove pending fields
           isPending: false,
           pendingPassword: null,
@@ -245,11 +246,12 @@ export const getUserProfile = async (uid: string, retryCount = 0): Promise<UserP
 
     if (docSnap.exists()) {
       const data = docSnap.data() as UserProfile
-      // Convert Firestore timestamps to Date objects
+      // Convert Firestore timestamps to Date objects; ensure allowChat is a boolean for subscriber chat UI
       return {
         ...data,
         createdAt: data.createdAt instanceof Date ? data.createdAt : (data.createdAt as any)?.toDate?.() || new Date(),
         lastLoginAt: data.lastLoginAt instanceof Date ? data.lastLoginAt : (data.lastLoginAt as any)?.toDate?.() || undefined,
+        allowChat: data.allowChat === true,
       }
     }
     
