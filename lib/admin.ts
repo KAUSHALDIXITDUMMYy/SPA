@@ -299,3 +299,40 @@ export const updateStreamAssignment = async (assignmentId: string, updates: Part
     return { success: false, error: error.message }
   }
 }
+
+// Contact messages (from Contact Us page)
+export interface ContactMessage {
+  id?: string
+  name: string
+  email: string
+  subject: string
+  message: string
+  createdAt: Date
+  read?: boolean
+}
+
+export const getContactMessages = async () => {
+  try {
+    const ref = collection(db, "contactMessages")
+    const q = query(ref, orderBy("createdAt", "desc"))
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+      createdAt: d.data().createdAt?.toDate?.() ?? d.data().createdAt,
+    })) as ContactMessage[]
+  } catch (error) {
+    console.error("Error fetching contact messages:", error)
+    return []
+  }
+}
+
+export const markContactMessageRead = async (messageId: string) => {
+  try {
+    const messageRef = doc(db, "contactMessages", messageId)
+    await updateDoc(messageRef, { read: true })
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
