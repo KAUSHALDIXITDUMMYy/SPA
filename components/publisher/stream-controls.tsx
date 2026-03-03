@@ -373,6 +373,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
                   streamTitle={currentSession.title}
                   currentUserId={user.uid}
                   currentUserName={userProfile.displayName || userProfile.email || ""}
+                  currentUserEmail={userProfile.email}
                   isPublisher={true}
                   canChat={true}
                 />

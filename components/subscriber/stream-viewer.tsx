@@ -282,6 +282,7 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
               streamTitle={permission.streamSession.title}
               currentUserId={user.uid}
               currentUserName={userProfile.displayName || userProfile.email || ""}
+              currentUserEmail={userProfile.email}
               isPublisher={false}
               canChat={userProfile?.allowChat ?? false}
             />

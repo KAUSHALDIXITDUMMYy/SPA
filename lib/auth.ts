@@ -24,6 +24,8 @@ export interface UserProfile {
   lastLoginAt?: Date
   isPending?: boolean // Flag for users created by admin but not yet logged in
   pendingPassword?: string // Temporary password storage for pending users
+  termsAcceptedAt?: Date // EULA/Terms acceptance (required for app store compliance)
+  blockedUserIds?: string[] // Users this person has blocked
 }
 
 export const signIn = async (email: string, password: string) => {
@@ -251,6 +253,7 @@ export const getUserProfile = async (uid: string, retryCount = 0): Promise<UserP
         ...data,
         createdAt: data.createdAt instanceof Date ? data.createdAt : (data.createdAt as any)?.toDate?.() || new Date(),
         lastLoginAt: data.lastLoginAt instanceof Date ? data.lastLoginAt : (data.lastLoginAt as any)?.toDate?.() || undefined,
+        termsAcceptedAt: data.termsAcceptedAt instanceof Date ? data.termsAcceptedAt : (data.termsAcceptedAt as any)?.toDate?.() || undefined,
         allowChat: data.allowChat === true,
       }
     }
@@ -278,4 +281,15 @@ export const getUserProfile = async (uid: string, retryCount = 0): Promise<UserP
 
 export const onAuthStateChange = (callback: (user: User | null) => void) => {
   return onAuthStateChanged(auth, callback)
+}
+
+/** Record that the user accepted the Terms/EULA. Required for app store compliance. */
+export const acceptTerms = async (uid: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const userRef = doc(db, "users", uid)
+    await updateDoc(userRef, { termsAcceptedAt: new Date() })
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
 }

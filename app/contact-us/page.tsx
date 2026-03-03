@@ -64,7 +64,9 @@ export default function ContactUsPage() {
           <CardHeader>
             <CardTitle>Contact Us</CardTitle>
             <CardDescription>
-              Send a message to the admin about any issues or questions. We&apos;ll get back to you as soon as possible.
+              Send a message to the admin about any issues or questions. See our{" "}
+              <Link href="/terms" className="underline">Terms &amp; EULA</Link>
+              {" "}for content and conduct policies.
             </CardDescription>
           </CardHeader>
           <CardContent>

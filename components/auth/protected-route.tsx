@@ -24,6 +24,13 @@ export function ProtectedRoute({ children, allowedRoles = [], redirectTo = "/" }
         return
       }
 
+      // Require Terms/EULA acceptance (app store compliance)
+      if (userProfile && !userProfile.termsAcceptedAt) {
+        const currentPath = typeof window !== "undefined" ? window.location.pathname : ""
+        router.push(`/terms?redirect=${encodeURIComponent(currentPath || "/dashboard")}`)
+        return
+      }
+
       if (allowedRoles.length > 0 && userProfile && !allowedRoles.includes(userProfile.role)) {
         router.push("/unauthorized")
         return
@@ -42,7 +49,7 @@ export function ProtectedRoute({ children, allowedRoles = [], redirectTo = "/" }
     )
   }
 
-  if (!user || (allowedRoles.length > 0 && userProfile && !allowedRoles.includes(userProfile.role))) {
+  if (!user || (allowedRoles.length > 0 && userProfile && !allowedRoles.includes(userProfile.role)) || (userProfile && !userProfile.termsAcceptedAt)) {
     return null
   }
 

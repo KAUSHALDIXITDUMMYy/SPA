@@ -1,5 +1,5 @@
 import { db } from "./firebase"
-import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, orderBy, setDoc } from "firebase/firestore"
+import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, orderBy, setDoc, arrayUnion } from "firebase/firestore"
 import { type UserRole } from "./auth"
 
 export interface StreamPermission {
@@ -331,6 +331,138 @@ export const markContactMessageRead = async (messageId: string) => {
   try {
     const messageRef = doc(db, "contactMessages", messageId)
     await updateDoc(messageRef, { read: true })
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+// Reports (flag content/users) – app store compliance
+export type ReportStatus = "pending" | "resolved"
+
+export interface Report {
+  id?: string
+  reporterId: string
+  reporterName: string
+  reporterEmail?: string
+  reportedUserId?: string
+  reportedUserName?: string
+  contentType: "user" | "chat_message" | "stream" | "other"
+  contentId?: string
+  reason: string
+  details?: string
+  createdAt: Date
+  status: ReportStatus
+  resolvedAt?: Date
+  resolvedBy?: string
+}
+
+export const createReport = async (report: Omit<Report, "id" | "createdAt" | "status">) => {
+  try {
+    const docRef = await addDoc(collection(db, "reports"), {
+      ...report,
+      createdAt: new Date(),
+      status: "pending",
+    })
+    return { success: true, id: docRef.id }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+export const getReports = async () => {
+  try {
+    const ref = collection(db, "reports")
+    const q = query(ref, orderBy("createdAt", "desc"))
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map((d) => {
+      const data = d.data()
+      return {
+        id: d.id,
+        ...data,
+        createdAt: data.createdAt?.toDate?.() ?? data.createdAt,
+        resolvedAt: data.resolvedAt?.toDate?.() ?? data.resolvedAt,
+      }
+    }) as Report[]
+  } catch (error) {
+    console.error("Error fetching reports:", error)
+    return []
+  }
+}
+
+export const resolveReport = async (reportId: string, resolvedBy: string) => {
+  try {
+    const reportRef = doc(db, "reports", reportId)
+    await updateDoc(reportRef, {
+      status: "resolved",
+      resolvedAt: new Date(),
+      resolvedBy,
+    })
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+// Block events (notify admin when someone is blocked)
+export interface BlockEvent {
+  id?: string
+  blockerId: string
+  blockerName: string
+  blockedUserId: string
+  blockedUserName: string
+  createdAt: Date
+}
+
+export const addBlockEvent = async (event: Omit<BlockEvent, "id" | "createdAt">) => {
+  try {
+    await addDoc(collection(db, "blockEvents"), {
+      ...event,
+      createdAt: new Date(),
+    })
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+export const getBlockEvents = async () => {
+  try {
+    const ref = collection(db, "blockEvents")
+    const q = query(ref, orderBy("createdAt", "desc"))
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map((d) => {
+      const data = d.data()
+      return {
+        id: d.id,
+        ...data,
+        createdAt: data.createdAt?.toDate?.() ?? data.createdAt,
+      }
+    }) as BlockEvent[]
+  } catch (error) {
+    console.error("Error fetching block events:", error)
+    return []
+  }
+}
+
+/** Block a user (add to blocker's blockedUserIds and notify admin). Call from client with current user. */
+export const blockUser = async (
+  blockerId: string,
+  blockerName: string,
+  blockedUserId: string,
+  blockedUserName: string
+): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const userRef = doc(db, "users", blockerId)
+    await updateDoc(userRef, {
+      blockedUserIds: arrayUnion(blockedUserId),
+    })
+    await addBlockEvent({
+      blockerId,
+      blockerName,
+      blockedUserId,
+      blockedUserName,
+    })
     return { success: true }
   } catch (error: any) {
     return { success: false, error: error.message }

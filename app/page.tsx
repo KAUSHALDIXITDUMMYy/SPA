@@ -10,7 +10,10 @@ export default function HomePage() {
           <p className="text-sm sm:text-base text-muted-foreground">Professional Audio Streaming Management System</p>
         </div>
         <LoginForm />
-        <p className="text-center mt-4">
+        <p className="text-center mt-4 space-x-4">
+          <Link href="/terms" className="text-sm text-muted-foreground hover:text-foreground underline">
+            Terms &amp; EULA
+          </Link>
           <Link href="/contact-us" className="text-sm text-muted-foreground hover:text-foreground underline">
             Contact us
           </Link>
