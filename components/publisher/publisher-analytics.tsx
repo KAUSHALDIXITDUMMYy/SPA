@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -296,9 +295,7 @@ export function PublisherAnalytics() {
       <Tabs defaultValue="viewers" className="space-y-4">
         <TabsList>
           <TabsTrigger value="viewers">Current Viewers</TabsTrigger>
-          <TabsTrigger value="history">View History</TabsTrigger>
           <TabsTrigger value="activity">Recent Activity</TabsTrigger>
-          <TabsTrigger value="streams">Stream History</TabsTrigger>
         </TabsList>
 
         <TabsContent value="viewers" className="space-y-4">
@@ -351,47 +348,6 @@ export function PublisherAnalytics() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="history" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Viewer History</CardTitle>
-              <CardDescription>
-                Complete list of subscribers who have watched your streams
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Subscriber</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead>Stream</TableHead>
-                    <TableHead>Duration</TableHead>
-                    <TableHead>Time</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {analytics.map((activity) => (
-                    <TableRow key={activity.id}>
-                      <TableCell className="font-medium">{activity.subscriberName}</TableCell>
-                      <TableCell>
-                        <Badge variant={getActionBadgeVariant(activity.action)}>
-                          {activity.action}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>Stream Session</TableCell>
-                      <TableCell>
-                        {activity.duration ? formatDuration(activity.duration) : "-"}
-                      </TableCell>
-                      <TableCell>{new Date(activity.timestamp).toLocaleString()}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         <TabsContent value="activity" className="space-y-4">
           <Card>
             <CardHeader>
@@ -428,56 +384,6 @@ export function PublisherAnalytics() {
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="streams" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Stream History</CardTitle>
-              <CardDescription>
-                All your past and current streams
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Title</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Started</TableHead>
-                    <TableHead>Ended</TableHead>
-                    <TableHead>Duration</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {streamSessions.map((stream) => (
-                    <TableRow key={stream.id}>
-                      <TableCell className="font-medium">
-                        {stream.title || "Untitled Stream"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={stream.isActive ? "destructive" : "secondary"}>
-                          {stream.isActive ? "Live" : "Ended"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{new Date(stream.createdAt).toLocaleString()}</TableCell>
-                      <TableCell>
-                        {stream.endedAt ? new Date(stream.endedAt).toLocaleString() : "-"}
-                      </TableCell>
-                      <TableCell>
-                        {stream.endedAt 
-                          ? formatDuration(Math.floor((new Date(stream.endedAt).getTime() - new Date(stream.createdAt).getTime()) / 1000))
-                          : stream.isActive 
-                            ? formatDuration(Math.floor((Date.now() - new Date(stream.createdAt).getTime()) / 1000))
-                            : "-"
-                        }
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
             </CardContent>
           </Card>
         </TabsContent>

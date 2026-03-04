@@ -141,6 +141,11 @@ export class AgoraManager {
     const { channelName, role, uid, container } = config
     this.lastJoinConfig = config
 
+    // If we're still in a channel (e.g. re-join before previous leave() finished), leave first.
+    if (this.client) {
+      await this.leave()
+    }
+
     const tokenInfo = await this.fetchToken(channelName, role, uid)
     const appId = tokenInfo.appId
     const token = tokenInfo.token
@@ -242,6 +247,11 @@ export class AgoraManager {
 
   // leave and cleanup
   async leave() {
+    // Capture and clear client immediately so a concurrent join() (e.g. re-join after going back)
+    // won't have its client nulled by our finally block when this leave() completes.
+    const clientToLeave = this.client
+    this.client = null
+
     try {
       // Clear network monitoring
       if (this.networkQualityInterval) {
@@ -268,7 +278,7 @@ export class AgoraManager {
         } catch {}
       }
 
-      if (this.client) {
+      if (clientToLeave) {
         // unpublish any published tracks
         try {
           const toUnpublish: any[] = []
@@ -276,11 +286,10 @@ export class AgoraManager {
           if (this.localVideo) toUnpublish.push(this.localVideo)
           if (this.screenTrack) toUnpublish.push(this.screenTrack)
           if (toUnpublish.length) {
-            await this.client.unpublish(toUnpublish)
+            await clientToLeave.unpublish(toUnpublish)
           } else {
-            // ensure any previously published tracks are released (safe no-op)
             try {
-              await this.client.unpublish()
+              await clientToLeave.unpublish()
             } catch {}
           }
         } catch (e) {
@@ -288,14 +297,14 @@ export class AgoraManager {
         }
 
         try {
-          await this.client.leave()
+          await clientToLeave.leave()
         } catch (e) {
           console.warn("client.leave failed", e)
         }
       }
     } finally {
       this.clearTrackEndedRecovery()
-      this.client = null
+      // Do not set this.client = null here; we already cleared it at the start so a concurrent join() is not clobbered.
       this.localAudio = null
       this.localVideo = null
       this.screenTrack = null

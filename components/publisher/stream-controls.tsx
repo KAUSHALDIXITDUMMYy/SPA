@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Square, Mic, MicOff, Radio, History, ExternalLink, RefreshCw } from "lucide-react"
+import { Square, Mic, MicOff, Radio, History, RefreshCw } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
 import { agoraManager } from "@/lib/agora"
@@ -171,20 +171,6 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
     setStreamDescription(lastStream.description || "")
   }
 
-  const handleOpenInPopup = () => {
-    const width = 420
-    const height = 700
-    const left = Math.max(0, (window.screen.width - width) / 2)
-    const top = Math.max(0, (window.screen.height - height) / 2)
-    const features = `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
-    const popup = window.open("/publisher", "broadcast-popup", features)
-    if (popup) {
-      popup.focus()
-    } else {
-      setError("Popup blocked. Please allow popups for this site and try again.")
-    }
-  }
-
   const handleToggleAudio = async () => {
     try {
       if (isAudioMuted) {
@@ -301,17 +287,6 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
                   <span className="truncate">{loading ? "Starting..." : "Start Audio Stream"}</span>
                 </Button>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleOpenInPopup}
-                className="w-full text-xs sm:text-sm text-muted-foreground justify-start sm:justify-center"
-              >
-                <ExternalLink className="h-3 w-3 sm:h-4 sm:w-4 mr-2 flex-shrink-0" />
-                <span className="hidden sm:inline">Open in popup — keep broadcast active when minimized</span>
-                <span className="sm:hidden">Open in new tab (use split screen on mobile)</span>
-              </Button>
             </div>
           </CardContent>
         </Card>

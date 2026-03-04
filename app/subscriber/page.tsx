@@ -2,23 +2,24 @@
 
 import { ProtectedRoute } from "@/components/auth/protected-route"
 import { RealTimeStreams } from "@/components/subscriber/real-time-streams"
-import { SubscriberZoomCalls } from "@/components/subscriber/zoom-calls"
 import { TodaysSchedule } from "@/components/subscriber/todays-schedule"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { signOut } from "@/lib/auth"
 import { useAuth } from "@/hooks/use-auth"
 import { useRouter } from "next/navigation"
-import { useEffect, useRef } from "react"
-import { Radio, LogOut, Headphones, AlertTriangle, UserX, Calendar } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { Radio, LogOut, AlertTriangle, UserX, Calendar, Menu } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 
 export default function SubscriberDashboard() {
   const { userProfile } = useAuth()
   const router = useRouter()
   const previousActiveStatus = useRef<boolean | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   // Monitor for real-time changes to active status
   useEffect(() => {
@@ -47,6 +48,7 @@ export default function SubscriberDashboard() {
   }, [userProfile?.isActive])
 
   const handleSignOut = async () => {
+    setMenuOpen(false)
     await signOut()
     router.push("/")
   }
@@ -67,10 +69,30 @@ export default function SubscriberDashboard() {
                   </p>
                 </div>
               </div>
-              <Button variant="outline" onClick={handleSignOut} className="w-full sm:w-auto">
-                <LogOut className="h-4 w-4 mr-2" />
-                Sign Out
-              </Button>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Button variant="outline" onClick={handleSignOut} className="hidden sm:flex flex-1 sm:flex-initial">
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Sign Out
+                </Button>
+                <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+                  <SheetTrigger asChild>
+                    <Button variant="outline" size="icon" type="button" className="sm:hidden shrink-0" aria-label="Open menu">
+                      <Menu className="h-4 w-4" />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="bottom" className="rounded-t-2xl">
+                    <SheetHeader>
+                      <SheetTitle>Menu</SheetTitle>
+                    </SheetHeader>
+                    <div className="py-4">
+                      <Button variant="outline" className="w-full justify-start" onClick={handleSignOut}>
+                        <LogOut className="h-4 w-4 mr-2" />
+                        Sign Out
+                      </Button>
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              </div>
             </div>
           </div>
         </header>
@@ -105,7 +127,6 @@ export default function SubscriberDashboard() {
                   </p>
                   <ul className="list-disc list-inside space-y-1 ml-4">
                     <li>You cannot listen to any audio streams</li>
-                    <li>You cannot join any Zoom calls</li>
                     <li>All your assigned content is temporarily hidden</li>
                   </ul>
                   <p className="mt-4 font-medium">
@@ -114,7 +135,7 @@ export default function SubscriberDashboard() {
                 </div>
 
                 <div className="flex gap-2 pt-4">
-                  <Button variant="outline" onClick={handleSignOut}>
+                  <Button variant="outline" onClick={handleSignOut} className="hidden sm:inline-flex">
                     <LogOut className="h-4 w-4 mr-2" />
                     Sign Out
                   </Button>
@@ -124,7 +145,7 @@ export default function SubscriberDashboard() {
           ) : (
             // Active user - show normal content
             <Tabs defaultValue="streams" className="space-y-4 sm:space-y-6">
-              <TabsList className="grid w-full grid-cols-3 h-auto">
+              <TabsList className="grid w-full grid-cols-2 h-auto">
                 <TabsTrigger value="streams" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
                   <Radio className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>Audio Streams</span>
@@ -134,10 +155,6 @@ export default function SubscriberDashboard() {
                   <span className="hidden xs:inline">Today&apos;s Schedule</span>
                   <span className="xs:hidden">Schedule</span>
                 </TabsTrigger>
-                <TabsTrigger value="zoom" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                  <Headphones className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>Zoom Calls</span>
-                </TabsTrigger>
               </TabsList>
 
               <TabsContent value="streams">
@@ -146,10 +163,6 @@ export default function SubscriberDashboard() {
 
               <TabsContent value="schedule">
                 <TodaysSchedule />
-              </TabsContent>
-
-              <TabsContent value="zoom">
-                <SubscriberZoomCalls />
               </TabsContent>
             </Tabs>
           )}

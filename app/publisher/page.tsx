@@ -2,17 +2,15 @@
 
 import { ProtectedRoute } from "@/components/auth/protected-route"
 import { StreamControls } from "@/components/publisher/stream-controls"
-import { StreamHistory } from "@/components/publisher/stream-history"
-import { PublisherAnalytics } from "@/components/publisher/publisher-analytics"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { signOut } from "@/lib/auth"
 import { useAuth } from "@/hooks/use-auth"
 import { useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
-import { Podcast as Broadcast, History, LogOut, Radio, BarChart3, AlertTriangle, UserX } from "lucide-react"
+import { Podcast as Broadcast, LogOut, Radio, AlertTriangle, UserX, Menu } from "lucide-react"
 import type { StreamSession } from "@/lib/streaming"
 import { toast } from "@/hooks/use-toast"
 
@@ -21,6 +19,7 @@ export default function PublisherDashboard() {
   const router = useRouter()
   const [currentStream, setCurrentStream] = useState<StreamSession | null>(null)
   const previousActiveStatus = useRef<boolean | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   // Monitor for real-time changes to active status
   useEffect(() => {
@@ -49,6 +48,7 @@ export default function PublisherDashboard() {
   }, [userProfile?.isActive])
 
   const handleSignOut = async () => {
+    setMenuOpen(false)
     await signOut()
     router.push("/")
   }
@@ -86,10 +86,28 @@ export default function PublisherDashboard() {
                     </span>
                   </div>
                 )}
-                <Button variant="outline" onClick={handleSignOut} className="w-full sm:w-auto">
+                <Button variant="outline" onClick={handleSignOut} className="hidden sm:flex flex-1 sm:flex-initial">
                   <LogOut className="h-4 w-4 mr-2" />
                   Sign Out
                 </Button>
+                <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+                  <SheetTrigger asChild>
+                    <Button variant="outline" size="icon" type="button" className="sm:hidden shrink-0" aria-label="Open menu">
+                      <Menu className="h-4 w-4" />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="bottom" className="rounded-t-2xl">
+                    <SheetHeader>
+                      <SheetTitle>Menu</SheetTitle>
+                    </SheetHeader>
+                    <div className="py-4">
+                      <Button variant="outline" className="w-full justify-start" onClick={handleSignOut}>
+                        <LogOut className="h-4 w-4 mr-2" />
+                        Sign Out
+                      </Button>
+                    </div>
+                  </SheetContent>
+                </Sheet>
               </div>
             </div>
           </div>
@@ -125,7 +143,6 @@ export default function PublisherDashboard() {
                   </p>
                   <ul className="list-disc list-inside space-y-1 ml-4">
                     <li>You cannot start or manage streams</li>
-                    <li>You cannot access analytics</li>
                     <li>All your publishing features are temporarily disabled</li>
                   </ul>
                   <p className="mt-4 font-medium">
@@ -134,7 +151,7 @@ export default function PublisherDashboard() {
                 </div>
 
                 <div className="flex gap-2 pt-4">
-                  <Button variant="outline" onClick={handleSignOut}>
+                  <Button variant="outline" onClick={handleSignOut} className="hidden sm:inline-flex">
                     <LogOut className="h-4 w-4 mr-2" />
                     Sign Out
                   </Button>
@@ -142,37 +159,8 @@ export default function PublisherDashboard() {
               </CardContent>
             </Card>
           ) : (
-            // Active user - show normal content
-            <Tabs defaultValue="stream" className="space-y-4 sm:space-y-6">
-              <TabsList className="grid w-full grid-cols-3 h-auto">
-                <TabsTrigger value="stream" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                  <Radio className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span className="hidden xs:inline">Audio Stream</span>
-                  <span className="xs:hidden">Stream</span>
-                </TabsTrigger>
-                <TabsTrigger value="analytics" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                  <BarChart3 className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span>Analytics</span>
-                </TabsTrigger>
-                <TabsTrigger value="history" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                  <History className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span className="hidden xs:inline">Stream History</span>
-                  <span className="xs:hidden">History</span>
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="stream" forceMount>
-                <StreamControls onStreamStart={handleStreamStart} onStreamEnd={handleStreamEnd} />
-              </TabsContent>
-
-              <TabsContent value="analytics">
-                <PublisherAnalytics />
-              </TabsContent>
-
-              <TabsContent value="history">
-                <StreamHistory />
-              </TabsContent>
-            </Tabs>
+            // Active user - show stream controls
+            <StreamControls onStreamStart={handleStreamStart} onStreamEnd={handleStreamEnd} />
           )}
         </main>
       </div>
