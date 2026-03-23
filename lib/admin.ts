@@ -1,5 +1,5 @@
 import { db } from "./firebase"
-import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, orderBy, setDoc, arrayUnion } from "firebase/firestore"
+import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, orderBy, setDoc, arrayUnion, onSnapshot, type Unsubscribe } from "firebase/firestore"
 import { type UserRole } from "./auth"
 
 export interface StreamPermission {
@@ -335,6 +335,84 @@ export const markContactMessageRead = async (messageId: string) => {
   } catch (error: any) {
     return { success: false, error: error.message }
   }
+}
+
+/** Broadcast messages from admin to subscribers who have at least one publisher or stream assignment */
+export interface AdminBroadcast {
+  id?: string
+  message: string
+  createdAt: Date
+  createdByUid: string
+  createdByName?: string
+}
+
+export const createAdminBroadcast = async (
+  message: string,
+  createdByUid: string,
+  createdByName?: string
+): Promise<{ success: boolean; id?: string; error?: string }> => {
+  const trimmed = message.trim()
+  if (!trimmed) {
+    return { success: false, error: "Message cannot be empty" }
+  }
+  try {
+    const docRef = await addDoc(collection(db, "adminBroadcasts"), {
+      message: trimmed,
+      createdAt: new Date(),
+      createdByUid,
+      createdByName: createdByName?.trim() || undefined,
+    })
+    return { success: true, id: docRef.id }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+}
+
+export const getAdminBroadcasts = async (): Promise<AdminBroadcast[]> => {
+  try {
+    const ref = collection(db, "adminBroadcasts")
+    const q = query(ref, orderBy("createdAt", "desc"))
+    const snapshot = await getDocs(q)
+    return snapshot.docs.map((d) => {
+      const data = d.data()
+      return {
+        id: d.id,
+        message: data.message,
+        createdByUid: data.createdByUid,
+        createdByName: data.createdByName,
+        createdAt: data.createdAt?.toDate?.() ?? data.createdAt,
+      }
+    }) as AdminBroadcast[]
+  } catch (error) {
+    console.error("Error fetching admin broadcasts:", error)
+    return []
+  }
+}
+
+/** Real-time list of admin broadcasts (newest first). */
+export const subscribeAdminBroadcasts = (onUpdate: (items: AdminBroadcast[]) => void): Unsubscribe => {
+  const ref = collection(db, "adminBroadcasts")
+  const q = query(ref, orderBy("createdAt", "desc"))
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items = snapshot.docs.map((d) => {
+        const data = d.data()
+        return {
+          id: d.id,
+          message: data.message,
+          createdByUid: data.createdByUid,
+          createdByName: data.createdByName,
+          createdAt: data.createdAt?.toDate?.() ?? data.createdAt,
+        }
+      }) as AdminBroadcast[]
+      onUpdate(items)
+    },
+    (err) => {
+      console.error("subscribeAdminBroadcasts:", err)
+      onUpdate([])
+    }
+  )
 }
 
 // Reports (flag content/users) – app store compliance

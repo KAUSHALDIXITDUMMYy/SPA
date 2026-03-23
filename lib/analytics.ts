@@ -1,5 +1,8 @@
 import { db } from "./firebase"
 import { collection, query, where, getDocs, addDoc, updateDoc, doc, orderBy, limit, onSnapshot } from "firebase/firestore"
+import type { ViewerLocation } from "./viewer-location"
+
+export type { ViewerLocation } from "./viewer-location"
 
 export interface StreamAnalytics {
   id?: string
@@ -23,6 +26,8 @@ export interface StreamViewer {
   joinedAt: Date
   lastSeen: Date
   isActive: boolean
+  /** Approximate location (usually IP-based) when the viewer joined */
+  location?: ViewerLocation | null
 }
 
 export interface AnalyticsSummary {
@@ -42,10 +47,13 @@ export const trackSubscriberActivity = async (data: {
   publisherName: string
   action: 'join' | 'leave' | 'viewing'
   duration?: number
+  /** Stored on activeViewers for live admin map/list; not written to streamAnalytics */
+  location?: ViewerLocation | null
 }) => {
   try {
+    const { location, ...activityRest } = data
     const analyticsData: Omit<StreamAnalytics, "id"> = {
-      ...data,
+      ...activityRest,
       timestamp: new Date(),
     }
 
@@ -61,6 +69,8 @@ export const trackSubscriberActivity = async (data: {
         where("subscriberId", "==", data.subscriberId)
       )
       const snapshot = await getDocs(q)
+
+      const loc = location ?? undefined
       
       if (snapshot.empty) {
         // No existing document, create new one
@@ -73,6 +83,7 @@ export const trackSubscriberActivity = async (data: {
           joinedAt: new Date(),
           lastSeen: new Date(),
           isActive: true,
+          ...(loc ? { location: loc } : {}),
         })
       } else {
         // Existing document found, reactivate it
@@ -84,6 +95,7 @@ export const trackSubscriberActivity = async (data: {
           // Update name in case it changed
           subscriberName: data.subscriberName,
           publisherName: data.publisherName,
+          ...(loc ? { location: loc } : {}),
         })
       }
     } else if (data.action === 'leave') {

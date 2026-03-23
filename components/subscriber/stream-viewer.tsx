@@ -9,9 +9,11 @@ import { agoraManager } from "@/lib/agora"
 import { startSilentAudio, stopSilentAudio } from "@/lib/silent-audio"
 import type { SubscriberPermission } from "@/lib/subscriber"
 import { trackSubscriberActivity } from "@/lib/analytics"
+import { fetchApproximateViewerLocation } from "@/lib/viewer-location"
 import { useAuth } from "@/hooks/use-auth"
 import { Play, Square, Volume2, VolumeX, Users, Clock, Radio, Headphones } from "lucide-react"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
+import { streamSportLabel } from "@/lib/sports"
 
 interface StreamViewerProps {
   permission: SubscriberPermission
@@ -43,13 +45,16 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
     setError("")
 
     try {
-      await agoraManager.join({
-        channelName: permission.streamSession.roomId,
-        role: "audience",
-        container: jitsiContainerRef.current || document.body, // Container not needed for audio-only
-        width: "100%",
-        height: 500,
-      })
+      const [, approxLocation] = await Promise.all([
+        agoraManager.join({
+          channelName: permission.streamSession.roomId,
+          role: "audience",
+          container: jitsiContainerRef.current || document.body, // Container not needed for audio-only
+          width: "100%",
+          height: 500,
+        }),
+        fetchApproximateViewerLocation(),
+      ])
 
       const joinTimestamp = new Date()
       setJoinTime(joinTimestamp)
@@ -62,14 +67,15 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
       // Start silent audio to reduce tab throttling when backgrounded (minimized)
       startSilentAudio()
 
-      // Track analytics
+      // Track analytics (approximate location for admin live viewer map)
       await trackSubscriberActivity({
         streamSessionId: permission.streamSession.id!,
         subscriberId: user.uid,
         subscriberName: userProfile.displayName || userProfile.email,
         publisherId: permission.publisherId,
         publisherName: permission.publisherName,
-        action: 'join'
+        action: "join",
+        location: approxLocation ?? undefined,
       })
     } catch (err: any) {
       setError(err.message || "Failed to join stream")
@@ -188,6 +194,9 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
             <CardTitle className="flex flex-wrap items-center gap-2">
               <Badge variant="destructive" className="animate-pulse">
                 LIVE
+              </Badge>
+              <Badge variant="secondary" className="text-xs sm:text-sm font-normal">
+                {streamSportLabel(permission.streamSession.sport)}
               </Badge>
               <span className="break-words">{permission.streamSession.title}</span>
             </CardTitle>

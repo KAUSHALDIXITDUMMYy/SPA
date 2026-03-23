@@ -53,6 +53,8 @@ interface StreamChatPanelProps {
   currentUserEmail?: string
   isPublisher: boolean
   canChat: boolean
+  /** Admin dashboard: full transcript + send as moderator */
+  isAdmin?: boolean
 }
 
 const REPORT_REASONS = [
@@ -71,6 +73,7 @@ export function StreamChatPanel({
   currentUserEmail,
   isPublisher,
   canChat,
+  isAdmin = false,
 }: StreamChatPanelProps) {
   const { user, userProfile } = useAuth()
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -86,7 +89,9 @@ export function StreamChatPanel({
   const [blockSubmitting, setBlockSubmitting] = useState(false)
 
   const blockedIds = userProfile?.blockedUserIds ?? []
-  const visibleMessages = messages.filter((m) => !blockedIds.includes(m.senderId))
+  const visibleMessages = isAdmin
+    ? messages
+    : messages.filter((m) => !blockedIds.includes(m.senderId))
 
   useEffect(() => {
     const unsubscribe = subscribeToStreamChat(streamSessionId, (msgs) => {
@@ -100,19 +105,14 @@ export function StreamChatPanel({
   }, [messages])
 
   const handleSend = async () => {
-    if (!canChat && !isPublisher) return
+    if (!isAdmin && !canChat && !isPublisher) return
     const text = inputText.trim()
     if (!text) return
 
     setSending(true)
     setError("")
-    const result = await sendChatMessage(
-      streamSessionId,
-      currentUserId,
-      currentUserName,
-      isPublisher ? "publisher" : "subscriber",
-      text
-    )
+    const role = isAdmin ? "admin" : isPublisher ? "publisher" : "subscriber"
+    const result = await sendChatMessage(streamSessionId, currentUserId, currentUserName, role, text)
 
     if (result.success) {
       setInputText("")
@@ -129,7 +129,7 @@ export function StreamChatPanel({
     }
   }
 
-  const canSend = (isPublisher || canChat) && inputText.trim().length > 0
+  const canSend = (isAdmin || isPublisher || canChat) && inputText.trim().length > 0
 
   const handleReportSubmit = async () => {
     if (!reportTarget || !user || !userProfile) return
@@ -187,11 +187,13 @@ export function StreamChatPanel({
           )}
         </div>
         <CardDescription className="text-xs">
-          {isPublisher
-            ? "Reply to privileged subscribers"
-            : canChat
-              ? "Chat with the publisher"
-              : "You don't have chat access. Contact admin for privileges."}
+          {isAdmin
+            ? "Read publisher and subscriber messages. Your replies appear as Admin."
+            : isPublisher
+              ? "Reply to privileged subscribers"
+              : canChat
+                ? "Chat with the publisher"
+                : "You don't have chat access. Contact admin for privileges."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -214,7 +216,9 @@ export function StreamChatPanel({
                           ? "bg-primary text-primary-foreground"
                           : msg.senderRole === "publisher"
                             ? "bg-muted border"
-                            : "bg-muted/70"
+                            : msg.senderRole === "admin"
+                              ? "border border-violet-300 bg-violet-50 text-violet-950 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-100"
+                              : "bg-muted/70"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -223,8 +227,14 @@ export function StreamChatPanel({
                           {msg.senderRole === "publisher" && (
                             <span className="ml-1 text-[10px]">(Publisher)</span>
                           )}
+                          {msg.senderRole === "admin" && (
+                            <span className="ml-1 text-[10px]">(Admin)</span>
+                          )}
+                          {msg.senderRole === "subscriber" && (
+                            <span className="ml-1 text-[10px]">(Subscriber)</span>
+                          )}
                         </p>
-                        {msg.senderId !== currentUserId && (
+                        {msg.senderId !== currentUserId && !isAdmin && (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0">
@@ -328,7 +338,7 @@ export function StreamChatPanel({
           <p className="text-xs text-destructive">{error}</p>
         )}
 
-        {(isPublisher || canChat) && (
+        {(isAdmin || isPublisher || canChat) && (
           <div className="flex gap-2">
             <Input
               placeholder="Type a message..."

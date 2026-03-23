@@ -16,7 +16,7 @@ export interface ChatMessage {
   streamSessionId: string
   senderId: string
   senderName: string
-  senderRole: "publisher" | "subscriber"
+  senderRole: "publisher" | "subscriber" | "admin"
   text: string
   createdAt: Date | ReturnType<typeof serverTimestamp>
 }
@@ -28,7 +28,7 @@ export async function sendChatMessage(
   streamSessionId: string,
   senderId: string,
   senderName: string,
-  senderRole: "publisher" | "subscriber",
+  senderRole: "publisher" | "subscriber" | "admin",
   text: string
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   try {
@@ -71,12 +71,15 @@ export function subscribeToStreamChat(
   return onSnapshot(q, (snapshot) => {
     const messages: ChatMessage[] = snapshot.docs.map((doc) => {
       const data = doc.data()
+      const role = data.senderRole
+      const senderRole: ChatMessage["senderRole"] =
+        role === "publisher" || role === "admin" || role === "subscriber" ? role : "subscriber"
       return {
         id: doc.id,
         streamSessionId: data.streamSessionId,
         senderId: data.senderId,
         senderName: data.senderName,
-        senderRole: data.senderRole,
+        senderRole,
         text: data.text,
         createdAt: data.createdAt?.toDate?.() ?? new Date(data.createdAt),
       }

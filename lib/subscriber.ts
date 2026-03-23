@@ -1,5 +1,5 @@
 import { db } from "./firebase"
-import { collection, query, where, getDocs } from "firebase/firestore"
+import { collection, query, where, getDocs, limit, onSnapshot, type Unsubscribe } from "firebase/firestore"
 import type { StreamPermission, StreamAssignment } from "./admin"
 import type { StreamSession } from "./streaming"
 
@@ -122,4 +122,64 @@ export const getAvailableStreams = async (subscriberId: string): Promise<Subscri
   const availableStreams = permissions.filter((permission) => permission.streamSession?.isActive)
   console.log("[v0] Available streams for subscriber:", availableStreams.length)
   return availableStreams
+}
+
+/** True if the subscriber has at least one active publisher (streamPermissions) or stream (streamAssignments) assignment. */
+export const subscriberHasAnyAssignment = async (subscriberId: string): Promise<boolean> => {
+  try {
+    const permsQ = query(
+      collection(db, "streamPermissions"),
+      where("subscriberId", "==", subscriberId),
+      where("isActive", "==", true),
+      limit(1)
+    )
+    const assignQ = query(
+      collection(db, "streamAssignments"),
+      where("subscriberId", "==", subscriberId),
+      where("isActive", "==", true),
+      limit(1)
+    )
+    const [permsSnap, assignSnap] = await Promise.all([getDocs(permsQ), getDocs(assignQ)])
+    return !permsSnap.empty || !assignSnap.empty
+  } catch (error) {
+    console.error("subscriberHasAnyAssignment:", error)
+    return false
+  }
+}
+
+/**
+ * Fires whenever eligibility changes (assignments added/removed or toggled).
+ * Eligible = at least one active streamPermission OR streamAssignment for this subscriber.
+ */
+export const subscribeSubscriberAssignmentEligibility = (
+  subscriberId: string,
+  onEligible: (eligible: boolean) => void
+): Unsubscribe => {
+  const permsQ = query(
+    collection(db, "streamPermissions"),
+    where("subscriberId", "==", subscriberId),
+    where("isActive", "==", true),
+    limit(1)
+  )
+  const assignQ = query(
+    collection(db, "streamAssignments"),
+    where("subscriberId", "==", subscriberId),
+    where("isActive", "==", true),
+    limit(1)
+  )
+  let hasPerm = false
+  let hasAssign = false
+  const emit = () => onEligible(hasPerm || hasAssign)
+  const unsub1 = onSnapshot(permsQ, (snap) => {
+    hasPerm = !snap.empty
+    emit()
+  })
+  const unsub2 = onSnapshot(assignQ, (snap) => {
+    hasAssign = !snap.empty
+    emit()
+  })
+  return () => {
+    unsub1()
+    unsub2()
+  }
 }

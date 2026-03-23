@@ -9,12 +9,13 @@ import { signOut } from "@/lib/auth"
 import { logoutAllUsers } from "@/lib/admin"
 import { useAuth } from "@/hooks/use-auth"
 import { useRouter } from "next/navigation"
-import { Settings, Users, Shield, LogOut, BarChart3, UserX, Calendar, Mail, Flag } from "lucide-react"
+import { Settings, Users, Shield, LogOut, BarChart3, UserX, Calendar, Mail, Flag, Bell } from "lucide-react"
 import { SubscriberAssignments } from "@/components/admin/subscriber-assignments"
 import { StreamAssignments } from "@/components/admin/stream-assignments"
 import { TodaysScheduleAdmin } from "@/components/admin/todays-schedule"
 import { ContactMessages } from "@/components/admin/contact-messages"
 import { ReportsModeration } from "@/components/admin/reports-moderation"
+import { AdminBroadcasts } from "@/components/admin/admin-broadcasts"
 import { useState } from "react"
 import { toast } from "@/hooks/use-toast"
 import {
@@ -119,7 +120,7 @@ export default function AdminDashboard() {
         {/* Main Content */}
         <main className="container mx-auto px-2 sm:px-4 py-4 sm:py-8">
           <Tabs defaultValue="users" className="space-y-4 sm:space-y-6">
-            <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 h-auto gap-1">
+            <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 h-auto gap-1">
               <TabsTrigger value="users" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
                 <Users className="h-3 w-3 sm:h-4 sm:w-4" />
                 <span className="hidden xs:inline">User Management</span>
@@ -154,6 +155,11 @@ export default function AdminDashboard() {
                 <span className="hidden xs:inline">Reports</span>
                 <span className="xs:hidden">Reports</span>
               </TabsTrigger>
+              <TabsTrigger value="notifications" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
+                <Bell className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Notifications</span>
+                <span className="xs:hidden">Notify</span>
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="users">
@@ -182,6 +188,10 @@ export default function AdminDashboard() {
 
             <TabsContent value="reports">
               <ReportsModeration />
+            </TabsContent>
+
+            <TabsContent value="notifications">
+              <AdminBroadcasts />
             </TabsContent>
           </Tabs>
         </main>

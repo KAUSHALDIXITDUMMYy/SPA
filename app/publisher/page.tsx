@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
 import { Podcast as Broadcast, LogOut, Radio, AlertTriangle, UserX, Menu } from "lucide-react"
 import type { StreamSession } from "@/lib/streaming"
+import { DEFAULT_STREAM_SPORT } from "@/lib/sports"
 import { toast } from "@/hooks/use-toast"
 
 export default function PublisherDashboard() {
@@ -82,7 +83,11 @@ export default function PublisherDashboard() {
                   <div className="flex items-center space-x-2 px-3 py-1.5 bg-red-100 dark:bg-red-900 rounded-full w-full sm:w-auto justify-center sm:justify-start">
                     <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse flex-shrink-0"></div>
                     <span className="text-xs sm:text-sm font-medium text-red-700 dark:text-red-300 truncate">
-                      LIVE: {currentStream.title}
+                      LIVE
+                      {currentStream.sport && currentStream.sport !== DEFAULT_STREAM_SPORT
+                        ? ` · ${currentStream.sport}`
+                        : ""}
+                      : {currentStream.title}
                     </span>
                   </div>
                 )}

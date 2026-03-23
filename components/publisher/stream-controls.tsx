@@ -13,7 +13,9 @@ import { useAuth } from "@/hooks/use-auth"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
 import { agoraManager } from "@/lib/agora"
 import { createStreamSession, endStreamSession, generateRoomId, getPublisherStreams, subscribeToPublisherActiveStream, type StreamSession } from "@/lib/streaming"
+import { DEFAULT_STREAM_SPORT, US_STREAM_SPORTS, streamSportLabel } from "@/lib/sports"
 import { startSilentAudio, stopSilentAudio } from "@/lib/silent-audio"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 interface StreamControlsProps {
   onStreamStart?: (session: StreamSession) => void
@@ -32,6 +34,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
   // Stream setup form
   const [streamTitle, setStreamTitle] = useState("")
   const [streamDescription, setStreamDescription] = useState("")
+  const [streamSport, setStreamSport] = useState<string>(DEFAULT_STREAM_SPORT)
   const [lastStream, setLastStream] = useState<StreamSession | null>(null)
   /** Active stream in DB that we can rejoin (e.g. after page refresh) */
   const [activeStreamToRejoin, setActiveStreamToRejoin] = useState<StreamSession | null>(null)
@@ -81,6 +84,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
         isActive: true,
         title: streamTitle || "Untitled Stream",
         description: streamDescription,
+        sport: streamSport,
       })
 
       if (!sessionResult.success) {
@@ -132,6 +136,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
       setCurrentSession(activeStreamToRejoin)
       setStreamTitle(activeStreamToRejoin.title || "")
       setStreamDescription(activeStreamToRejoin.description || "")
+      setStreamSport(activeStreamToRejoin.sport || DEFAULT_STREAM_SPORT)
       setSuccess("Rejoined stream successfully!")
       onStreamStart?.(activeStreamToRejoin)
       startSilentAudio()
@@ -156,6 +161,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
       setCurrentSession(null)
       setStreamTitle("")
       setStreamDescription("")
+      setStreamSport(DEFAULT_STREAM_SPORT)
       setSuccess("Stream ended successfully!")
       onStreamEnd?.()
     } catch (err: any) {
@@ -169,6 +175,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
     if (!lastStream) return
     setStreamTitle(lastStream.title || "")
     setStreamDescription(lastStream.description || "")
+    setStreamSport(lastStream.sport || DEFAULT_STREAM_SPORT)
   }
 
   const handleToggleAudio = async () => {
@@ -265,6 +272,27 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
               />
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="sport" className="text-sm sm:text-base">
+                Sport / category
+              </Label>
+              <Select value={streamSport} onValueChange={setStreamSport}>
+                <SelectTrigger id="sport" className="w-full text-sm sm:text-base">
+                  <SelectValue placeholder="Select a sport" />
+                </SelectTrigger>
+                <SelectContent>
+                  {US_STREAM_SPORTS.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Subscribers can filter live streams by this category.
+              </p>
+            </div>
+
             <div className="space-y-3">
               <div className="flex flex-col sm:flex-row gap-2 min-w-0 w-full">
                 {lastStream && (
@@ -302,6 +330,11 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
                   <Badge variant="destructive" className="animate-pulse">
                     LIVE
                   </Badge>
+                  {currentSession.sport && currentSession.sport !== DEFAULT_STREAM_SPORT && (
+                    <Badge variant="secondary" className="text-xs sm:text-sm font-medium">
+                      {streamSportLabel(currentSession.sport)}
+                    </Badge>
+                  )}
                   <span className="break-words">{currentSession.title}</span>
                 </CardTitle>
                 {currentSession.description && (

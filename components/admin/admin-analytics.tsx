@@ -22,13 +22,19 @@ import {
   Wifi,
   Radio,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  MapPin,
+  ExternalLink,
+  MessageSquare,
 } from "lucide-react"
 import { type StreamAnalytics, type StreamViewer, type AnalyticsSummary } from "@/lib/analytics"
+import { formatViewerLocationLabel, normalizeViewerLocation } from "@/lib/viewer-location"
 import { db } from "@/lib/firebase"
 import { collection, query, where, orderBy, limit, onSnapshot } from "firebase/firestore"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useAuth } from "@/hooks/use-auth"
+import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
 
 export function AdminAnalytics() {
   const [analytics, setAnalytics] = useState<StreamAnalytics[]>([])
@@ -40,7 +46,10 @@ export function AdminAnalytics() {
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
   const [isLive, setIsLive] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
+  /** Which live stream’s chat panel is expanded (only one at a time to limit listeners). */
+  const [openStreamChatId, setOpenStreamChatId] = useState<string | null>(null)
   const isMobile = useIsMobile()
+  const { user, userProfile } = useAuth()
 
   useEffect(() => {
     setLoading(true)
@@ -64,7 +73,8 @@ export function AdminAnalytics() {
             publisherName: data.publisherName,
             joinedAt: data.joinedAt?.toDate?.() || new Date(data.joinedAt),
             lastSeen: data.lastSeen?.toDate?.() || new Date(data.lastSeen),
-            isActive: data.isActive
+            isActive: data.isActive,
+            location: normalizeViewerLocation(data.location),
           }
         }) as StreamViewer[]
         
@@ -404,6 +414,9 @@ export function AdminAnalytics() {
                     </CardTitle>
                     <CardDescription className="mt-1 text-xs sm:text-sm">
                       Real-time viewer activity • Updates live
+                      <span className="block text-muted-foreground mt-1">
+                        Approximate location (city/region) from IP when each listener joins.
+                      </span>
                     </CardDescription>
                   </div>
                   <Badge variant="outline" className="bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 border-green-300 dark:border-green-700 text-xs whitespace-nowrap flex-shrink-0">
@@ -441,6 +454,26 @@ export function AdminAnalytics() {
                                     <p className="font-medium text-xs sm:text-sm text-purple-700 dark:text-purple-300 truncate">
                                       {viewer.publisherName}
                                     </p>
+                                  </div>
+                                  <div className="flex items-start gap-2 ml-6">
+                                    <MapPin className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                                    <div className="min-w-0">
+                                      <p className="text-xs sm:text-sm text-muted-foreground break-words">
+                                        {formatViewerLocationLabel(viewer.location)}
+                                      </p>
+                                      {viewer.location?.latitude != null &&
+                                        viewer.location?.longitude != null && (
+                                          <a
+                                            href={`https://www.openstreetmap.org/?mlat=${viewer.location.latitude}&mlon=${viewer.location.longitude}&zoom=9`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-xs text-primary inline-flex items-center gap-0.5 mt-0.5 hover:underline"
+                                          >
+                                            Open map
+                                            <ExternalLink className="h-3 w-3" />
+                                          </a>
+                                        )}
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -484,7 +517,8 @@ export function AdminAnalytics() {
                       <span className="break-words">Live Streams</span>
                     </CardTitle>
                     <CardDescription className="mt-1 text-xs sm:text-sm">
-                      Active broadcasts right now
+                      Active broadcasts right now. Open live chat to read publisher and subscriber messages or reply as
+                      admin.
                     </CardDescription>
                   </div>
                   <Badge variant="outline" className="bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700 text-xs whitespace-nowrap flex-shrink-0">
@@ -499,6 +533,7 @@ export function AdminAnalytics() {
                       {activeStreams.map((stream) => {
                         const viewersCount = validActiveViewers.filter(v => v.streamSessionId === stream.id).length
                         const streamDuration = Math.floor((new Date().getTime() - new Date(stream.createdAt).getTime()) / 1000)
+                        const chatOpen = openStreamChatId === stream.id
                         return (
                           <div 
                             key={stream.id} 
@@ -540,6 +575,37 @@ export function AdminAnalytics() {
                                   {new Date(stream.createdAt).toLocaleTimeString()}
                                 </p>
                               </div>
+                              <div className="pt-1 space-y-3">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="w-full sm:w-auto gap-2 text-xs sm:text-sm"
+                                  onClick={() =>
+                                    setOpenStreamChatId((prev) => (prev === stream.id ? null : stream.id))
+                                  }
+                                >
+                                  <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                                  {chatOpen ? "Hide live chat" : "Show live chat"}
+                                </Button>
+                                {chatOpen && user && (
+                                  <StreamChatPanel
+                                    streamSessionId={stream.id}
+                                    streamTitle={stream.title}
+                                    currentUserId={user.uid}
+                                    currentUserName={
+                                      userProfile?.displayName || userProfile?.email || user.email || "Admin"
+                                    }
+                                    currentUserEmail={userProfile?.email ?? user.email ?? undefined}
+                                    isPublisher={false}
+                                    canChat={false}
+                                    isAdmin
+                                  />
+                                )}
+                                {chatOpen && !user && (
+                                  <p className="text-xs text-muted-foreground">Sign in to open live chat.</p>
+                                )}
+                              </div>
                             </div>
                           </div>
                         )
@@ -566,7 +632,8 @@ export function AdminAnalytics() {
             <CardHeader>
               <CardTitle className="text-base sm:text-lg">All Active Viewers</CardTitle>
               <CardDescription className="text-xs sm:text-sm">
-                Complete list of subscribers currently watching streams
+                Complete list of subscribers currently watching streams, with approximate location (IP-based)
+                when available.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0 sm:p-6">
@@ -577,6 +644,7 @@ export function AdminAnalytics() {
                       <TableRow>
                         <TableHead className="min-w-[120px]">Subscriber</TableHead>
                         <TableHead className="min-w-[120px]">Watching</TableHead>
+                        <TableHead className="min-w-[160px]">Location</TableHead>
                         <TableHead className="hidden md:table-cell min-w-[140px]">Joined At</TableHead>
                         <TableHead className="hidden lg:table-cell min-w-[140px]">Last Seen</TableHead>
                         <TableHead className="min-w-[80px]">Status</TableHead>
@@ -595,6 +663,28 @@ export function AdminAnalytics() {
                           </TableCell>
                           <TableCell>
                             <span className="text-xs sm:text-sm truncate block">{viewer.publisherName}</span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2 py-2 sm:py-0">
+                              <div className="flex items-start gap-1.5 min-w-0">
+                                <MapPin className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                                <span className="text-xs sm:text-sm break-words">
+                                  {formatViewerLocationLabel(viewer.location)}
+                                </span>
+                              </div>
+                              {viewer.location?.latitude != null &&
+                                viewer.location?.longitude != null && (
+                                  <a
+                                    href={`https://www.openstreetmap.org/?mlat=${viewer.location.latitude}&mlon=${viewer.location.longitude}&zoom=9`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs text-primary inline-flex items-center gap-0.5 shrink-0 sm:ml-0"
+                                  >
+                                    Map
+                                    <ExternalLink className="h-3 w-3" />
+                                  </a>
+                                )}
+                            </div>
                           </TableCell>
                           <TableCell className="hidden md:table-cell">
                             <div className="text-xs sm:text-sm">

@@ -11,6 +11,8 @@ export interface StreamSession {
   endedAt?: Date
   title?: string
   description?: string
+  /** US_STREAM_SPORTS value (e.g. NFL, NBA, UFC). */
+  sport?: string
   gameName?: string
   league?: string
   match?: string

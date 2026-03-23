@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useAuth } from "@/hooks/use-auth"
 import { getPublisherStreams, type StreamSession } from "@/lib/streaming"
+import { streamSportLabel } from "@/lib/sports"
 import { Clock, Users, Video } from "lucide-react"
 
 export function StreamHistory() {
@@ -73,6 +74,7 @@ export function StreamHistory() {
             <TableHeader>
               <TableRow>
                 <TableHead>Title</TableHead>
+                <TableHead>Sport</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Started</TableHead>
                 <TableHead>Duration</TableHead>
@@ -88,6 +90,7 @@ export function StreamHistory() {
                       {stream.description && <p className="text-sm text-muted-foreground">{stream.description}</p>}
                     </div>
                   </TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">{streamSportLabel(stream.sport)}</TableCell>
                   <TableCell>
                     <Badge variant={stream.isActive ? "destructive" : "secondary"}>
                       {stream.isActive ? "LIVE" : "Ended"}

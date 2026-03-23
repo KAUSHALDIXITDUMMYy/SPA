@@ -1,13 +1,22 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAuth } from "@/hooks/use-auth"
 import { getAvailableStreams, type SubscriberPermission } from "@/lib/subscriber"
+import {
+  US_STREAM_SPORTS,
+  SPORT_FILTER_ALL,
+  SPORT_FILTER_UNSPECIFIED,
+  matchesSportFilter,
+  streamSportLabel,
+} from "@/lib/sports"
 import { StreamViewer } from "./stream-viewer"
-import { Radio, Users, Volume2, Clock, RefreshCw } from "lucide-react"
+import { Radio, Users, Volume2, Clock, RefreshCw, Filter } from "lucide-react"
 
 export function AvailableStreams() {
   const { user } = useAuth()
@@ -15,6 +24,12 @@ export function AvailableStreams() {
   const [loading, setLoading] = useState(true)
   const [selectedStream, setSelectedStream] = useState<SubscriberPermission | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [sportFilter, setSportFilter] = useState<string>(SPORT_FILTER_ALL)
+
+  const filteredPermissions = useMemo(
+    () => permissions.filter((p) => matchesSportFilter(p.streamSession?.sport, sportFilter)),
+    [permissions, sportFilter],
+  )
 
   useEffect(() => {
     if (user) {
@@ -35,9 +50,9 @@ export function AvailableStreams() {
       const availableStreams = await getAvailableStreams(user.uid)
       
       // Sort streams alphabetically by publisher name
-      const sortedStreams = availableStreams.sort((a, b) => {
-        const nameA = (a.publisher?.displayName || a.publisher?.email || '').toLowerCase()
-        const nameB = (b.publisher?.displayName || b.publisher?.email || '').toLowerCase()
+      const sortedStreams = [...availableStreams].sort((a, b) => {
+        const nameA = (a.publisherName || "").toLowerCase()
+        const nameB = (b.publisherName || "").toLowerCase()
         return nameA.localeCompare(nameB)
       })
       
@@ -127,8 +142,38 @@ export function AvailableStreams() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
-          {permissions.map((permission) => (
+        <div className="space-y-4">
+          <div className="space-y-2 max-w-md">
+            <Label htmlFor="available-sport-filter" className="flex items-center gap-2 text-sm font-medium">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              Filter by sport
+            </Label>
+            <Select value={sportFilter} onValueChange={setSportFilter}>
+              <SelectTrigger id="available-sport-filter" className="w-full text-sm sm:text-base">
+                <SelectValue placeholder="All sports" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SPORT_FILTER_ALL}>All sports</SelectItem>
+                <SelectItem value={SPORT_FILTER_UNSPECIFIED}>Not specified</SelectItem>
+                {US_STREAM_SPORTS.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {filteredPermissions.length === 0 && (
+            <Card>
+              <CardContent className="py-8 text-center text-muted-foreground text-sm">
+                No streams match this sport. Try another filter or &quot;All sports&quot;.
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+          {filteredPermissions.map((permission) => (
             <Card key={permission.id} className="hover:shadow-lg transition-shadow">
               <CardHeader className="p-4 sm:p-6">
                 <div className="flex items-start justify-between">
@@ -136,6 +181,9 @@ export function AvailableStreams() {
                     <CardTitle className="flex flex-wrap items-center gap-2">
                       <Badge variant="destructive" className="animate-pulse text-xs flex-shrink-0">
                         LIVE
+                      </Badge>
+                      <Badge variant="secondary" className="text-xs font-normal">
+                        {streamSportLabel(permission.streamSession?.sport)}
                       </Badge>
                       <span className="break-words text-sm sm:text-base">{permission.streamSession?.title}</span>
                     </CardTitle>
@@ -175,6 +223,7 @@ export function AvailableStreams() {
               </CardContent>
             </Card>
           ))}
+          </div>
         </div>
       )}
     </div>

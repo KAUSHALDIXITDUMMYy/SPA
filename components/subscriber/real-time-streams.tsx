@@ -5,18 +5,30 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAuth } from "@/hooks/use-auth"
 import { getAvailableStreams } from "@/lib/subscriber"
 import type { SubscriberPermission } from "@/lib/subscriber"
+import { US_STREAM_SPORTS, SPORT_FILTER_ALL, SPORT_FILTER_UNSPECIFIED, streamSportLabel } from "@/lib/sports"
 import { StreamViewer } from "./stream-viewer"
-import { Radio, Activity, Gamepad2, Trophy, Users } from "lucide-react"
+import { Radio, Activity, Filter as FilterIcon } from "lucide-react"
 
 export function RealTimeStreams() {
   const { user } = useAuth()
   const [availableStreams, setAvailableStreams] = useState<SubscriberPermission[]>([])
   const [selectedStream, setSelectedStream] = useState<SubscriberPermission | null>(null)
+  const [sportFilter, setSportFilter] = useState<string>(SPORT_FILTER_ALL)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+
+  const filteredStreams = availableStreams.filter((perm) => {
+    const sport = perm.streamSession?.sport
+    if (sportFilter === SPORT_FILTER_ALL) return true
+    const s = sport?.trim() ?? ""
+    if (sportFilter === SPORT_FILTER_UNSPECIFIED) return s === ""
+    return s === sportFilter
+  })
 
   useEffect(() => {
     if (!user) return
@@ -28,9 +40,9 @@ export function RealTimeStreams() {
         console.log("[v0] Available streams loaded:", streams.length)
         
         // Sort streams alphabetically by publisher name
-        const sortedStreams = streams.sort((a, b) => {
-          const nameA = (a.publisher?.displayName || a.publisher?.email || '').toLowerCase()
-          const nameB = (b.publisher?.displayName || b.publisher?.email || '').toLowerCase()
+        const sortedStreams = [...streams].sort((a, b) => {
+          const nameA = (a.publisherName || "").toLowerCase()
+          const nameB = (b.publisherName || "").toLowerCase()
           return nameA.localeCompare(nameB)
         })
         
@@ -155,13 +167,40 @@ export function RealTimeStreams() {
           // Mobile: Show only list when no stream selected
           <>
             <div className="lg:col-span-1 space-y-3 sm:space-y-4">
-              {availableStreams.map((stream) => (
+              <div className="space-y-2">
+                <Label htmlFor="sport-filter" className="flex items-center gap-2 text-sm font-medium">
+                  <FilterIcon className="h-4 w-4 text-muted-foreground" />
+                  Filter by sport
+                </Label>
+                <Select value={sportFilter} onValueChange={setSportFilter}>
+                  <SelectTrigger id="sport-filter" className="w-full text-sm sm:text-base">
+                    <SelectValue placeholder="All sports" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={SPORT_FILTER_ALL}>All sports</SelectItem>
+                    <SelectItem value={SPORT_FILTER_UNSPECIFIED}>Not specified</SelectItem>
+                    {US_STREAM_SPORTS.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {s}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {filteredStreams.length === 0 && availableStreams.length > 0 && (
+                <Alert>
+                  <AlertDescription>
+                    No live streams match this sport. Try &quot;All sports&quot; or pick another category.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {filteredStreams.map((perm) => (
                 <Card
-                  key={stream.id}
-                  className={`transition-shadow cursor-pointer ${
-                    selectedStream?.id === stream.id ? "ring-2 ring-primary" : "hover:shadow-lg"
-                  }`}
-                  onClick={() => handleSelectStream(stream)}
+                  key={perm.id}
+                  className="transition-shadow cursor-pointer hover:shadow-lg"
+                  onClick={() => handleSelectStream(perm)}
                 >
                   <CardHeader className="p-3 sm:p-4 lg:p-6">
                     <div className="flex items-start justify-between">
@@ -170,9 +209,12 @@ export function RealTimeStreams() {
                           <Badge variant="destructive" className="animate-pulse text-xs flex-shrink-0">
                             LIVE
                           </Badge>
-                          <span className="break-words text-sm sm:text-base">{stream.streamSession?.title || "Untitled Stream"}</span>
+                          <Badge variant="secondary" className="text-xs font-normal">
+                            {streamSportLabel(perm.streamSession?.sport)}
+                          </Badge>
+                          <span className="break-words text-sm sm:text-base">{perm.streamSession?.title || "Untitled Stream"}</span>
                         </CardTitle>
-                        <CardDescription className="text-xs sm:text-sm truncate">Publisher: {stream.publisherName}</CardDescription>
+                        <CardDescription className="text-xs sm:text-sm truncate">Publisher: {perm.publisherName}</CardDescription>
                       </div>
                     </div>
                   </CardHeader>
