@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Square, Mic, MicOff, Radio, History, RefreshCw } from "lucide-react"
+import { Square, Mic, MicOff, Radio, History, RefreshCw, Speaker } from "lucide-react"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAuth } from "@/hooks/use-auth"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
 import { agoraManager } from "@/lib/agora"
@@ -26,6 +27,8 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
   const { user, userProfile } = useAuth()
   const [isStreaming, setIsStreaming] = useState(false)
   const [isAudioMuted, setIsAudioMuted] = useState(false)
+  const [publisherAudioSource, setPublisherAudioSource] = useState<"microphone" | "system">("microphone")
+  const [sourceSwitchLoading, setSourceSwitchLoading] = useState(false)
   const [currentSession, setCurrentSession] = useState<StreamSession | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -102,6 +105,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
 
       setIsStreaming(true)
       setIsAudioMuted(false) // Mic is enabled by default
+      setPublisherAudioSource("microphone")
       setSuccess("Audio stream started successfully!")
       setCurrentSession(sessionResult.session!)
       onStreamStart?.(sessionResult.session!)
@@ -133,6 +137,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
 
       setIsStreaming(true)
       setIsAudioMuted(false)
+      setPublisherAudioSource(agoraManager.getPublisherAudioSource())
       setCurrentSession(activeStreamToRejoin)
       setStreamTitle(activeStreamToRejoin.title || "")
       setStreamDescription(activeStreamToRejoin.description || "")
@@ -158,6 +163,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
       stopSilentAudio()
       setIsStreaming(false)
       setIsAudioMuted(false)
+      setPublisherAudioSource("microphone")
       setCurrentSession(null)
       setStreamTitle("")
       setStreamDescription("")
@@ -188,7 +194,24 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
         setIsAudioMuted(true)
       }
     } catch (err: any) {
-      setError("Failed to toggle microphone")
+      setError("Failed to toggle audio output")
+    }
+  }
+
+  const handlePublisherAudioSourceChange = async (value: string) => {
+    if (!value || (value !== "microphone" && value !== "system")) return
+    if (!isStreaming) return
+    setSourceSwitchLoading(true)
+    setError("")
+    try {
+      await agoraManager.switchPublisherAudioSource(value)
+      setPublisherAudioSource(value)
+      setIsAudioMuted(false)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to switch audio source"
+      setError(msg)
+    } finally {
+      setSourceSwitchLoading(false)
     }
   }
 
@@ -354,22 +377,51 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
               <span className="hidden sm:inline">If audio stops when you minimize, return to this tab to auto-reconnect. Next time: use &quot;Open in popup&quot; before starting.</span>
               <span className="sm:hidden">If audio stops, return to this tab to auto-reconnect. On mobile: use split screen.</span>
             </div>
+
+            <div className="space-y-2 mb-3">
+              <p className="text-xs sm:text-sm font-medium">Audio source</p>
+              <ToggleGroup
+                type="single"
+                value={publisherAudioSource}
+                onValueChange={handlePublisherAudioSourceChange}
+                disabled={sourceSwitchLoading || loading}
+                variant="outline"
+                className="w-full justify-stretch sm:w-auto sm:justify-start"
+              >
+                <ToggleGroupItem value="microphone" aria-label="Microphone" className="flex-1 sm:flex-initial gap-2 text-xs sm:text-sm">
+                  <Mic className="h-4 w-4 shrink-0" />
+                  Microphone
+                </ToggleGroupItem>
+                <ToggleGroupItem value="system" aria-label="System audio" className="flex-1 sm:flex-initial gap-2 text-xs sm:text-sm">
+                  <Speaker className="h-4 w-4 shrink-0" />
+                  System audio
+                </ToggleGroupItem>
+              </ToggleGroup>
+              <p className="text-xs text-muted-foreground">
+                {publisherAudioSource === "system"
+                  ? "You chose a screen, window, or tab. Video from that share is not broadcast—only its audio goes to listeners."
+                  : "Standard voice from your microphone."}{" "}
+                For a browser tab, enable &quot;Share tab audio&quot; in the picker (Chrome). System-wide capture depends on your OS and browser.
+              </p>
+            </div>
+
             <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3">
               <Button 
                 variant={isAudioMuted ? "destructive" : "default"} 
                 onClick={handleToggleAudio} 
                 size="sm"
+                disabled={sourceSwitchLoading}
                 className="w-full sm:w-auto text-sm sm:text-base"
               >
                 {isAudioMuted ? (
                   <>
                     <MicOff className="h-4 w-4 mr-2 flex-shrink-0" />
-                    <span className="truncate">Unmute Microphone</span>
+                    <span className="truncate">Unmute broadcast</span>
                   </>
                 ) : (
                   <>
                     <Mic className="h-4 w-4 mr-2 flex-shrink-0" />
-                    <span className="truncate">Mute Microphone</span>
+                    <span className="truncate">Mute broadcast</span>
                   </>
                 )}
               </Button>
@@ -397,8 +449,10 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
           <CardTitle>Audio Stream Status</CardTitle>
           <CardDescription>
             {isStreaming
-              ? "Your live audio stream is active. Your microphone audio is being broadcast to subscribers."
-              : "Start an audio stream to begin broadcasting your microphone."}
+              ? publisherAudioSource === "system"
+                ? "Live: system or tab audio is being broadcast to subscribers."
+                : "Live: your microphone is being broadcast to subscribers."
+              : "Start a stream, then choose microphone or system audio for what subscribers hear."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -410,7 +464,11 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
                 <Radio className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-3 sm:mb-4 text-primary animate-pulse" />
                 <p className="text-base sm:text-lg font-semibold">Audio Stream Active</p>
                 <p className="text-xs sm:text-sm text-muted-foreground mt-2 px-2">
-                  {isAudioMuted ? "Microphone is muted" : "Microphone is broadcasting"}
+                  {isAudioMuted
+                    ? "Broadcast is muted"
+                    : publisherAudioSource === "system"
+                      ? "System / tab audio is live"
+                      : "Microphone is live"}
                 </p>
               </div>
             ) : (

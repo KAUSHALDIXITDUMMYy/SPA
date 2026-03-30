@@ -9,6 +9,9 @@ import type {
 
 export type AgoraJoinRole = "publisher" | "audience"
 
+/** Publisher broadcast input: microphone or capture-based system/tab audio */
+export type PublisherAudioSource = "microphone" | "system"
+
 export interface AgoraJoinConfig {
   channelName: string
   role: AgoraJoinRole
@@ -98,6 +101,10 @@ export class AgoraManager {
 
   // Track-ended recovery (publisher): when mic track stops due to tab backgrounding
   private trackEndedRecoveryCleanup: (() => void) | null = null
+
+  /** getDisplayMedia stream kept alive while publishing tab/system audio (video tracks disabled, not sent) */
+  private displayCaptureStream: MediaStream | null = null
+  private publisherAudioMode: PublisherAudioSource = "microphone"
 
   // Network quality monitoring
   private networkQualityInterval: NodeJS.Timeout | null = null
@@ -304,6 +311,8 @@ export class AgoraManager {
       }
     } finally {
       this.clearTrackEndedRecovery()
+      this.releaseDisplayCapture()
+      this.publisherAudioMode = "microphone"
       // Do not set this.client = null here; we already cleared it at the start so a concurrent join() is not clobbered.
       this.localAudio = null
       this.localVideo = null
@@ -313,6 +322,99 @@ export class AgoraManager {
       this.networkQualityHistory = []
       this.consecutiveGoodReadings = 0
     }
+  }
+
+  private releaseDisplayCapture() {
+    if (this.displayCaptureStream) {
+      try {
+        this.displayCaptureStream.getTracks().forEach((t) => t.stop())
+      } catch {}
+      this.displayCaptureStream = null
+    }
+  }
+
+  /** Unpublish and close the current publisher audio track and any display capture stream */
+  private async teardownLocalPublisherAudio() {
+    this.clearTrackEndedRecovery()
+    const client = this.client
+    const audio = this.localAudio
+    if (client && audio) {
+      try {
+        await client.unpublish([audio])
+      } catch {}
+    }
+    if (audio) {
+      try {
+        audio.stop()
+        audio.close()
+      } catch {}
+    }
+    this.localAudio = null
+    this.releaseDisplayCapture()
+  }
+
+  getPublisherAudioSource(): PublisherAudioSource {
+    return this.publisherAudioMode
+  }
+
+  /**
+   * Switch publisher input between microphone and system/tab audio (getDisplayMedia).
+   * System mode: pick a tab, window, or screen; enable "Share tab audio" when sharing a browser tab (Chrome).
+   */
+  async switchPublisherAudioSource(mode: PublisherAudioSource) {
+    if (!this.client || this.lastJoinConfig?.role !== "publisher") {
+      throw new Error("Not joined as publisher")
+    }
+
+    if (mode === "microphone") {
+      if (this.publisherAudioMode === "microphone" && this.localAudio) return
+      await this.teardownLocalPublisherAudio()
+      this.publisherAudioMode = "microphone"
+      await this.enableMic()
+      return
+    }
+
+    if (this.publisherAudioMode === "system" && this.localAudio) return
+
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+      })
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Capture was cancelled or not allowed."
+      throw new Error(msg)
+    }
+
+    const audioTrack = stream.getAudioTracks()[0]
+    if (!audioTrack) {
+      stream.getTracks().forEach((t) => t.stop())
+      throw new Error(
+        'No audio in this capture. When sharing a browser tab, turn on "Share tab audio". Try a different window or check browser/OS settings.',
+      )
+    }
+
+    await this.teardownLocalPublisherAudio()
+
+    this.displayCaptureStream = stream
+    for (const vt of stream.getVideoTracks()) {
+      try {
+        vt.enabled = false
+      } catch {}
+    }
+
+    const AgoraRTC = await this.getAgora()
+    const customAudio = await AgoraRTC.createCustomAudioTrack({
+      mediaStreamTrack: audioTrack,
+      encoderConfig: "high_quality_stereo",
+    })
+    this.localAudio = customAudio
+    this.publisherAudioMode = "system"
+    customAudio.on("track-ended", () => this.handlePublisherTrackEnded())
+    const pubClient = this.client
+    if (!pubClient) throw new Error("Client disconnected")
+    await pubClient.publish([customAudio])
   }
 
   // Start screen share with adaptive configuration
@@ -796,10 +898,12 @@ export class AgoraManager {
           
           // Publish with low latency settings
           await this.client?.publish([this.localAudio])
-          
+
+          this.publisherAudioMode = "microphone"
+
           // Listen for track-ended (e.g. browser suspended mic when tab backgrounded)
           this.localAudio.on("track-ended", () => this.handlePublisherTrackEnded())
-          
+
           console.log("Microphone audio track published with optimized settings (low latency, high sensitivity, noise reduction)")
         }
       } catch (e) {
@@ -897,6 +1001,8 @@ export class AgoraManager {
         track.close()
       } catch {}
     }
+    this.releaseDisplayCapture()
+    this.publisherAudioMode = "microphone"
     this.setupTrackEndedRecovery()
   }
 
