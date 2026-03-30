@@ -13,6 +13,8 @@ export interface StreamSession {
   description?: string
   /** US_STREAM_SPORTS value (e.g. NFL, NBA, UFC). */
   sport?: string
+  /** Linked row in `scheduledCalls` when broadcast uses an admin-assigned room. */
+  scheduledCallId?: string
   gameName?: string
   league?: string
   match?: string

@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Square, Mic, MicOff, Radio, History, RefreshCw, Speaker } from "lucide-react"
+import { Square, Mic, MicOff, Radio, History, RefreshCw, Speaker, CalendarClock } from "lucide-react"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAuth } from "@/hooks/use-auth"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
@@ -17,10 +17,14 @@ import { createStreamSession, endStreamSession, generateRoomId, getPublisherStre
 import { DEFAULT_STREAM_SPORT, US_STREAM_SPORTS, streamSportLabel } from "@/lib/sports"
 import { startSilentAudio, stopSilentAudio } from "@/lib/silent-audio"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import type { ScheduledCall } from "@/lib/scheduled-calls"
 
 interface StreamControlsProps {
   onStreamStart?: (session: StreamSession) => void
   onStreamEnd?: () => void
+  /** Selected from &quot;Today&apos;s scheduled rooms&quot; — uses fixed roomId from admin */
+  broadcastScheduledCall?: ScheduledCall | null
+  onClearBroadcastScheduledCall?: () => void
 }
 
 function PublisherAudioSourcePicker(props: {
@@ -61,7 +65,12 @@ function PublisherAudioSourcePicker(props: {
   )
 }
 
-export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsProps) {
+export function StreamControls({
+  onStreamStart,
+  onStreamEnd,
+  broadcastScheduledCall = null,
+  onClearBroadcastScheduledCall,
+}: StreamControlsProps) {
   const { user, userProfile } = useAuth()
   const [isStreaming, setIsStreaming] = useState(false)
   const [isAudioMuted, setIsAudioMuted] = useState(false)
@@ -171,6 +180,67 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
     setLoading(false)
   }
 
+  const handleStartScheduledStream = async () => {
+    if (!user || !userProfile || !broadcastScheduledCall?.id) return
+
+    setLoading(true)
+    setError("")
+    setSuccess("")
+
+    try {
+      const roomId = broadcastScheduledCall.roomId
+      const sessionResult = await createStreamSession({
+        publisherId: user.uid,
+        publisherName: userProfile.displayName || userProfile.email,
+        roomId,
+        isActive: true,
+        title: broadcastScheduledCall.title,
+        description: broadcastScheduledCall.description || "",
+        sport: broadcastScheduledCall.sport?.trim() || DEFAULT_STREAM_SPORT,
+        scheduledCallId: broadcastScheduledCall.id,
+      })
+
+      if (!sessionResult.success) {
+        throw new Error(sessionResult.error)
+      }
+
+      await agoraManager.join({
+        channelName: roomId,
+        role: "publisher",
+        container: document.body,
+        width: "100%",
+        height: 500,
+      })
+
+      let systemAudioWarning: string | null = null
+      if (publisherAudioSource === "system") {
+        try {
+          await agoraManager.switchPublisherAudioSource("system")
+        } catch (switchErr: unknown) {
+          const msg = switchErr instanceof Error ? switchErr.message : "Could not start system audio"
+          systemAudioWarning = `${msg} You are live on the microphone instead.`
+          setPublisherAudioSource(agoraManager.getPublisherAudioSource())
+        }
+      }
+
+      setIsStreaming(true)
+      setIsAudioMuted(false)
+      setCurrentSession(sessionResult.session!)
+      onStreamStart?.(sessionResult.session!)
+      startSilentAudio()
+      if (systemAudioWarning) {
+        setError(systemAudioWarning)
+        setSuccess("Scheduled room is live—you're on the microphone.")
+      } else {
+        setSuccess("Scheduled room is live!")
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to start scheduled broadcast")
+    }
+
+    setLoading(false)
+  }
+
   const handleRejoinStream = async () => {
     if (!activeStreamToRejoin || !user || !userProfile) return
 
@@ -238,6 +308,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
       setStreamDescription("")
       setStreamSport(DEFAULT_STREAM_SPORT)
       setSuccess("Stream ended successfully!")
+      onClearBroadcastScheduledCall?.()
       onStreamEnd?.()
     } catch (err: any) {
       setError(err.message || "Failed to end stream")
@@ -326,27 +397,75 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
         </Card>
       )}
 
-      {/* Stream Setup */}
+      {/* Stream Setup: scheduled room OR ad-hoc */}
       {!isStreaming && (
+        <>
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {success && (
+            <Alert>
+              <AlertDescription>{success}</AlertDescription>
+            </Alert>
+          )}
+
+          {broadcastScheduledCall && (
+            <Card className="border-teal-300 dark:border-teal-800">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
+                  <CalendarClock className="h-5 w-5 text-teal-600" />
+                  Scheduled room broadcast
+                </CardTitle>
+                <CardDescription>
+                  You&apos;re using the admin-assigned room for{" "}
+                  <span className="font-medium text-foreground">{broadcastScheduledCall.title}</span>. Audio source
+                  applies here the same as an ad-hoc stream.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs font-mono break-all">
+                  Room: {broadcastScheduledCall.roomId}
+                </div>
+                <PublisherAudioSourcePicker
+                  value={publisherAudioSource}
+                  onValueChange={setPublisherAudioSource}
+                  disabled={loading}
+                />
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button
+                    onClick={handleStartScheduledStream}
+                    disabled={loading}
+                    className="flex-1 text-sm sm:text-base"
+                  >
+                    <Radio className="h-4 w-4 mr-2 shrink-0" />
+                    {loading ? "Starting…" : "Go live in scheduled room"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={loading}
+                    onClick={() => onClearBroadcastScheduledCall?.()}
+                    className="text-sm sm:text-base"
+                  >
+                    Use ad-hoc stream instead
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {!broadcastScheduledCall && (
         <Card>
           <CardHeader>
-            <CardTitle>Start New Audio Stream</CardTitle>
+            <CardTitle>Ad-hoc audio stream</CardTitle>
             <CardDescription>
-              Set title, category, and whether you’ll use your microphone or system/tab audio before you go live.
+              Your own title, category, and room— not tied to today&apos;s scheduled calls. Use the scheduled section
+              above when you were assigned a room.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            {success && (
-              <Alert>
-                <AlertDescription>{success}</AlertDescription>
-              </Alert>
-            )}
 
             <div className="space-y-2">
               <Label htmlFor="title" className="text-sm sm:text-base">Stream Title</Label>
@@ -423,6 +542,8 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
             </div>
           </CardContent>
         </Card>
+          )}
+        </>
       )}
 
       {/* Active Stream Controls */}
@@ -435,6 +556,11 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
                   <Badge variant="destructive" className="animate-pulse">
                     LIVE
                   </Badge>
+                  {currentSession.scheduledCallId && (
+                    <Badge variant="outline" className="text-xs border-teal-600 text-teal-700 dark:text-teal-300">
+                      Scheduled room
+                    </Badge>
+                  )}
                   {currentSession.sport && currentSession.sport !== DEFAULT_STREAM_SPORT && (
                     <Badge variant="secondary" className="text-xs sm:text-sm font-medium">
                       {streamSportLabel(currentSession.sport)}

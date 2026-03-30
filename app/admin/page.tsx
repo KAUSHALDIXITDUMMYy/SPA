@@ -13,6 +13,7 @@ import { Settings, Users, Shield, LogOut, BarChart3, UserX, Calendar, Mail, Flag
 import { SubscriberAssignments } from "@/components/admin/subscriber-assignments"
 import { StreamAssignments } from "@/components/admin/stream-assignments"
 import { TodaysScheduleAdmin } from "@/components/admin/todays-schedule"
+import { ScheduledCallsAdmin } from "@/components/admin/scheduled-calls-admin"
 import { ContactMessages } from "@/components/admin/contact-messages"
 import { ReportsModeration } from "@/components/admin/reports-moderation"
 import { AdminBroadcasts } from "@/components/admin/admin-broadcasts"
@@ -179,7 +180,10 @@ export default function AdminDashboard() {
             </TabsContent>
 
             <TabsContent value="schedule">
-              <TodaysScheduleAdmin />
+              <div className="space-y-8">
+                <TodaysScheduleAdmin />
+                <ScheduledCallsAdmin />
+              </div>
             </TabsContent>
 
             <TabsContent value="contact">

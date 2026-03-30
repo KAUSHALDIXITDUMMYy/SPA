@@ -2,6 +2,8 @@
 
 import { ProtectedRoute } from "@/components/auth/protected-route"
 import { StreamControls } from "@/components/publisher/stream-controls"
+import { ScheduledCallsPublisherSection } from "@/components/publisher/scheduled-calls-publisher"
+import type { ScheduledCall } from "@/lib/scheduled-calls"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -12,6 +14,8 @@ import { useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
 import { Podcast as Broadcast, LogOut, Radio, AlertTriangle, UserX, Menu } from "lucide-react"
 import type { StreamSession } from "@/lib/streaming"
+import type { ScheduledCall } from "@/lib/scheduled-calls"
+import { ScheduledCallsPublisherSection } from "@/components/publisher/scheduled-calls-publisher"
 import { DEFAULT_STREAM_SPORT } from "@/lib/sports"
 import { toast } from "@/hooks/use-toast"
 
@@ -19,6 +23,7 @@ export default function PublisherDashboard() {
   const { userProfile } = useAuth()
   const router = useRouter()
   const [currentStream, setCurrentStream] = useState<StreamSession | null>(null)
+  const [broadcastScheduledCall, setBroadcastScheduledCall] = useState<ScheduledCall | null>(null)
   const previousActiveStatus = useRef<boolean | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -60,6 +65,7 @@ export default function PublisherDashboard() {
 
   const handleStreamEnd = () => {
     setCurrentStream(null)
+    setBroadcastScheduledCall(null)
   }
 
   return (
@@ -164,8 +170,20 @@ export default function PublisherDashboard() {
               </CardContent>
             </Card>
           ) : (
-            // Active user - show stream controls
-            <StreamControls onStreamStart={handleStreamStart} onStreamEnd={handleStreamEnd} />
+            // Active user — scheduled rooms + existing stream controls
+            <div className="space-y-6">
+              <ScheduledCallsPublisherSection
+                onChooseCall={setBroadcastScheduledCall}
+                chosenCallId={broadcastScheduledCall?.id ?? null}
+                disabled={!!currentStream}
+              />
+              <StreamControls
+                onStreamStart={handleStreamStart}
+                onStreamEnd={handleStreamEnd}
+                broadcastScheduledCall={broadcastScheduledCall}
+                onClearBroadcastScheduledCall={() => setBroadcastScheduledCall(null)}
+              />
+            </div>
           )}
         </main>
       </div>

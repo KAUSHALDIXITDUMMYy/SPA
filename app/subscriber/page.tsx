@@ -3,6 +3,7 @@
 import { ProtectedRoute } from "@/components/auth/protected-route"
 import { RealTimeStreams } from "@/components/subscriber/real-time-streams"
 import { TodaysSchedule } from "@/components/subscriber/todays-schedule"
+import { SubscriberScheduledCalls } from "@/components/subscriber/scheduled-calls-subscriber"
 import { SubscriberNotifications } from "@/components/subscriber/subscriber-notifications"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,7 +14,7 @@ import { signOut } from "@/lib/auth"
 import { useAuth } from "@/hooks/use-auth"
 import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
-import { Radio, LogOut, AlertTriangle, UserX, Calendar, Menu, Bell } from "lucide-react"
+import { Radio, LogOut, AlertTriangle, UserX, Calendar, Menu, Bell, Phone } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 
 export default function SubscriberDashboard() {
@@ -146,11 +147,16 @@ export default function SubscriberDashboard() {
           ) : (
             // Active user - show normal content
             <Tabs defaultValue="streams" className="space-y-4 sm:space-y-6">
-              <TabsList className="grid w-full grid-cols-3 h-auto">
+              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto gap-1">
                 <TabsTrigger value="streams" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
                   <Radio className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span className="hidden xs:inline">Audio Streams</span>
                   <span className="xs:hidden">Streams</span>
+                </TabsTrigger>
+                <TabsTrigger value="scheduled-calls" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
+                  <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="hidden xs:inline">Scheduled calls</span>
+                  <span className="xs:hidden">Calls</span>
                 </TabsTrigger>
                 <TabsTrigger value="notifications" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
                   <Bell className="h-3 w-3 sm:h-4 sm:w-4" />
@@ -166,6 +172,10 @@ export default function SubscriberDashboard() {
 
               <TabsContent value="streams">
                 <RealTimeStreams />
+              </TabsContent>
+
+              <TabsContent value="scheduled-calls">
+                <SubscriberScheduledCalls />
               </TabsContent>
 
               <TabsContent value="notifications">
