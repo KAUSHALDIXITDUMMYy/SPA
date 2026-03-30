@@ -23,6 +23,44 @@ interface StreamControlsProps {
   onStreamEnd?: () => void
 }
 
+function PublisherAudioSourcePicker(props: {
+  value: "microphone" | "system"
+  onValueChange: (v: "microphone" | "system") => void
+  disabled?: boolean
+}) {
+  const { value, onValueChange, disabled } = props
+  return (
+    <div className="space-y-2">
+      <Label className="text-sm sm:text-base">Audio source</Label>
+      <ToggleGroup
+        type="single"
+        value={value}
+        onValueChange={(v) => {
+          if (v === "microphone" || v === "system") onValueChange(v)
+        }}
+        disabled={disabled}
+        variant="outline"
+        className="w-full justify-stretch sm:w-auto sm:justify-start"
+      >
+        <ToggleGroupItem value="microphone" aria-label="Microphone" className="flex-1 sm:flex-initial gap-2 text-xs sm:text-sm">
+          <Mic className="h-4 w-4 shrink-0" />
+          Microphone
+        </ToggleGroupItem>
+        <ToggleGroupItem value="system" aria-label="System audio" className="flex-1 sm:flex-initial gap-2 text-xs sm:text-sm">
+          <Speaker className="h-4 w-4 shrink-0" />
+          System audio
+        </ToggleGroupItem>
+      </ToggleGroup>
+      <p className="text-xs text-muted-foreground">
+        {value === "system"
+          ? "After you start, you’ll pick a tab, window, or screen and can enable tab audio. Only audio is sent to listeners—not your screen video."
+          : "Use your microphone when you go live."}{" "}
+        For a browser tab, use &quot;Share tab audio&quot; in the picker (Chrome). System-wide capture depends on your OS and browser.
+      </p>
+    </div>
+  )
+}
+
 export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsProps) {
   const { user, userProfile } = useAuth()
   const [isStreaming, setIsStreaming] = useState(false)
@@ -94,7 +132,7 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
         throw new Error(sessionResult.error)
       }
 
-      // Initialize Agora as publisher and auto-start microphone audio
+      // Join as publisher (mic first), then switch to system capture if chosen below
       await agoraManager.join({
         channelName: roomId,
         role: "publisher",
@@ -103,14 +141,29 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
         height: 500,
       })
 
+      let systemAudioWarning: string | null = null
+      if (publisherAudioSource === "system") {
+        try {
+          await agoraManager.switchPublisherAudioSource("system")
+        } catch (switchErr: unknown) {
+          const msg = switchErr instanceof Error ? switchErr.message : "Could not start system audio"
+          systemAudioWarning = `${msg} You are live on the microphone instead.`
+          setPublisherAudioSource(agoraManager.getPublisherAudioSource())
+        }
+      }
+
       setIsStreaming(true)
-      setIsAudioMuted(false) // Mic is enabled by default
-      setPublisherAudioSource("microphone")
-      setSuccess("Audio stream started successfully!")
+      setIsAudioMuted(false)
       setCurrentSession(sessionResult.session!)
       onStreamStart?.(sessionResult.session!)
       // Start silent audio to reduce tab throttling when backgrounded (minimized)
       startSilentAudio()
+      if (systemAudioWarning) {
+        setError(systemAudioWarning)
+        setSuccess("Stream started—you're broadcasting from the microphone.")
+      } else {
+        setSuccess("Audio stream started successfully!")
+      }
     } catch (err: any) {
       setError(err.message || "Failed to start stream")
     }
@@ -135,6 +188,17 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
         height: 500,
       })
 
+      let rejoinSystemWarning: string | null = null
+      if (publisherAudioSource === "system") {
+        try {
+          await agoraManager.switchPublisherAudioSource("system")
+        } catch (switchErr: unknown) {
+          const msg = switchErr instanceof Error ? switchErr.message : "Could not start system audio"
+          rejoinSystemWarning = `${msg} You are live on the microphone instead.`
+          setPublisherAudioSource(agoraManager.getPublisherAudioSource())
+        }
+      }
+
       setIsStreaming(true)
       setIsAudioMuted(false)
       setPublisherAudioSource(agoraManager.getPublisherAudioSource())
@@ -142,9 +206,14 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
       setStreamTitle(activeStreamToRejoin.title || "")
       setStreamDescription(activeStreamToRejoin.description || "")
       setStreamSport(activeStreamToRejoin.sport || DEFAULT_STREAM_SPORT)
-      setSuccess("Rejoined stream successfully!")
       onStreamStart?.(activeStreamToRejoin)
       startSilentAudio()
+      if (rejoinSystemWarning) {
+        setError(rejoinSystemWarning)
+        setSuccess("Rejoined—you're on the microphone.")
+      } else {
+        setSuccess("Rejoined stream successfully!")
+      }
     } catch (err: any) {
       setError(err.message || "Failed to rejoin stream")
     }
@@ -240,10 +309,15 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
                 <AlertDescription>{success}</AlertDescription>
               </Alert>
             )}
+            <PublisherAudioSourcePicker
+              value={publisherAudioSource}
+              onValueChange={setPublisherAudioSource}
+              disabled={loading}
+            />
             <Button
               onClick={handleRejoinStream}
               disabled={loading}
-              className="w-full sm:w-auto"
+              className="w-full sm:w-auto mt-4"
             >
               <RefreshCw className="h-4 w-4 mr-2" />
               {loading ? "Rejoining..." : "Rejoin Stream"}
@@ -257,7 +331,9 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
         <Card>
           <CardHeader>
             <CardTitle>Start New Audio Stream</CardTitle>
-            <CardDescription>Configure your audio stream settings and start broadcasting your microphone</CardDescription>
+            <CardDescription>
+              Set title, category, and whether you’ll use your microphone or system/tab audio before you go live.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {error && (
@@ -315,6 +391,12 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
                 Subscribers can filter live streams by this category.
               </p>
             </div>
+
+            <PublisherAudioSourcePicker
+              value={publisherAudioSource}
+              onValueChange={setPublisherAudioSource}
+              disabled={loading}
+            />
 
             <div className="space-y-3">
               <div className="flex flex-col sm:flex-row gap-2 min-w-0 w-full">
@@ -378,31 +460,17 @@ export function StreamControls({ onStreamStart, onStreamEnd }: StreamControlsPro
               <span className="sm:hidden">If audio stops, return to this tab to auto-reconnect. On mobile: use split screen.</span>
             </div>
 
-            <div className="space-y-2 mb-3">
-              <p className="text-xs sm:text-sm font-medium">Audio source</p>
-              <ToggleGroup
-                type="single"
+            <div className="mb-3">
+              <PublisherAudioSourcePicker
                 value={publisherAudioSource}
-                onValueChange={handlePublisherAudioSourceChange}
+                onValueChange={(v) => void handlePublisherAudioSourceChange(v)}
                 disabled={sourceSwitchLoading || loading}
-                variant="outline"
-                className="w-full justify-stretch sm:w-auto sm:justify-start"
-              >
-                <ToggleGroupItem value="microphone" aria-label="Microphone" className="flex-1 sm:flex-initial gap-2 text-xs sm:text-sm">
-                  <Mic className="h-4 w-4 shrink-0" />
-                  Microphone
-                </ToggleGroupItem>
-                <ToggleGroupItem value="system" aria-label="System audio" className="flex-1 sm:flex-initial gap-2 text-xs sm:text-sm">
-                  <Speaker className="h-4 w-4 shrink-0" />
-                  System audio
-                </ToggleGroupItem>
-              </ToggleGroup>
-              <p className="text-xs text-muted-foreground">
-                {publisherAudioSource === "system"
-                  ? "You chose a screen, window, or tab. Video from that share is not broadcast—only its audio goes to listeners."
-                  : "Standard voice from your microphone."}{" "}
-                For a browser tab, enable &quot;Share tab audio&quot; in the picker (Chrome). System-wide capture depends on your OS and browser.
-              </p>
+              />
+              {publisherAudioSource === "system" && isStreaming && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Video from the share is not broadcast—only audio goes to listeners.
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col sm:flex-row flex-wrap gap-2 sm:gap-3">
