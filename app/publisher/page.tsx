@@ -14,8 +14,6 @@ import { useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
 import { Podcast as Broadcast, LogOut, Radio, AlertTriangle, UserX, Menu } from "lucide-react"
 import type { StreamSession } from "@/lib/streaming"
-import type { ScheduledCall } from "@/lib/scheduled-calls"
-import { ScheduledCallsPublisherSection } from "@/components/publisher/scheduled-calls-publisher"
 import { DEFAULT_STREAM_SPORT } from "@/lib/sports"
 import { toast } from "@/hooks/use-toast"
 
