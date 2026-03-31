@@ -55,6 +55,10 @@ interface StreamChatPanelProps {
   canChat: boolean
   /** Admin dashboard: full transcript + send as moderator */
   isAdmin?: boolean
+  /** Override message list height (default h-[200px]) */
+  messageListClassName?: string
+  /** Override Firestore message limit (default 100, admin view uses 500) */
+  chatHistoryLimit?: number
 }
 
 const REPORT_REASONS = [
@@ -74,6 +78,8 @@ export function StreamChatPanel({
   isPublisher,
   canChat,
   isAdmin = false,
+  messageListClassName,
+  chatHistoryLimit,
 }: StreamChatPanelProps) {
   const { user, userProfile } = useAuth()
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -94,11 +100,12 @@ export function StreamChatPanel({
     : messages.filter((m) => !blockedIds.includes(m.senderId))
 
   useEffect(() => {
+    const lim = chatHistoryLimit ?? (isAdmin ? 500 : 100)
     const unsubscribe = subscribeToStreamChat(streamSessionId, (msgs) => {
       setMessages(msgs)
-    })
+    }, lim)
     return () => unsubscribe()
-  }, [streamSessionId])
+  }, [streamSessionId, isAdmin, chatHistoryLimit])
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -197,7 +204,7 @@ export function StreamChatPanel({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <ScrollArea className="h-[200px] rounded-md border p-3">
+        <ScrollArea className={messageListClassName ?? "h-[200px] rounded-md border p-3"}>
           <div className="space-y-2">
             {visibleMessages.length === 0 ? (
               <p className="text-xs text-muted-foreground text-center py-4">

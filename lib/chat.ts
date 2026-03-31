@@ -55,17 +55,20 @@ export async function sendChatMessage(
 
 /**
  * Subscribe to chat messages for a stream session (real-time updates via Firebase)
+ * @param maxMessages capped at 500 for Firestore query limits
  */
 export function subscribeToStreamChat(
   streamSessionId: string,
-  callback: (messages: ChatMessage[]) => void
+  callback: (messages: ChatMessage[]) => void,
+  maxMessages = 100,
 ): Unsubscribe {
+  const cap = Math.min(500, Math.max(1, maxMessages))
   const messagesRef = collection(db, "streamChatMessages")
   const q = query(
     messagesRef,
     where("streamSessionId", "==", streamSessionId),
     orderBy("createdAt", "asc"),
-    limit(100)
+    limit(cap)
   )
 
   return onSnapshot(q, (snapshot) => {

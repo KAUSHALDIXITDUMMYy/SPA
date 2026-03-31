@@ -64,6 +64,60 @@ export const endStreamSession = async (sessionId: string) => {
   }
 }
 
+/** Reassign who “owns” the session in Firestore (subscribers/admin UI). The current host must stop broadcasting; the new publisher should go live in the same room if you need continuity. */
+export async function updateStreamSessionPublisher(
+  sessionId: string,
+  publisherId: string,
+  publisherName: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await updateDoc(doc(db, "streamSessions", sessionId), {
+      publisherId,
+      publisherName,
+    })
+    return { success: true }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Update failed"
+    return { success: false, error: msg }
+  }
+}
+
+function normalizeStreamSession(id: string, data: Record<string, unknown>): StreamSession {
+  const created = data.createdAt as { toDate?: () => Date } | undefined
+  const ended = data.endedAt as { toDate?: () => Date } | undefined
+  const createdAt = created?.toDate?.() ?? new Date(data.createdAt as string)
+  const endedAt = ended?.toDate?.() ?? (data.endedAt ? new Date(data.endedAt as string) : undefined)
+  return {
+    id,
+    publisherId: String(data.publisherId ?? ""),
+    publisherName: String(data.publisherName ?? ""),
+    roomId: String(data.roomId ?? ""),
+    isActive: Boolean(data.isActive),
+    createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
+    endedAt: endedAt && !Number.isNaN(endedAt.getTime()) ? endedAt : undefined,
+    title: data.title ? String(data.title) : undefined,
+    description: data.description ? String(data.description) : undefined,
+    sport: data.sport ? String(data.sport) : undefined,
+    scheduledCallId: data.scheduledCallId ? String(data.scheduledCallId) : undefined,
+    gameName: data.gameName ? String(data.gameName) : undefined,
+    league: data.league ? String(data.league) : undefined,
+    match: data.match ? String(data.match) : undefined,
+  }
+}
+
+/** Real-time list of all streams with `isActive: true`. */
+export function subscribeToActiveStreams(
+  callback: (streams: StreamSession[]) => void,
+): () => void {
+  const streamsRef = collection(db, "streamSessions")
+  const q = query(streamsRef, where("isActive", "==", true))
+  return onSnapshot(q, (snapshot) => {
+    const streams = snapshot.docs.map((d) => normalizeStreamSession(d.id, d.data() as Record<string, unknown>))
+    streams.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    callback(streams)
+  })
+}
+
 export const getActiveStreams = async () => {
   try {
     const streamsRef = collection(db, "streamSessions")

@@ -9,7 +9,21 @@ import { signOut } from "@/lib/auth"
 import { logoutAllUsers } from "@/lib/admin"
 import { useAuth } from "@/hooks/use-auth"
 import { useRouter } from "next/navigation"
-import { Settings, Users, Shield, LogOut, BarChart3, UserX, Calendar, Mail, Flag, Bell } from "lucide-react"
+import {
+  Settings,
+  Users,
+  Shield,
+  LogOut,
+  BarChart3,
+  UserX,
+  Calendar,
+  Mail,
+  Flag,
+  Bell,
+  Radio,
+  Menu,
+  type LucideIcon,
+} from "lucide-react"
 import { SubscriberAssignments } from "@/components/admin/subscriber-assignments"
 import { StreamAssignments } from "@/components/admin/stream-assignments"
 import { TodaysScheduleAdmin } from "@/components/admin/todays-schedule"
@@ -17,6 +31,7 @@ import { ScheduledCallsAdmin } from "@/components/admin/scheduled-calls-admin"
 import { ContactMessages } from "@/components/admin/contact-messages"
 import { ReportsModeration } from "@/components/admin/reports-moderation"
 import { AdminBroadcasts } from "@/components/admin/admin-broadcasts"
+import { ActiveRoomsAdmin } from "@/components/admin/active-rooms-admin"
 import { useState } from "react"
 import { toast } from "@/hooks/use-toast"
 import {
@@ -30,11 +45,35 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+
+const ADMIN_SECTIONS: { value: string; label: string; Icon: LucideIcon }[] = [
+  { value: "users", label: "User Management", Icon: Users },
+  { value: "live-rooms", label: "Live rooms", Icon: Radio },
+  { value: "analytics", label: "Analytics", Icon: BarChart3 },
+  { value: "assignments", label: "Publisher Assignments", Icon: Shield },
+  { value: "stream-assignments", label: "Stream Assignments", Icon: Settings },
+  { value: "schedule", label: "Today's Schedule", Icon: Calendar },
+  { value: "contact", label: "Contact", Icon: Mail },
+  { value: "reports", label: "Reports", Icon: Flag },
+  { value: "notifications", label: "Notifications", Icon: Bell },
+]
 
 export default function AdminDashboard() {
   const { userProfile } = useAuth()
   const router = useRouter()
   const [logoutAllLoading, setLogoutAllLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState("users")
+
+  const activeSectionLabel = ADMIN_SECTIONS.find((s) => s.value === activeTab)?.label ?? "Admin"
 
   const handleSignOut = async () => {
     await signOut()
@@ -75,12 +114,43 @@ export default function AdminDashboard() {
         <header className="border-b bg-card">
           <div className="container mx-auto px-4 py-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center space-x-4">
-                <Settings className="h-6 w-6 flex-shrink-0" />
-                <div className="min-w-0">
-                  <h1 className="text-xl sm:text-2xl font-bold truncate">Admin Dashboard</h1>
+              <div className="flex items-start gap-3 min-w-0 flex-1">
+                <Settings className="h-6 w-6 flex-shrink-0 mt-1" />
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h1 className="text-xl sm:text-2xl font-bold truncate">Admin Dashboard</h1>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="md:hidden shrink-0 h-9 w-9"
+                          aria-label="Open admin sections menu"
+                        >
+                          <Menu className="h-5 w-5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-[min(calc(100vw-2rem),20rem)]">
+                        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                          Jump to section
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuRadioGroup value={activeTab} onValueChange={setActiveTab}>
+                          {ADMIN_SECTIONS.map(({ value, label, Icon }) => (
+                            <DropdownMenuRadioItem key={value} value={value} className="gap-2">
+                              <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              <span>{label}</span>
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                   <p className="text-sm sm:text-base text-muted-foreground truncate">
                     Welcome back, {userProfile?.displayName || userProfile?.email}
+                  </p>
+                  <p className="md:hidden text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">{activeSectionLabel}</span>
                   </p>
                 </div>
               </div>
@@ -120,12 +190,17 @@ export default function AdminDashboard() {
 
         {/* Main Content */}
         <main className="container mx-auto px-2 sm:px-4 py-4 sm:py-8">
-          <Tabs defaultValue="users" className="space-y-4 sm:space-y-6">
-            <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 h-auto gap-1">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 sm:space-y-6">
+            <TabsList className="hidden md:grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-9 h-auto gap-1">
               <TabsTrigger value="users" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
                 <Users className="h-3 w-3 sm:h-4 sm:w-4" />
                 <span className="hidden xs:inline">User Management</span>
                 <span className="xs:hidden">Users</span>
+              </TabsTrigger>
+              <TabsTrigger value="live-rooms" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
+                <Radio className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden xs:inline">Live rooms</span>
+                <span className="xs:hidden">Live</span>
               </TabsTrigger>
               <TabsTrigger value="analytics" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
                 <BarChart3 className="h-3 w-3 sm:h-4 sm:w-4" />
@@ -165,6 +240,10 @@ export default function AdminDashboard() {
 
             <TabsContent value="users">
               <UserManagement />
+            </TabsContent>
+
+            <TabsContent value="live-rooms">
+              <ActiveRoomsAdmin />
             </TabsContent>
 
             <TabsContent value="analytics">
