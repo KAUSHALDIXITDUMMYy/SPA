@@ -143,14 +143,28 @@ export class AgoraManager {
     return data as { token: string; uid: number; appId: string }
   }
 
-  // Public join method
+  /**
+   * Run join/leave one at a time. Without this, React unmount can call leave() while join() is still
+   * awaiting client.join(); the next open then creates a second client and hits SDK errors until refresh.
+   */
+  private agoraChain: Promise<void> = Promise.resolve()
+
+  private enqueueAgora<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.agoraChain.then(() => fn())
+    this.agoraChain = run.then(() => {}).catch(() => {}) as Promise<void>
+    return run
+  }
+
   async join(config: AgoraJoinConfig) {
+    return this.enqueueAgora(() => this.joinInternal(config))
+  }
+
+  private async joinInternal(config: AgoraJoinConfig) {
     const { channelName, role, uid, container } = config
     this.lastJoinConfig = config
 
-    // If we're still in a channel (e.g. re-join before previous leave() finished), leave first.
     if (this.client) {
-      await this.leave()
+      await this.leaveInternal()
     }
 
     const tokenInfo = await this.fetchToken(channelName, role, uid)
@@ -252,8 +266,12 @@ export class AgoraManager {
     })
   }
 
-  // leave and cleanup
   async leave() {
+    return this.enqueueAgora(() => this.leaveInternal())
+  }
+
+  /** Must only be called from joinInternal or via leave() through enqueueAgora (never re-enter leave()). */
+  private async leaveInternal() {
     // Capture and clear client immediately so a concurrent join() (e.g. re-join after going back)
     // won't have its client nulled by our finally block when this leave() completes.
     const clientToLeave = this.client

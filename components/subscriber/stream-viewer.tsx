@@ -35,6 +35,14 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
   const currentPermissionRef = useRef<SubscriberPermission | null>(null)
   const isJoiningRef = useRef(false)
   const switchGenerationRef = useRef(0)
+  const isMountedRef = useRef(true)
+
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+    }
+  }, [])
 
   const handleJoinStream = async () => {
     if (isJoiningRef.current) return // Prevent duplicate join calls
@@ -55,6 +63,11 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
         }),
         fetchApproximateViewerLocation(),
       ])
+
+      if (!isMountedRef.current) {
+        await agoraManager.leave()
+        return
+      }
 
       const joinTimestamp = new Date()
       setJoinTime(joinTimestamp)
@@ -78,8 +91,10 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
         location: approxLocation ?? undefined,
       })
     } catch (err: any) {
-      setError(err.message || "Failed to join stream")
-      setLoading(false)
+      if (isMountedRef.current) {
+        setError(err.message || "Failed to join stream")
+        setLoading(false)
+      }
     } finally {
       isJoiningRef.current = false
     }
@@ -133,11 +148,21 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
 
     const streamId = permission.streamSession.roomId
     const generation = ++switchGenerationRef.current
+    let cancelled = false
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null
 
-    // Wait for container to be ready
+    const clearRetry = () => {
+      if (retryTimeout != null) {
+        clearTimeout(retryTimeout)
+        retryTimeout = null
+      }
+    }
+
+    // Wait for container to be ready (clear timeouts on cleanup so "back" then reopen never fires stale joins)
     const attemptJoin = () => {
+      if (cancelled) return
       if (!jitsiContainerRef.current) {
-        setTimeout(attemptJoin, 100)
+        retryTimeout = setTimeout(attemptJoin, 100)
         return
       }
 
@@ -145,8 +170,7 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
       if (currentStreamIdRef.current && currentStreamIdRef.current !== streamId) {
         const permissionToLeave = currentPermissionRef.current ?? permission
         handleLeaveStream(permissionToLeave).then(() => {
-          // Only proceed if this is still the latest switch (user didn't switch again)
-          if (generation !== switchGenerationRef.current) return
+          if (cancelled || generation !== switchGenerationRef.current) return
           currentStreamIdRef.current = streamId
           handleJoinStream()
         })
@@ -158,6 +182,11 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
     }
 
     attemptJoin()
+
+    return () => {
+      cancelled = true
+      clearRetry()
+    }
   }, [permission.streamSession?.roomId, autoJoin, user, userProfile])
 
   // Cleanup only on unmount (not when isConnected changes) to avoid double leave when switching streams
