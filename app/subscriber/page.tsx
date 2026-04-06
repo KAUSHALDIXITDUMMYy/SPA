@@ -18,10 +18,11 @@ import { Radio, LogOut, AlertTriangle, UserX, Calendar, Menu, Bell, Phone } from
 import { toast } from "@/hooks/use-toast"
 
 export default function SubscriberDashboard() {
-  const { userProfile } = useAuth()
+  const { user, userProfile } = useAuth()
   const router = useRouter()
   const previousActiveStatus = useRef<boolean | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState("streams")
 
   // Monitor for real-time changes to active status
   useEffect(() => {
@@ -146,7 +147,7 @@ export default function SubscriberDashboard() {
             </Card>
           ) : (
             // Active user - show normal content
-            <Tabs defaultValue="streams" className="space-y-4 sm:space-y-6">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 sm:space-y-6">
               <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto gap-1">
                 <TabsTrigger value="streams" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
                   <Radio className="h-3 w-3 sm:h-4 sm:w-4" />
@@ -175,7 +176,7 @@ export default function SubscriberDashboard() {
               </TabsContent>
 
               <TabsContent value="scheduled-calls">
-                <SubscriberScheduledCalls />
+                {user?.uid ? <SubscriberScheduledCalls userId={user.uid} /> : null}
               </TabsContent>
 
               <TabsContent value="notifications">

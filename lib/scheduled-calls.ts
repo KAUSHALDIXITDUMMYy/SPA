@@ -1,9 +1,11 @@
 import { db } from "./firebase"
+import { createScheduledPlaceholderSession, removeStreamSessionsForScheduledCall } from "./streaming"
 import {
   addDoc,
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -85,6 +87,18 @@ export async function createScheduledCall(input: {
       createdAt: new Date(),
       updatedAt: new Date(),
     })
+    const placeholder = await createScheduledPlaceholderSession({
+      scheduledCallId: ref.id,
+      roomId,
+      publisherId: input.publisherId,
+      publisherName: input.publisherName,
+      title: input.title.trim(),
+      description: input.description?.trim(),
+      sport: input.sport,
+    })
+    if (!placeholder.success) {
+      console.error("[scheduledCalls] Failed to create streamSessions placeholder:", placeholder.error)
+    }
     return { success: true, id: ref.id }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Failed to create call"
@@ -94,6 +108,7 @@ export async function createScheduledCall(input: {
 
 export async function deleteScheduledCall(callId: string): Promise<{ success: boolean; error?: string }> {
   try {
+    await removeStreamSessionsForScheduledCall(callId)
     await deleteDoc(doc(db, "scheduledCalls", callId))
     return { success: true }
   } catch (e: unknown) {
@@ -124,6 +139,16 @@ export async function updateScheduledCall(
   }
 }
 
+export async function getScheduledCallById(callId: string): Promise<ScheduledCall | null> {
+  try {
+    const snap = await getDoc(doc(db, "scheduledCalls", callId))
+    if (!snap.exists()) return null
+    return parseDoc(snap.id, snap.data() as Record<string, unknown>)
+  } catch {
+    return null
+  }
+}
+
 export async function getScheduledCallsForDate(dateKey: string): Promise<ScheduledCall[]> {
   const q = query(collection(db, "scheduledCalls"), where("dateKey", "==", dateKey))
   const snap = await getDocs(q)
@@ -150,9 +175,13 @@ export function isCallInTimeWindow(call: ScheduledCall, now = new Date()): boole
 
 export function isScheduledCallTransmitting(
   call: ScheduledCall,
-  activeSessions: { roomId: string; publisherId: string; isActive: boolean }[],
+  activeSessions: { roomId: string; publisherId: string; isActive: boolean; awaitingBroadcast?: boolean }[],
 ): boolean {
   return activeSessions.some(
-    (s) => s.isActive && s.roomId === call.roomId && s.publisherId === call.publisherId,
+    (s) =>
+      s.isActive &&
+      s.awaitingBroadcast !== true &&
+      s.roomId === call.roomId &&
+      s.publisherId === call.publisherId,
   )
 }

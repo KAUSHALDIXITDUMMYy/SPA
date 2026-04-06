@@ -8,10 +8,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { agoraManager } from "@/lib/agora"
 import { startSilentAudio, stopSilentAudio } from "@/lib/silent-audio"
 import type { SubscriberPermission } from "@/lib/subscriber"
+import { isAwaitingBroadcastSession } from "@/lib/streaming"
 import { trackSubscriberActivity } from "@/lib/analytics"
 import { fetchApproximateViewerLocation } from "@/lib/viewer-location"
 import { useAuth } from "@/hooks/use-auth"
-import { Play, Square, Volume2, VolumeX, Users, Clock, Radio, Headphones } from "lucide-react"
+import { Volume2, VolumeX, Users, Clock, Radio, Headphones } from "lucide-react"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
 import { streamSportLabel } from "@/lib/sports"
 
@@ -145,6 +146,7 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
   // Auto-join when component mounts or stream changes (do not depend on isConnected to avoid double leave/join on switch)
   useEffect(() => {
     if (!autoJoin || !permission.streamSession || !user || !userProfile) return
+    if (isAwaitingBroadcastSession(permission.streamSession)) return
 
     const streamId = permission.streamSession.roomId
     const generation = ++switchGenerationRef.current
@@ -187,7 +189,7 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
       cancelled = true
       clearRetry()
     }
-  }, [permission.streamSession?.roomId, autoJoin, user, userProfile])
+  }, [permission.streamSession?.roomId, permission.streamSession?.awaitingBroadcast, autoJoin, user, userProfile])
 
   // Cleanup only on unmount (not when isConnected changes) to avoid double leave when switching streams
   useEffect(() => {
@@ -221,9 +223,13 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
             <CardTitle className="flex flex-wrap items-center gap-2">
-              <Badge variant="destructive" className="animate-pulse">
-                LIVE
-              </Badge>
+              {isAwaitingBroadcastSession(permission.streamSession) ? (
+                <Badge variant="secondary">Waiting for host</Badge>
+              ) : (
+                <Badge variant="destructive" className="animate-pulse">
+                  LIVE
+                </Badge>
+              )}
               <Badge variant="secondary" className="text-xs sm:text-sm font-normal">
                 {streamSportLabel(permission.streamSession.sport)}
               </Badge>
@@ -265,6 +271,15 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
           </Alert>
         )}
 
+        {isAwaitingBroadcastSession(permission.streamSession) && (
+          <Alert>
+            <AlertDescription>
+              This room is open but the publisher has not started broadcasting yet. Keep this page open; it will connect
+              automatically when they go live.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Stream description */}
         {permission.streamSession.description && (
           <div className="p-3 sm:p-4 bg-muted rounded-lg">
@@ -275,7 +290,14 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
         {/* Audio Stream Player */}
         <div className="relative">
           <div ref={jitsiContainerRef} className="w-full h-[250px] sm:h-[300px] bg-muted rounded-lg flex items-center justify-center p-4">
-            {!isConnected && loading && (
+            {isAwaitingBroadcastSession(permission.streamSession) && !isConnected && (
+              <div className="text-center text-muted-foreground w-full px-2">
+                <Headphones className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-3 opacity-60" />
+                <p className="text-sm font-medium">Waiting for the host</p>
+                <p className="text-xs mt-2">You will connect automatically when they start the stream.</p>
+              </div>
+            )}
+            {!isConnected && loading && !isAwaitingBroadcastSession(permission.streamSession) && (
               <div className="text-center text-muted-foreground w-full">
                 <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-primary mx-auto mb-3 sm:mb-4"></div>
                 <p className="text-xs sm:text-sm">Connecting to audio stream...</p>

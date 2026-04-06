@@ -32,7 +32,7 @@ import { ContactMessages } from "@/components/admin/contact-messages"
 import { ReportsModeration } from "@/components/admin/reports-moderation"
 import { AdminBroadcasts } from "@/components/admin/admin-broadcasts"
 import { ActiveRoomsAdmin } from "@/components/admin/active-rooms-admin"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { toast } from "@/hooks/use-toast"
 import {
   AlertDialog,
@@ -46,14 +46,13 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 
 const ADMIN_SECTIONS: { value: string; label: string; Icon: LucideIcon }[] = [
   { value: "users", label: "User Management", Icon: Users },
@@ -72,6 +71,16 @@ export default function AdminDashboard() {
   const router = useRouter()
   const [logoutAllLoading, setLogoutAllLoading] = useState(false)
   const [activeTab, setActiveTab] = useState("users")
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)")
+    const onChange = () => {
+      if (mq.matches) setMobileNavOpen(false)
+    }
+    mq.addEventListener("change", onChange)
+    return () => mq.removeEventListener("change", onChange)
+  }, [])
 
   const activeSectionLabel = ADMIN_SECTIONS.find((s) => s.value === activeTab)?.label ?? "Admin"
 
@@ -119,32 +128,49 @@ export default function AdminDashboard() {
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-2 min-w-0">
                     <h1 className="text-xl sm:text-2xl font-bold truncate">Admin Dashboard</h1>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
+                    <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+                      <SheetTrigger asChild>
                         <Button
+                          type="button"
                           variant="outline"
                           size="icon"
                           className="md:hidden shrink-0 h-9 w-9"
                           aria-label="Open admin sections menu"
+                          aria-expanded={mobileNavOpen}
                         >
                           <Menu className="h-5 w-5" />
                         </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-[min(calc(100vw-2rem),20rem)]">
-                        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                          Jump to section
-                        </DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuRadioGroup value={activeTab} onValueChange={setActiveTab}>
+                      </SheetTrigger>
+                      <SheetContent
+                        side="bottom"
+                        className="max-h-[min(85vh,32rem)] rounded-t-2xl flex flex-col gap-0 p-0"
+                      >
+                        <SheetHeader className="text-left space-y-1 px-4 pt-4 pb-3 border-b shrink-0">
+                          <SheetTitle>Jump to section</SheetTitle>
+                          <SheetDescription>Choose an admin area</SheetDescription>
+                        </SheetHeader>
+                        <nav
+                          className="flex flex-col gap-0.5 overflow-y-auto px-2 py-3 pb-6"
+                          aria-label="Admin sections"
+                        >
                           {ADMIN_SECTIONS.map(({ value, label, Icon }) => (
-                            <DropdownMenuRadioItem key={value} value={value} className="gap-2">
-                              <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                              <span>{label}</span>
-                            </DropdownMenuRadioItem>
+                            <Button
+                              key={value}
+                              type="button"
+                              variant={activeTab === value ? "secondary" : "ghost"}
+                              className="w-full justify-start gap-3 h-12 px-3 text-base font-normal"
+                              onClick={() => {
+                                setActiveTab(value)
+                                setMobileNavOpen(false)
+                              }}
+                            >
+                              <Icon className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
+                              {label}
+                            </Button>
                           ))}
-                        </DropdownMenuRadioGroup>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                        </nav>
+                      </SheetContent>
+                    </Sheet>
                   </div>
                   <p className="text-sm sm:text-base text-muted-foreground truncate">
                     Welcome back, {userProfile?.displayName || userProfile?.email}

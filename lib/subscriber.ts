@@ -1,5 +1,15 @@
 import { db } from "./firebase"
-import { collection, query, where, getDocs, limit, onSnapshot, type Unsubscribe } from "firebase/firestore"
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  getDoc,
+  doc,
+  limit,
+  onSnapshot,
+  type Unsubscribe,
+} from "firebase/firestore"
 import type { StreamPermission, StreamAssignment } from "./admin"
 import type { StreamSession } from "./streaming"
 
@@ -64,21 +74,34 @@ export const getSubscriberPermissions = async (subscriberId: string): Promise<Su
 
     console.log("[v0] Active streams found:", activeStreamsMap.size)
 
-    // Process publisher-based permissions
-    const enrichedPermissions: SubscriberPermission[] = permissions.map((permission) => {
+    // Process publisher-based permissions — one row per active stream for that publisher (scheduled rooms + ad-hoc)
+    const enrichedPermissions: SubscriberPermission[] = []
+    permissions.forEach((permission) => {
       const publisherData = usersMap.get(permission.publisherId)
-      // Find stream by publisherId
-      const streamData = Array.from(activeStreamsMap.values()).find(
-        (s: any) => s.publisherId === permission.publisherId
+      const publisherName = publisherData?.displayName || publisherData?.email || "Unknown Publisher"
+      const streamsForPublisher = Array.from(activeStreamsMap.values()).filter(
+        (s: any) => s.publisherId === permission.publisherId,
       )
 
-      console.log("[v0] Processing permission for publisher:", permission.publisherId, "Stream active:", !!streamData)
+      if (streamsForPublisher.length === 0) {
+        console.log("[v0] Processing permission for publisher:", permission.publisherId, "Stream active:", false)
+        enrichedPermissions.push({
+          ...permission,
+          publisherName,
+          streamSession: undefined,
+        } as SubscriberPermission)
+        return
+      }
 
-      return {
-        ...permission,
-        publisherName: publisherData?.displayName || publisherData?.email || "Unknown Publisher",
-        streamSession: streamData || undefined,
-      } as SubscriberPermission
+      streamsForPublisher.forEach((streamData: any) => {
+        console.log("[v0] Processing permission for publisher:", permission.publisherId, "Stream:", streamData.id)
+        enrichedPermissions.push({
+          ...permission,
+          id: `${permission.id}_${streamData.id}`,
+          publisherName,
+          streamSession: streamData,
+        } as SubscriberPermission)
+      })
     })
 
     // Process stream-based assignments
@@ -100,10 +123,11 @@ export const getSubscriberPermissions = async (subscriberId: string): Promise<Su
       }
     })
 
-    // Remove duplicates (same publisherId + subscriberId combination)
+    // Remove duplicates (same subscriber + publisher + stream session)
     const uniquePermissions = new Map<string, SubscriberPermission>()
     enrichedPermissions.forEach((perm) => {
-      const key = `${perm.subscriberId}_${perm.publisherId}`
+      const sid = perm.streamSession?.id ?? perm.id ?? "none"
+      const key = `${perm.subscriberId}_${perm.publisherId}_${sid}`
       if (!uniquePermissions.has(key)) {
         uniquePermissions.set(key, perm)
       }
@@ -122,6 +146,64 @@ export const getAvailableStreams = async (subscriberId: string): Promise<Subscri
   const availableStreams = permissions.filter((permission) => permission.streamSession?.isActive)
   console.log("[v0] Available streams for subscriber:", availableStreams.length)
   return availableStreams
+}
+
+/** Admin-scheduled Agora room: linked call id and/or `sched-…` room IDs from schedule imports. */
+export function streamSessionIsScheduledRoom(session: StreamSession | undefined): boolean {
+  if (!session) return false
+  if (session.scheduledCallId) return true
+  const rid = session.roomId?.trim() ?? ""
+  return rid.startsWith("sched-")
+}
+
+/**
+ * Split active streams: publisher-started (ad-hoc) vs admin-scheduled rooms.
+ */
+export async function getAvailableStreamsSplit(subscriberId: string): Promise<{
+  adHoc: SubscriberPermission[]
+  scheduled: SubscriberPermission[]
+}> {
+  const all = await getAvailableStreams(subscriberId)
+  return {
+    adHoc: all.filter((p) => !streamSessionIsScheduledRoom(p.streamSession)),
+    scheduled: all.filter((p) => streamSessionIsScheduledRoom(p.streamSession)),
+  }
+}
+
+/** Publisher IDs this subscriber may hear (publisher assignments + publishers owning assigned stream sessions). */
+export async function getAccessiblePublisherIdsForSubscriber(subscriberId: string): Promise<Set<string>> {
+  const ids = new Set<string>()
+  try {
+    const permsQ = query(
+      collection(db, "streamPermissions"),
+      where("subscriberId", "==", subscriberId),
+      where("isActive", "==", true),
+    )
+    const assignQ = query(
+      collection(db, "streamAssignments"),
+      where("subscriberId", "==", subscriberId),
+      where("isActive", "==", true),
+    )
+    const [permsSnap, assignSnap] = await Promise.all([getDocs(permsQ), getDocs(assignQ)])
+    permsSnap.docs.forEach((d) => {
+      const pid = d.data().publisherId as string | undefined
+      if (pid) ids.add(pid)
+    })
+    const sessionReads = assignSnap.docs
+      .map((d) => d.data().streamSessionId as string | undefined)
+      .filter((sid): sid is string => Boolean(sid))
+      .map((sid) => getDoc(doc(db, "streamSessions", sid)))
+    const sessionSnaps = await Promise.all(sessionReads)
+    sessionSnaps.forEach((snap) => {
+      if (snap.exists()) {
+        const pid = snap.data()?.publisherId as string | undefined
+        if (pid) ids.add(pid)
+      }
+    })
+  } catch (e) {
+    console.error("getAccessiblePublisherIdsForSubscriber:", e)
+  }
+  return ids
 }
 
 /** True if the subscriber has at least one active publisher (streamPermissions) or stream (streamAssignments) assignment. */

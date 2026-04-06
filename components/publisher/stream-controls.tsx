@@ -13,7 +13,16 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useAuth } from "@/hooks/use-auth"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
 import { agoraManager } from "@/lib/agora"
-import { createStreamSession, endStreamSession, generateRoomId, getPublisherStreams, subscribeToPublisherActiveStream, type StreamSession } from "@/lib/streaming"
+import {
+  activateScheduledBroadcastSession,
+  createStreamSession,
+  endStreamSession,
+  generateRoomId,
+  getPublisherStreams,
+  resetScheduledSessionAfterBroadcast,
+  subscribeToPublisherActiveStream,
+  type StreamSession,
+} from "@/lib/streaming"
 import { DEFAULT_STREAM_SPORT, US_STREAM_SPORTS, streamSportLabel } from "@/lib/sports"
 import { startSilentAudio, stopSilentAudio } from "@/lib/silent-audio"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -189,7 +198,7 @@ export function StreamControls({
 
     try {
       const roomId = broadcastScheduledCall.roomId
-      const sessionResult = await createStreamSession({
+      const sessionResult = await activateScheduledBroadcastSession({
         publisherId: user.uid,
         publisherName: userProfile.displayName || userProfile.email,
         roomId,
@@ -297,7 +306,14 @@ export function StreamControls({
     setLoading(true)
 
     try {
-      await endStreamSession(currentSession.id!)
+      if (currentSession.scheduledCallId) {
+        const reset = await resetScheduledSessionAfterBroadcast(currentSession.id!)
+        if (!reset.success) {
+          throw new Error(reset.error || "Failed to reset scheduled room")
+        }
+      } else {
+        await endStreamSession(currentSession.id!)
+      }
       await agoraManager.leave()
       stopSilentAudio()
       setIsStreaming(false)

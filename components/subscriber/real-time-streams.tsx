@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAuth } from "@/hooks/use-auth"
-import { getAvailableStreams } from "@/lib/subscriber"
+import { getAvailableStreamsSplit } from "@/lib/subscriber"
+import { isAwaitingBroadcastSession } from "@/lib/streaming"
 import type { SubscriberPermission } from "@/lib/subscriber"
 import { US_STREAM_SPORTS, SPORT_FILTER_ALL, SPORT_FILTER_UNSPECIFIED, streamSportLabel } from "@/lib/sports"
 import { StreamViewer } from "./stream-viewer"
@@ -36,8 +37,8 @@ export function RealTimeStreams() {
     const loadStreams = async () => {
       try {
         console.log("[v0] Loading streams for user:", user.uid)
-        const streams = await getAvailableStreams(user.uid)
-        console.log("[v0] Available streams loaded:", streams.length)
+        const { adHoc: streams } = await getAvailableStreamsSplit(user.uid)
+        console.log("[v0] Ad-hoc streams for subscriber:", streams.length)
         
         // Sort streams alphabetically by publisher name
         const sortedStreams = [...streams].sort((a, b) => {
@@ -98,7 +99,7 @@ export function RealTimeStreams() {
     <div className="p-0">
       {selectedStream ? (
         <StreamViewer
-          key={selectedStream.streamSession?.roomId || selectedStream.id}
+          key={selectedStream.streamSession?.id || selectedStream.id}
           permission={selectedStream}
           onLeaveStream={() => setSelectedStream(null)}
           autoJoin={true}
@@ -127,7 +128,10 @@ export function RealTimeStreams() {
               </Badge>
             </div>
           </div>
-          <CardDescription>Your audio stream access is managed by administrators</CardDescription>
+          <CardDescription>
+            Only <strong className="text-foreground">publisher-started</strong> streams (not tied to a scheduled game room).
+            Admin-scheduled rooms are under the <strong className="text-foreground">Calls</strong> tab.
+          </CardDescription>
         </CardHeader>
       </Card>
 
@@ -145,10 +149,12 @@ export function RealTimeStreams() {
             <CardContent className="flex items-center justify-center p-8 sm:p-12">
               <div className="text-center text-muted-foreground">
                 <Radio className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-4 opacity-50" />
-                <h3 className="text-base sm:text-lg font-medium mb-2">No Active Audio Streams</h3>
-                <p className="text-sm sm:text-base">There are currently no live audio streams available to you.</p>
+                <h3 className="text-base sm:text-lg font-medium mb-2">No publisher streams right now</h3>
+                <p className="text-sm sm:text-base">
+                  No direct streams from your publishers. Scheduled game rooms are in the <strong>Calls</strong> tab.
+                </p>
                 <p className="text-xs sm:text-sm mt-2">
-                  Contact your administrator to get stream access or wait for publishers to start streaming audio.
+                  Contact your administrator for access, or wait for a publisher to go live outside a scheduled room.
                 </p>
               </div>
             </CardContent>
@@ -206,9 +212,15 @@ export function RealTimeStreams() {
                     <div className="flex items-start justify-between">
                       <div className="space-y-2 min-w-0 flex-1">
                         <CardTitle className="flex flex-wrap items-center gap-2">
-                          <Badge variant="destructive" className="animate-pulse text-xs flex-shrink-0">
-                            LIVE
-                          </Badge>
+                          {perm.streamSession && isAwaitingBroadcastSession(perm.streamSession) ? (
+                            <Badge variant="secondary" className="text-xs flex-shrink-0">
+                              Waiting for host
+                            </Badge>
+                          ) : (
+                            <Badge variant="destructive" className="animate-pulse text-xs flex-shrink-0">
+                              LIVE
+                            </Badge>
+                          )}
                           <Badge variant="secondary" className="text-xs font-normal">
                             {streamSportLabel(perm.streamSession?.sport)}
                           </Badge>

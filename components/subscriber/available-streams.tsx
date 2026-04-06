@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAuth } from "@/hooks/use-auth"
-import { getAvailableStreams, type SubscriberPermission } from "@/lib/subscriber"
+import { getAvailableStreamsSplit, type SubscriberPermission } from "@/lib/subscriber"
+import { isAwaitingBroadcastSession } from "@/lib/streaming"
 import {
   US_STREAM_SPORTS,
   SPORT_FILTER_ALL,
@@ -47,7 +48,7 @@ export function AvailableStreams() {
     if (!isInitialLoad) setRefreshing(true)
 
     try {
-      const availableStreams = await getAvailableStreams(user.uid)
+      const { adHoc: availableStreams } = await getAvailableStreamsSplit(user.uid)
       
       // Sort streams alphabetically by publisher name
       const sortedStreams = [...availableStreams].sort((a, b) => {
@@ -179,9 +180,15 @@ export function AvailableStreams() {
                 <div className="flex items-start justify-between">
                   <div className="space-y-2 min-w-0 flex-1">
                     <CardTitle className="flex flex-wrap items-center gap-2">
-                      <Badge variant="destructive" className="animate-pulse text-xs flex-shrink-0">
-                        LIVE
-                      </Badge>
+                      {permission.streamSession && isAwaitingBroadcastSession(permission.streamSession) ? (
+                        <Badge variant="secondary" className="text-xs flex-shrink-0">
+                          Waiting for host
+                        </Badge>
+                      ) : (
+                        <Badge variant="destructive" className="animate-pulse text-xs flex-shrink-0">
+                          LIVE
+                        </Badge>
+                      )}
                       <Badge variant="secondary" className="text-xs font-normal">
                         {streamSportLabel(permission.streamSession?.sport)}
                       </Badge>

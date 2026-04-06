@@ -206,9 +206,11 @@ export function ScheduledCallsAdmin() {
           <CardTitle>Scheduled calls & rooms</CardTitle>
         </div>
         <CardDescription>
-          Create timed calls for a day, each with a fixed Agora room and one assigned publisher. Subscribers see
-          what&apos;s live; publishers broadcast from their dashboard using the assigned room. This is separate from
-          the plain-text schedule above.
+          Create timed calls for a day, each with a fixed Agora room and one assigned publisher. Rows are listed for the
+          <strong className="font-medium text-foreground"> day you choose in the date field</strong>—if you imported a
+          paste with &quot;Feb 6th&quot;, pick that date here; it may not match &quot;today.&quot; To delete a room
+          quickly, use <strong className="font-medium text-foreground">Live rooms → Remove</strong> instead of hunting
+          in this table. This section is separate from the plain-text schedule block above.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
