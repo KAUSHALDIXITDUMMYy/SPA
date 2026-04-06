@@ -221,10 +221,29 @@ export async function updateStreamSessionPublisher(
   publisherName: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    await updateDoc(doc(db, "streamSessions", sessionId), {
+    const sessionRef = doc(db, "streamSessions", sessionId)
+    const snap = await getDoc(sessionRef)
+    const scheduledCallId = snap.exists()
+      ? (snap.data() as { scheduledCallId?: string }).scheduledCallId
+      : undefined
+
+    await updateDoc(sessionRef, {
       publisherId,
       publisherName,
     })
+
+    if (scheduledCallId) {
+      try {
+        await updateDoc(doc(db, "scheduledCalls", String(scheduledCallId)), {
+          publisherId,
+          publisherName,
+          updatedAt: new Date(),
+        })
+      } catch {
+        // scheduledCalls row may have been deleted; stream session is still updated
+      }
+    }
+
     return { success: true }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Update failed"
