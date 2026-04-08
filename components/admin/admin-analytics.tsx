@@ -264,7 +264,7 @@ export function AdminAnalytics() {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <h2 className="text-xl sm:text-2xl font-bold">Analytics Dashboard</h2>
-            <div className="flex items-center gap-2 px-2 sm:px-3 py-1 sm:py-1.5 rounded-full bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 border border-green-200 dark:border-green-800 flex-shrink-0">
+            <div className="flex flex-shrink-0 items-center gap-2 rounded-full border border-green-200/80 bg-muted/50 px-2 py-1 sm:px-3 sm:py-1.5 dark:border-green-800">
               <Radio className={`h-3 w-3 sm:h-3.5 sm:w-3.5 text-green-600 dark:text-green-400 ${isLive ? 'animate-pulse' : ''}`} />
               <span className="text-xs font-semibold text-green-700 dark:text-green-300 whitespace-nowrap">
                 {isLive ? "LIVE" : "CONNECTING..."}
@@ -309,7 +309,7 @@ export function AdminAnalytics() {
           </CollapsibleTrigger>
           <CollapsibleContent className="md:!block">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="border-blue-200 dark:border-blue-800 bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20">
+          <Card className="border bg-card border-blue-200/80 dark:border-blue-800">
             <CardContent className="p-6">
               <div className="flex items-start justify-between">
                 <div className="space-y-2">
@@ -324,7 +324,7 @@ export function AdminAnalytics() {
             </CardContent>
           </Card>
 
-          <Card className="border-green-200 dark:border-green-800 bg-gradient-to-br from-green-50 to-green-100/50 dark:from-green-950/30 dark:to-green-900/20">
+          <Card className="border bg-card border-green-200/80 dark:border-green-800">
             <CardContent className="p-6">
               <div className="flex items-start justify-between">
                 <div className="space-y-2">
@@ -342,7 +342,7 @@ export function AdminAnalytics() {
             </CardContent>
           </Card>
 
-          <Card className="border-purple-200 dark:border-purple-800 bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20">
+          <Card className="border bg-card border-purple-200/80 dark:border-purple-800">
             <CardContent className="p-6">
               <div className="flex items-start justify-between">
                 <div className="space-y-2">
@@ -360,7 +360,7 @@ export function AdminAnalytics() {
             </CardContent>
           </Card>
 
-          <Card className="border-orange-200 dark:border-orange-800 bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/30 dark:to-orange-900/20">
+          <Card className="border bg-card border-orange-200/80 dark:border-orange-800">
             <CardContent className="p-6">
               <div className="flex items-start justify-between">
                 <div className="space-y-2">
@@ -405,7 +405,7 @@ export function AdminAnalytics() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             {/* Current Active Viewers - Who is watching What */}
             <Card className="border-2 overflow-hidden">
-              <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 p-4 sm:p-6">
+              <CardHeader className="border-b bg-muted/40 p-4 sm:p-6">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <CardTitle className="flex flex-wrap items-center gap-2 text-base sm:text-lg">
@@ -433,7 +433,7 @@ export function AdminAnalytics() {
                         return (
                           <div 
                             key={viewer.id} 
-                            className="group relative p-3 sm:p-4 bg-gradient-to-r from-white to-green-50/30 dark:from-slate-900 dark:to-green-950/20 rounded-lg border border-green-200 dark:border-green-900 hover:shadow-md transition-all duration-200 overflow-hidden"
+                            className="group relative rounded-lg border border-green-200/80 dark:border-green-900 bg-card p-3 sm:p-4 transition-colors hover:bg-muted/50"
                           >
                             <div className="absolute top-2 right-2">
                               <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shadow-lg shadow-green-500/50" />
@@ -496,12 +496,9 @@ export function AdminAnalytics() {
                   </ScrollArea>
                 ) : (
                   <div className="text-center text-muted-foreground py-16">
-                    <div className="relative inline-block">
-                      <Eye className="h-16 w-16 mx-auto mb-4 opacity-20" />
-                      <div className="absolute inset-0 bg-gradient-to-t from-background to-transparent" />
-                    </div>
-                    <p className="font-medium">No Active Viewers</p>
-                    <p className="text-sm mt-1">Viewers will appear here when they join streams</p>
+                    <Eye className="mx-auto mb-4 h-16 w-16 text-muted-foreground/35" />
+                    <p className="font-medium text-foreground">No Active Viewers</p>
+                    <p className="mt-1 text-sm">Viewers will appear here when they join streams</p>
                   </div>
                 )}
               </CardContent>
@@ -509,7 +506,7 @@ export function AdminAnalytics() {
 
             {/* Active Streams */}
             <Card className="border-2 overflow-hidden">
-              <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950/30 dark:to-pink-950/30 p-4 sm:p-6">
+              <CardHeader className="border-b bg-muted/40 p-4 sm:p-6">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <CardTitle className="flex flex-wrap items-center gap-2 text-base sm:text-lg">
@@ -537,7 +534,7 @@ export function AdminAnalytics() {
                         return (
                           <div 
                             key={stream.id} 
-                            className="group p-3 sm:p-4 bg-gradient-to-r from-white to-purple-50/30 dark:from-slate-900 dark:to-purple-950/20 rounded-lg border border-purple-200 dark:border-purple-900 hover:shadow-md transition-all duration-200 overflow-hidden"
+                            className="group rounded-lg border border-purple-200/80 dark:border-purple-900 bg-card p-3 sm:p-4 transition-colors hover:bg-muted/50"
                           >
                             <div className="space-y-3">
                               <div className="flex items-start justify-between">
@@ -614,12 +611,9 @@ export function AdminAnalytics() {
                   </ScrollArea>
                 ) : (
                   <div className="text-center text-muted-foreground py-16">
-                    <div className="relative inline-block">
-                      <Play className="h-16 w-16 mx-auto mb-4 opacity-20" />
-                      <div className="absolute inset-0 bg-gradient-to-t from-background to-transparent" />
-                    </div>
-                    <p className="font-medium">No Live Streams</p>
-                    <p className="text-sm mt-1">Streams will appear here when publishers go live</p>
+                    <Play className="mx-auto mb-4 h-16 w-16 text-muted-foreground/35" />
+                    <p className="font-medium text-foreground">No Live Streams</p>
+                    <p className="mt-1 text-sm">Streams will appear here when publishers go live</p>
                   </div>
                 )}
               </CardContent>

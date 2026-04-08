@@ -75,6 +75,11 @@ export function ActiveRoomsAdmin() {
   const [reassignPublisherId, setReassignPublisherId] = useState("")
   const [reassignSaving, setReassignSaving] = useState(false)
   const [chatSession, setChatSession] = useState<StreamSession | null>(null)
+  const [endingAll, setEndingAll] = useState(false)
+
+  const streamsEligibleToEnd = streams.filter(
+    (s) => s.id && !(s.scheduledCallId && isAwaitingBroadcastSession(s)),
+  )
 
   useEffect(() => {
     const unsub = subscribeToActiveStreams((list) => {
@@ -123,8 +128,39 @@ export function ActiveRoomsAdmin() {
     }
   }
 
+  const handleEndAll = async () => {
+    if (streamsEligibleToEnd.length === 0) return
+    setEndingAll(true)
+    let succeeded = 0
+    let failed = 0
+    for (const s of streamsEligibleToEnd) {
+      if (!s.id) continue
+      const r = s.scheduledCallId
+        ? await resetScheduledSessionAfterBroadcast(s.id)
+        : await endStreamSession(s.id)
+      if (r.success) succeeded++
+      else failed++
+    }
+    setEndingAll(false)
+    if (chatSession && streamsEligibleToEnd.some((x) => x.id === chatSession.id)) {
+      setChatSession(null)
+    }
+    if (failed === 0) {
+      toast({
+        title: "All live broadcasts ended",
+        description: `${succeeded} room(s) closed or returned to “waiting for host.” Publishers should stop broadcasting in their dashboards so Agora disconnects.`,
+      })
+    } else {
+      toast({
+        title: "Bulk end finished with errors",
+        description: `${succeeded} succeeded, ${failed} failed. Check Firestore permissions or retry individual rooms.`,
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleRemoveFromSchedule = async (s: StreamSession) => {
-    if (!s.scheduledCallId) return
+    if (!s.scheduledCallId || !s.id) return
     setRemovingScheduleId(s.id)
     const r = await deleteScheduledCall(s.scheduledCallId)
     setRemovingScheduleId(null)
@@ -170,17 +206,71 @@ export function ActiveRoomsAdmin() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex items-center gap-2">
-            <Radio className="h-5 w-5" />
-            <CardTitle>Live rooms</CardTitle>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-1.5 min-w-0">
+              <div className="flex items-center gap-2">
+                <Radio className="h-5 w-5 shrink-0" />
+                <CardTitle>Live rooms</CardTitle>
+              </div>
+              <CardDescription>
+                Active <code className="text-xs">streamSessions</code> rows. For <strong>scheduled</strong> rooms:{" "}
+                <strong>End</strong> stops the live broadcast and returns the slot to &quot;waiting for host.&quot;{" "}
+                <strong>Remove from schedule</strong> deletes the calendar entry and this row (you don&apos;t need to use
+                the Schedule tab). The plain-text block at the top of the Schedule tab is separate—it does not list these
+                rooms. Reassigning updates metadata only.
+              </CardDescription>
+            </div>
+            {streams.length > 0 ? (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    className="shrink-0 w-full lg:w-auto"
+                    disabled={endingAll || streamsEligibleToEnd.length === 0}
+                    title={
+                      streamsEligibleToEnd.length === 0
+                        ? "Only “waiting for host” placeholders—use Remove on each row to delete scheduled slots, or wait for a broadcast to start."
+                        : undefined
+                    }
+                  >
+                    {endingAll ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
+                        Ending all…
+                      </>
+                    ) : (
+                      <>End all live broadcasts ({streamsEligibleToEnd.length})</>
+                    )}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>End every live broadcast?</AlertDialogTitle>
+                    <AlertDialogDescription asChild>
+                      <div className="space-y-2 text-sm text-muted-foreground">
+                        <p>
+                          This runs the same action as <strong>End</strong> on each active broadcast:{" "}
+                          <strong>{streamsEligibleToEnd.length}</strong> room(s). Scheduled games go back to
+                          &quot;waiting for host.&quot; Ad-hoc streams are marked inactive.
+                        </p>
+                        <p>
+                          Rows that are only <strong>waiting for host</strong> are skipped—remove those from the schedule
+                          per row if you want them gone.
+                        </p>
+                        <p>Hosts should also stop broadcasting in their publisher dashboard so Agora audio stops.</p>
+                      </div>
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleEndAll}>End all</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            ) : null}
           </div>
-          <CardDescription>
-            Active <code className="text-xs">streamSessions</code> rows. For <strong>scheduled</strong> rooms:{" "}
-            <strong>End</strong> stops the live broadcast and returns the slot to &quot;waiting for host.&quot;{" "}
-            <strong>Remove from schedule</strong> deletes the calendar entry and this row (you don&apos;t need to use the
-            Schedule tab). The plain-text block at the top of the Schedule tab is separate—it does not list these rooms.
-            Reassigning updates metadata only.
-          </CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (

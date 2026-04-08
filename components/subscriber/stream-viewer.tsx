@@ -335,7 +335,7 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
             )}
           </div>
         </div>
-        {permission.streamSession?.id && user && userProfile && (
+        {permission.streamSession?.id && user && userProfile && userProfile.allowChat === true && (
           <div className="mt-4">
             <StreamChatPanel
               streamSessionId={permission.streamSession.id}
@@ -344,7 +344,7 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
               currentUserName={userProfile.displayName || userProfile.email || ""}
               currentUserEmail={userProfile.email}
               isPublisher={false}
-              canChat={userProfile?.allowChat ?? false}
+              canChat
             />
           </div>
         )}

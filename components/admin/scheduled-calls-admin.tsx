@@ -128,6 +128,18 @@ export function ScheduledCallsAdmin() {
     email: p.email,
   }))
 
+  const setPreviewRowPublisher = (lineIndex: number, publisherId: string) => {
+    setImportPreview((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        rows: prev.rows.map((row) =>
+          row.lineIndex === lineIndex ? { ...row, matchedPublisherId: publisherId } : row,
+        ),
+      }
+    })
+  }
+
   const handlePreviewImport = () => {
     const result = buildScheduleImportPreview(importPaste, publisherRowsForImport, {
       defaultSport: sport,
@@ -154,7 +166,7 @@ export function ScheduledCallsAdmin() {
       title: "Preview ready",
       description:
         unmatched > 0
-          ? `${result.rows.length} game(s); ${unmatched} without a matched publisher — assign a fallback or fix names.`
+          ? `${result.rows.length} game(s); ${unmatched} without a matched publisher — use the dropdown on each row, or set a fallback above.`
           : `${result.rows.length} game(s) ready to create.`,
     })
   }
@@ -370,13 +382,40 @@ export function ScheduledCallsAdmin() {
                         {r.endsAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                       </TableCell>
                       <TableCell className="text-sm max-w-[200px] truncate">{r.title}</TableCell>
-                      <TableCell className="text-sm">
+                      <TableCell className="text-sm align-top min-w-[200px] max-w-[280px]">
                         {r.matchedPublisherId ? (
                           publisherName(r.matchedPublisherId)
                         ) : (
-                          <span className="text-destructive">
-                            Unmatched{r.publisherHint ? ` (${r.publisherHint})` : ""}
-                          </span>
+                          <div className="space-y-2 py-0.5">
+                            <p className="text-xs font-medium text-destructive leading-snug">
+                              Unmatched
+                              {r.publisherHint ? (
+                                <span className="font-normal text-destructive/90">
+                                  {" "}
+                                  (paste: &quot;{r.publisherHint}&quot;)
+                                </span>
+                              ) : null}
+                            </p>
+                            {publishers.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">No publishers in the system yet.</p>
+                            ) : (
+                              <Select onValueChange={(v) => setPreviewRowPublisher(r.lineIndex, v)}>
+                                <SelectTrigger
+                                  aria-label={`Assign publisher for ${r.title}`}
+                                  className="h-8 w-full text-left text-xs border-destructive/40 bg-destructive/5 dark:bg-destructive/10"
+                                >
+                                  <SelectValue placeholder="Assign publisher…" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {publishers.map((p) => (
+                                    <SelectItem key={p.id} value={p.id}>
+                                      {p.displayName || p.email || p.id}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
                         )}
                       </TableCell>
                       <TableCell className="hidden sm:table-cell text-xs">{r.sport}</TableCell>
@@ -385,7 +424,8 @@ export function ScheduledCallsAdmin() {
                 </TableBody>
               </Table>
               <p className="text-xs text-muted-foreground px-3 py-2 border-t">
-                Day set to <span className="font-mono">{importPreview.dateKey}</span> from the pasted date.
+                Day set to <span className="font-mono">{importPreview.dateKey}</span> from the pasted date. Red rows: pick
+                a publisher from the dropdown in the Publisher column (or use the fallback before preview).
               </p>
             </div>
           )}
