@@ -133,6 +133,21 @@
   }
 }
 
+@keyframes subscriber-audio-bar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.subscriber-audio-bar {
+  transform-origin: bottom center;
+  animation: subscriber-audio-bar 0.75s ease-in-out infinite;
+}
+
 /* Mobile optimizations */
 @layer utilities {
   /* Better touch targets on mobile */

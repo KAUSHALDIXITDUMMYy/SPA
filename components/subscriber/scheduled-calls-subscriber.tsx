@@ -18,6 +18,9 @@ import {
 import { isAwaitingBroadcastSession } from "@/lib/streaming"
 import { streamSportLabel } from "@/lib/sports"
 import { StreamViewer } from "./stream-viewer"
+import { SubscriberFloatingChat } from "@/components/subscriber/subscriber-floating-chat"
+import { useAuth } from "@/hooks/use-auth"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { Phone, Radio, Activity } from "lucide-react"
 
 type ActiveSessionRow = {
@@ -46,6 +49,8 @@ export type SubscriberScheduledCallsProps = {
 }
 
 export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsProps) {
+  const { user, userProfile } = useAuth()
+  const isMobile = useIsMobile()
   const [activeSessions, setActiveSessions] = useState<ActiveSessionRow[]>([])
   const [scheduledPermissions, setScheduledPermissions] = useState<SubscriberPermission[]>([])
   const [listening, setListening] = useState<SubscriberPermission | null>(null)
@@ -138,22 +143,108 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
     [dedupedRooms, activeSessions],
   )
 
-  const viewerPane =
-    listening ? (
-      <StreamViewer
-        key={listening.streamSession?.id || listening.id}
-        permission={listening}
-        onLeaveStream={() => setListening(null)}
-        autoJoin={true}
-      />
-    ) : (
-      <Card>
-        <CardContent className="flex items-center justify-center p-12 text-muted-foreground text-sm text-center">
-          Select a room below to listen. Scheduled games stay in this tab; publisher direct streams are under{" "}
-          <strong className="text-foreground mx-1">Audio Streams</strong>.
-        </CardContent>
-      </Card>
-    )
+  const emptyViewerPane = (
+    <Card>
+      <CardContent className="flex items-center justify-center p-12 text-center text-sm text-muted-foreground">
+        Select a room below to listen. Scheduled games stay in this tab; publisher direct streams are under{" "}
+        <strong className="mx-1 text-foreground">Audio Streams</strong>.
+      </CardContent>
+    </Card>
+  )
+
+  const roomsListUl = (
+    <ul className="space-y-3">
+      {dedupedRooms.map((perm) => {
+        const sess = perm.streamSession!
+        const cal =
+          sess.id && Object.prototype.hasOwnProperty.call(callMetaByStreamSessionId, sess.id)
+            ? callMetaByStreamSessionId[sess.id]
+            : undefined
+        const live =
+          cal != null ? isScheduledCallTransmitting(cal, activeSessions) : isPermissionLive(perm, activeSessions)
+        const inWindow = cal ? isCallInTimeWindow(cal) : false
+        const title = cal?.title?.trim() || sess.title || "Scheduled room"
+        const sport = cal?.sport?.trim() || sess.sport?.trim()
+        const publisherLine = cal?.publisherName || perm.publisherName
+        const dateLine = cal?.dateKey
+        const created =
+          sess.createdAt && typeof (sess.createdAt as { toDate?: () => Date }).toDate === "function"
+            ? (sess.createdAt as { toDate: () => Date }).toDate()
+            : sess.createdAt
+              ? new Date(sess.createdAt as Date)
+              : null
+        const timeLine = cal
+          ? `${cal.startsAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} – ${cal.endsAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+          : created && !Number.isNaN(created.getTime())
+            ? `Room opened ${created.toLocaleString()}`
+            : null
+        const isSelected = Boolean(listening?.streamSession?.id && listening.streamSession.id === sess.id)
+
+        return (
+          <li
+            key={sess.id}
+            className={`flex flex-col gap-3 rounded-lg border bg-card p-3 sm:p-4 ${isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
+          >
+            <div className="min-w-0 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{title}</span>
+                {live ? (
+                  <Badge variant="destructive" className="animate-pulse text-xs">
+                    LIVE
+                  </Badge>
+                ) : inWindow ? (
+                  <Badge variant="outline" className="text-xs">
+                    In window
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary" className="text-xs">
+                    Upcoming / ended
+                  </Badge>
+                )}
+                {isAwaitingBroadcastSession(sess) ? (
+                  <Badge variant="secondary" className="text-xs">
+                    Waiting for host
+                  </Badge>
+                ) : null}
+                {sport ? (
+                  <Badge variant="secondary" className="text-xs font-normal">
+                    {streamSportLabel(sport)}
+                  </Badge>
+                ) : null}
+                {dateLine ? (
+                  <Badge variant="outline" className="font-mono text-[10px]">
+                    {dateLine}
+                  </Badge>
+                ) : null}
+              </div>
+              {timeLine ? (
+                <p className="text-xs text-muted-foreground">
+                  {timeLine} · {publisherLine}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">{publisherLine}</p>
+              )}
+              <p className="break-all font-mono text-[11px] text-muted-foreground">Room ID: {sess.roomId}</p>
+            </div>
+            <Button type="button" size="sm" className="w-full shrink-0 sm:w-auto" onClick={() => setListening(perm)}>
+              <Radio className="mr-2 h-3.5 w-3.5" />
+              Listen
+            </Button>
+          </li>
+        )
+      })}
+    </ul>
+  )
+
+  const roomsColumn = (
+    <div className="space-y-3 lg:col-span-1">
+      <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <Activity className="h-4 w-4" />
+        Rooms you can open
+      </div>
+      {roomsListUl}
+    </div>
+  )
 
   return (
     <div className="space-y-4">
@@ -191,116 +282,54 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
               </AlertDescription>
             </Alert>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-              {listening ? (
-                <div className="lg:col-span-3 space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
+              {listening && isMobile ? (
+                <div className="space-y-4 lg:col-span-3">
+                  <p className="text-xs text-muted-foreground">
+                    Tap <strong className="text-foreground">Listen</strong> on another room to switch. Audio connects
+                    right away for the room you chose.
+                  </p>
+                  {roomsColumn}
+                  <StreamViewer
+                    key={listening.streamSession?.id || listening.id}
+                    permission={listening}
+                    onLeaveStream={() => setListening(null)}
+                    autoJoin={true}
+                    layout="mobileInline"
+                  />
+                  {user && userProfile && listening.streamSession?.id ? (
+                    <SubscriberFloatingChat
+                      streamSessionId={listening.streamSession.id}
+                      streamTitle={listening.streamSession.title}
+                      userId={user.uid}
+                      userName={userProfile.displayName || userProfile.email || ""}
+                      userEmail={userProfile.email}
+                      allowChat={userProfile.allowChat === true}
+                    />
+                  ) : null}
+                </div>
+              ) : listening ? (
+                <div className="space-y-4 lg:col-span-3">
                   <Button
                     type="button"
                     variant="outline"
                     onClick={() => setListening(null)}
-                    className="w-full sm:w-auto text-sm sm:text-base"
+                    className="w-full text-sm sm:w-auto sm:text-base"
                   >
                     ← Back to rooms
                   </Button>
-                  {viewerPane}
+                  <StreamViewer
+                    key={listening.streamSession?.id || listening.id}
+                    permission={listening}
+                    onLeaveStream={() => setListening(null)}
+                    autoJoin={true}
+                    layout="standard"
+                  />
                 </div>
               ) : (
                 <>
-                  <div className="lg:col-span-1 space-y-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                      <Activity className="h-4 w-4" />
-                      Rooms you can open
-                    </div>
-                    <ul className="space-y-3">
-                      {dedupedRooms.map((perm) => {
-                        const sess = perm.streamSession!
-                        const cal =
-                          sess.id && Object.prototype.hasOwnProperty.call(callMetaByStreamSessionId, sess.id)
-                            ? callMetaByStreamSessionId[sess.id]
-                            : undefined
-                        const live =
-                          cal != null
-                            ? isScheduledCallTransmitting(cal, activeSessions)
-                            : isPermissionLive(perm, activeSessions)
-                        const inWindow = cal ? isCallInTimeWindow(cal) : false
-                        const title = cal?.title?.trim() || sess.title || "Scheduled room"
-                        const sport = cal?.sport?.trim() || sess.sport?.trim()
-                        const publisherLine = cal?.publisherName || perm.publisherName
-                        const dateLine = cal?.dateKey
-                        const created =
-                          sess.createdAt &&
-                          typeof (sess.createdAt as { toDate?: () => Date }).toDate === "function"
-                            ? (sess.createdAt as { toDate: () => Date }).toDate()
-                            : sess.createdAt
-                              ? new Date(sess.createdAt as Date)
-                              : null
-                        const timeLine = cal
-                          ? `${cal.startsAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} – ${cal.endsAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-                          : created && !Number.isNaN(created.getTime())
-                            ? `Room opened ${created.toLocaleString()}`
-                            : null
-
-                        return (
-                          <li
-                            key={sess.id}
-                            className="flex flex-col gap-3 rounded-lg border bg-card p-3 sm:p-4"
-                          >
-                            <div className="min-w-0 space-y-2">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-medium">{title}</span>
-                                {live ? (
-                                  <Badge variant="destructive" className="animate-pulse text-xs">
-                                    LIVE
-                                  </Badge>
-                                ) : inWindow ? (
-                                  <Badge variant="outline" className="text-xs">
-                                    In window
-                                  </Badge>
-                                ) : (
-                                  <Badge variant="secondary" className="text-xs">
-                                    Upcoming / ended
-                                  </Badge>
-                                )}
-                                {isAwaitingBroadcastSession(sess) ? (
-                                  <Badge variant="secondary" className="text-xs">
-                                    Waiting for host
-                                  </Badge>
-                                ) : null}
-                                {sport ? (
-                                  <Badge variant="secondary" className="text-xs font-normal">
-                                    {streamSportLabel(sport)}
-                                  </Badge>
-                                ) : null}
-                                {dateLine ? (
-                                  <Badge variant="outline" className="text-[10px] font-mono">
-                                    {dateLine}
-                                  </Badge>
-                                ) : null}
-                              </div>
-                              {timeLine ? (
-                                <p className="text-xs text-muted-foreground">
-                                  {timeLine} · {publisherLine}
-                                </p>
-                              ) : (
-                                <p className="text-xs text-muted-foreground">{publisherLine}</p>
-                              )}
-                              <p className="text-[11px] font-mono text-muted-foreground break-all">Room ID: {sess.roomId}</p>
-                            </div>
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="w-full sm:w-auto shrink-0"
-                              onClick={() => setListening(perm)}
-                            >
-                              <Radio className="h-3.5 w-3.5 mr-2" />
-                              Listen
-                            </Button>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  </div>
-                  <div className="hidden lg:block lg:col-span-2">{viewerPane}</div>
+                  {roomsColumn}
+                  <div className="hidden lg:col-span-2 lg:block">{emptyViewerPane}</div>
                 </>
               )}
             </div>

@@ -12,18 +12,29 @@ import { isAwaitingBroadcastSession } from "@/lib/streaming"
 import { trackSubscriberActivity } from "@/lib/analytics"
 import { fetchApproximateViewerLocation } from "@/lib/viewer-location"
 import { useAuth } from "@/hooks/use-auth"
-import { Volume2, VolumeX, Users, Clock, Radio, Headphones } from "lucide-react"
+import { Volume2, VolumeX, Users, Clock, Radio, Headphones, Square } from "lucide-react"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
 import { streamSportLabel } from "@/lib/sports"
+import { AudioPlayingIndicator } from "@/components/subscriber/audio-playing-indicator"
+
+export type StreamViewerLayout = "standard" | "mobileInline"
 
 interface StreamViewerProps {
   permission: SubscriberPermission
   onJoinStream?: (permission: SubscriberPermission) => void
   onLeaveStream?: () => void
   autoJoin?: boolean
+  /** Compact in-list player on phone; chat is expected via floating sheet. */
+  layout?: StreamViewerLayout
 }
 
-export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin = true }: StreamViewerProps) {
+export function StreamViewer({
+  permission,
+  onJoinStream,
+  onLeaveStream,
+  autoJoin = true,
+  layout = "standard",
+}: StreamViewerProps) {
   const { user, userProfile } = useAuth()
   const [isConnected, setIsConnected] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -203,6 +214,8 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
     }
   }, [])
 
+  const isMobileInline = layout === "mobileInline"
+
   if (!permission.streamSession) {
     return (
       <Card>
@@ -217,10 +230,147 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
     )
   }
 
+  const playerStates = (
+    <>
+      {isAwaitingBroadcastSession(permission.streamSession) && !isConnected && (
+        <div className="text-center text-muted-foreground w-full px-2">
+          <Headphones
+            className={`mx-auto mb-3 opacity-60 ${isMobileInline ? "h-10 w-10" : "h-12 w-12 sm:h-16 sm:w-16"}`}
+          />
+          <p className={`font-medium ${isMobileInline ? "text-sm" : "text-sm"}`}>Waiting for the host</p>
+          <p className="mt-2 text-xs">Connects automatically when they go live.</p>
+        </div>
+      )}
+      {!isConnected && loading && !isAwaitingBroadcastSession(permission.streamSession) && (
+        <div className="w-full text-center text-muted-foreground">
+          <div
+            className={`mx-auto mb-3 animate-spin rounded-full border-b-2 border-primary ${isMobileInline ? "h-9 w-9" : "h-10 w-10 sm:h-12 sm:w-12"}`}
+          />
+          <p className="text-xs sm:text-sm">Connecting…</p>
+        </div>
+      )}
+      {isConnected && (
+        <div className="w-full space-y-3 text-center">
+          {isMobileInline ? (
+            <>
+              <AudioPlayingIndicator playing={audioEnabled} className="mx-auto" />
+              <p className="text-sm font-semibold text-foreground">
+                {audioEnabled ? "Live audio" : "Muted"}
+              </p>
+              <p className="text-xs text-muted-foreground break-words">{permission.publisherName}</p>
+            </>
+          ) : (
+            <>
+              <Radio
+                className={`mx-auto mb-3 sm:mb-4 h-16 w-16 sm:h-20 sm:w-20 ${audioEnabled ? "animate-pulse text-primary" : "text-muted-foreground opacity-50"}`}
+              />
+              <p className="px-2 text-base font-semibold sm:text-lg">
+                {audioEnabled ? "Listening to Audio Stream" : "Audio Muted"}
+              </p>
+              <p className="mt-2 break-words px-2 text-xs text-muted-foreground sm:text-sm">
+                {permission.publisherName}&apos;s microphone audio
+              </p>
+            </>
+          )}
+          <Button
+            variant={audioEnabled ? "default" : "outline"}
+            size="sm"
+            onClick={handleToggleAudio}
+            className={`text-sm sm:text-base ${isMobileInline ? "mt-1 w-full" : "mt-3 w-full sm:mt-4 sm:w-auto"}`}
+            disabled={!permission.allowAudio}
+          >
+            {audioEnabled ? (
+              <>
+                <Volume2 className="mr-2 h-4 w-4 shrink-0" />
+                <span className="truncate">Mute</span>
+              </>
+            ) : (
+              <>
+                <VolumeX className="mr-2 h-4 w-4 shrink-0" />
+                <span className="truncate">Unmute</span>
+              </>
+            )}
+          </Button>
+        </div>
+      )}
+    </>
+  )
+
+  if (isMobileInline) {
+    return (
+      <Card className="border-primary/35 overflow-hidden">
+        <CardHeader className="gap-2 space-y-0 p-4 pb-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                {isAwaitingBroadcastSession(permission.streamSession) ? (
+                  <Badge variant="secondary">Waiting</Badge>
+                ) : (
+                  <Badge variant="destructive" className="animate-pulse text-xs">
+                    LIVE
+                  </Badge>
+                )}
+                <span className="break-words font-semibold leading-snug">
+                  {permission.streamSession.title}
+                </span>
+              </CardTitle>
+              <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                <Users className="h-3 w-3 shrink-0" />
+                <span className="truncate">{permission.publisherName}</span>
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="shrink-0 gap-1"
+              onClick={() => void handleLeaveStream()}
+            >
+              <Square className="h-3.5 w-3.5" />
+              Stop
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {loading && (
+              <Badge variant="outline" className="flex items-center gap-1 text-[10px]">
+                <span className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                Connecting
+              </Badge>
+            )}
+            {isConnected && (
+              <Badge variant="outline" className="flex items-center gap-1 text-[10px]">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+                Playing
+              </Badge>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="relative space-y-3 px-4 pb-4 pt-0">
+          <div ref={jitsiContainerRef} className="sr-only" aria-hidden />
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription className="text-sm">{error}</AlertDescription>
+            </Alert>
+          )}
+          {isAwaitingBroadcastSession(permission.streamSession) && (
+            <Alert className="py-2">
+              <AlertDescription className="text-xs">
+                Room is open; audio starts when the host broadcasts.
+              </AlertDescription>
+            </Alert>
+          )}
+          <div className="flex min-h-[148px] flex-col items-center justify-center rounded-xl bg-muted/60 p-4">
+            {playerStates}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <Card>
       <CardHeader>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 flex-1">
             <CardTitle className="flex flex-wrap items-center gap-2">
               {isAwaitingBroadcastSession(permission.streamSession) ? (
@@ -230,33 +380,33 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
                   LIVE
                 </Badge>
               )}
-              <Badge variant="secondary" className="text-xs sm:text-sm font-normal">
+              <Badge variant="secondary" className="text-xs font-normal sm:text-sm">
                 {streamSportLabel(permission.streamSession.sport)}
               </Badge>
               <span className="break-words">{permission.streamSession.title}</span>
             </CardTitle>
-            <CardDescription className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4 mt-2">
+            <CardDescription className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
               <span className="flex items-center space-x-1 text-xs sm:text-sm">
-                <Users className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                <Users className="h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                 <span className="truncate">Publisher: {permission.publisherName}</span>
               </span>
               <span className="flex items-center space-x-1 text-xs sm:text-sm">
-                <Clock className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                <Clock className="h-3 w-3 shrink-0 sm:h-4 sm:w-4" />
                 <span>Started: {new Date(permission.streamSession.createdAt).toLocaleTimeString()}</span>
               </span>
             </CardDescription>
           </div>
-          <div className="flex items-center space-x-2 flex-shrink-0">
+          <div className="flex shrink-0 items-center space-x-2">
             {loading && (
               <Badge variant="outline" className="flex items-center space-x-1 text-xs">
-                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary"></div>
+                <div className="h-3 w-3 animate-spin rounded-full border-b-2 border-primary" />
                 <span className="hidden sm:inline">Connecting...</span>
                 <span className="sm:hidden">Conn...</span>
               </Badge>
             )}
             {isConnected && (
               <Badge variant="outline" className="flex items-center space-x-1 text-xs">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
                 <span>Connected</span>
               </Badge>
             )}
@@ -280,59 +430,20 @@ export function StreamViewer({ permission, onJoinStream, onLeaveStream, autoJoin
           </Alert>
         )}
 
-        {/* Stream description */}
         {permission.streamSession.description && (
-          <div className="p-3 sm:p-4 bg-muted rounded-lg">
-            <p className="text-xs sm:text-sm text-muted-foreground break-words">{permission.streamSession.description}</p>
+          <div className="rounded-lg bg-muted p-3 sm:p-4">
+            <p className="break-words text-xs text-muted-foreground sm:text-sm">
+              {permission.streamSession.description}
+            </p>
           </div>
         )}
 
-        {/* Audio Stream Player */}
         <div className="relative">
-          <div ref={jitsiContainerRef} className="w-full h-[250px] sm:h-[300px] bg-muted rounded-lg flex items-center justify-center p-4">
-            {isAwaitingBroadcastSession(permission.streamSession) && !isConnected && (
-              <div className="text-center text-muted-foreground w-full px-2">
-                <Headphones className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-3 opacity-60" />
-                <p className="text-sm font-medium">Waiting for the host</p>
-                <p className="text-xs mt-2">You will connect automatically when they start the stream.</p>
-              </div>
-            )}
-            {!isConnected && loading && !isAwaitingBroadcastSession(permission.streamSession) && (
-              <div className="text-center text-muted-foreground w-full">
-                <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-primary mx-auto mb-3 sm:mb-4"></div>
-                <p className="text-xs sm:text-sm">Connecting to audio stream...</p>
-              </div>
-            )}
-            {isConnected && (
-              <div className="text-center w-full">
-                <Radio className={`h-16 w-16 sm:h-20 sm:w-20 mx-auto mb-3 sm:mb-4 ${audioEnabled ? 'text-primary animate-pulse' : 'text-muted-foreground opacity-50'}`} />
-                <p className="text-base sm:text-lg font-semibold px-2">
-                  {audioEnabled ? "Listening to Audio Stream" : "Audio Muted"}
-                </p>
-                <p className="text-xs sm:text-sm text-muted-foreground mt-2 px-2 break-words">
-                  {permission.publisherName}'s microphone audio
-                </p>
-                <Button
-                  variant={audioEnabled ? "default" : "outline"}
-                  size="sm"
-                  onClick={handleToggleAudio}
-                  className="mt-3 sm:mt-4 w-full sm:w-auto text-sm sm:text-base"
-                  disabled={!permission.allowAudio}
-                >
-                  {audioEnabled ? (
-                    <>
-                      <Volume2 className="h-4 w-4 mr-2 flex-shrink-0" />
-                      <span className="truncate">Mute Audio</span>
-                    </>
-                  ) : (
-                    <>
-                      <VolumeX className="h-4 w-4 mr-2 flex-shrink-0" />
-                      <span className="truncate">Unmute Audio</span>
-                    </>
-                  )}
-                </Button>
-              </div>
-            )}
+          <div
+            ref={jitsiContainerRef}
+            className="flex h-[250px] w-full items-center justify-center rounded-lg bg-muted p-4 sm:h-[300px]"
+          >
+            {playerStates}
           </div>
         </div>
         {permission.streamSession?.id && user && userProfile && userProfile.allowChat === true && (

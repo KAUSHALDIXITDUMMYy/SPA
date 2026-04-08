@@ -13,10 +13,13 @@ import { isAwaitingBroadcastSession } from "@/lib/streaming"
 import type { SubscriberPermission } from "@/lib/subscriber"
 import { US_STREAM_SPORTS, SPORT_FILTER_ALL, SPORT_FILTER_UNSPECIFIED, streamSportLabel } from "@/lib/sports"
 import { StreamViewer } from "./stream-viewer"
+import { SubscriberFloatingChat } from "@/components/subscriber/subscriber-floating-chat"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { Radio, Activity, Filter as FilterIcon } from "lucide-react"
 
 export function RealTimeStreams() {
-  const { user } = useAuth()
+  const { user, userProfile } = useAuth()
+  const isMobile = useIsMobile()
   const [availableStreams, setAvailableStreams] = useState<SubscriberPermission[]>([])
   const [selectedStream, setSelectedStream] = useState<SubscriberPermission | null>(null)
   const [sportFilter, setSportFilter] = useState<string>(SPORT_FILTER_ALL)
@@ -94,7 +97,77 @@ export function RealTimeStreams() {
     )
   }
 
-  // Split view: left list, right viewer
+  const streamListSection = (
+    <div className="space-y-3 sm:space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="sport-filter" className="flex items-center gap-2 text-sm font-medium">
+          <FilterIcon className="h-4 w-4 text-muted-foreground" />
+          Filter by sport
+        </Label>
+        <Select value={sportFilter} onValueChange={setSportFilter}>
+          <SelectTrigger id="sport-filter" className="w-full text-sm sm:text-base">
+            <SelectValue placeholder="All sports" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={SPORT_FILTER_ALL}>All sports</SelectItem>
+            <SelectItem value={SPORT_FILTER_UNSPECIFIED}>Not specified</SelectItem>
+            {US_STREAM_SPORTS.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {filteredStreams.length === 0 && availableStreams.length > 0 && (
+        <Alert>
+          <AlertDescription>
+            No live streams match this sport. Try &quot;All sports&quot; or pick another category.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {filteredStreams.map((perm) => {
+        const isSelected = selectedStream?.id === perm.id
+        return (
+          <Card
+            key={perm.id}
+            className={`cursor-pointer transition-shadow hover:shadow-lg ${isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
+            onClick={() => handleSelectStream(perm)}
+          >
+            <CardHeader className="p-3 sm:p-4 lg:p-6">
+              <div className="flex items-start justify-between">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <CardTitle className="flex flex-wrap items-center gap-2">
+                    {perm.streamSession && isAwaitingBroadcastSession(perm.streamSession) ? (
+                      <Badge variant="secondary" className="shrink-0 text-xs">
+                        Waiting for host
+                      </Badge>
+                    ) : (
+                      <Badge variant="destructive" className="animate-pulse shrink-0 text-xs">
+                        LIVE
+                      </Badge>
+                    )}
+                    <Badge variant="secondary" className="text-xs font-normal">
+                      {streamSportLabel(perm.streamSession?.sport)}
+                    </Badge>
+                    <span className="break-words text-sm sm:text-base">
+                      {perm.streamSession?.title || "Untitled Stream"}
+                    </span>
+                  </CardTitle>
+                  <CardDescription className="truncate text-xs sm:text-sm">
+                    Publisher: {perm.publisherName}
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
+        )
+      })}
+    </div>
+  )
+
   const rightPane = (
     <div className="p-0">
       {selectedStream ? (
@@ -103,6 +176,7 @@ export function RealTimeStreams() {
           permission={selectedStream}
           onLeaveStream={() => setSelectedStream(null)}
           autoJoin={true}
+          layout="standard"
         />
       ) : (
         <Card>
@@ -159,82 +233,43 @@ export function RealTimeStreams() {
               </div>
             </CardContent>
           </Card>
+        ) : isMobile && selectedStream ? (
+          <div className="lg:col-span-3 space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Tap another stream to switch. Audio starts as soon as you open a live feed.
+            </p>
+            {streamListSection}
+            <StreamViewer
+              key={selectedStream.streamSession?.id || selectedStream.id}
+              permission={selectedStream}
+              onLeaveStream={() => setSelectedStream(null)}
+              autoJoin={true}
+              layout="mobileInline"
+            />
+            {user && userProfile && selectedStream.streamSession?.id ? (
+              <SubscriberFloatingChat
+                streamSessionId={selectedStream.streamSession.id}
+                streamTitle={selectedStream.streamSession.title}
+                userId={user.uid}
+                userName={userProfile.displayName || userProfile.email || ""}
+                userEmail={userProfile.email}
+                allowChat={userProfile.allowChat === true}
+              />
+            ) : null}
+          </div>
         ) : selectedStream ? (
-          // Mobile: Show only viewer when stream is selected
           <div className="lg:col-span-3">
             <div className="mb-4">
-              <Button variant="outline" onClick={handleBackToList} className="w-full sm:w-auto text-sm sm:text-base">
+              <Button variant="outline" onClick={handleBackToList} className="w-full text-sm sm:w-auto sm:text-base">
                 ← Back to Streams
               </Button>
             </div>
             {rightPane}
           </div>
         ) : (
-          // Mobile: Show only list when no stream selected
           <>
-            <div className="lg:col-span-1 space-y-3 sm:space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="sport-filter" className="flex items-center gap-2 text-sm font-medium">
-                  <FilterIcon className="h-4 w-4 text-muted-foreground" />
-                  Filter by sport
-                </Label>
-                <Select value={sportFilter} onValueChange={setSportFilter}>
-                  <SelectTrigger id="sport-filter" className="w-full text-sm sm:text-base">
-                    <SelectValue placeholder="All sports" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={SPORT_FILTER_ALL}>All sports</SelectItem>
-                    <SelectItem value={SPORT_FILTER_UNSPECIFIED}>Not specified</SelectItem>
-                    {US_STREAM_SPORTS.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {filteredStreams.length === 0 && availableStreams.length > 0 && (
-                <Alert>
-                  <AlertDescription>
-                    No live streams match this sport. Try &quot;All sports&quot; or pick another category.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {filteredStreams.map((perm) => (
-                <Card
-                  key={perm.id}
-                  className="transition-shadow cursor-pointer hover:shadow-lg"
-                  onClick={() => handleSelectStream(perm)}
-                >
-                  <CardHeader className="p-3 sm:p-4 lg:p-6">
-                    <div className="flex items-start justify-between">
-                      <div className="space-y-2 min-w-0 flex-1">
-                        <CardTitle className="flex flex-wrap items-center gap-2">
-                          {perm.streamSession && isAwaitingBroadcastSession(perm.streamSession) ? (
-                            <Badge variant="secondary" className="text-xs flex-shrink-0">
-                              Waiting for host
-                            </Badge>
-                          ) : (
-                            <Badge variant="destructive" className="animate-pulse text-xs flex-shrink-0">
-                              LIVE
-                            </Badge>
-                          )}
-                          <Badge variant="secondary" className="text-xs font-normal">
-                            {streamSportLabel(perm.streamSession?.sport)}
-                          </Badge>
-                          <span className="break-words text-sm sm:text-base">{perm.streamSession?.title || "Untitled Stream"}</span>
-                        </CardTitle>
-                        <CardDescription className="text-xs sm:text-sm truncate">Publisher: {perm.publisherName}</CardDescription>
-                      </div>
-                    </div>
-                  </CardHeader>
-                </Card>
-              ))}
-            </div>
-
-            <div className="hidden lg:block lg:col-span-2">{rightPane}</div>
+            <div className="space-y-3 sm:space-y-4 lg:col-span-1">{streamListSection}</div>
+            <div className="hidden lg:col-span-2 lg:block">{rightPane}</div>
           </>
         )}
       </div>
