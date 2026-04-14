@@ -140,29 +140,30 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
     }
   }, [dedupedRooms])
 
+  /** Stop clears listening via onLeaveStream; then we open the room the user tapped. */
   useEffect(() => {
-    if (!isMobile) return
     if (listening !== null) return
     const next = pendingListeningRef.current
     if (!next) return
     pendingListeningRef.current = null
     setListening(next)
-  }, [listening, isMobile])
+  }, [listening])
 
   const handleListenToRoom = useCallback(
     (perm: SubscriberPermission) => {
       if (listening?.id === perm.id) return
-      if (isMobile && listening && listening.id !== perm.id) {
+      if (listening && listening.id !== perm.id) {
         pendingListeningRef.current = perm
         void streamViewerRef.current?.leaveStream()
         return
       }
       setListening(perm)
     },
-    [isMobile, listening],
+    [listening],
   )
 
   const handleBackToRooms = useCallback(() => {
+    pendingListeningRef.current = null
     void streamViewerRef.current?.leaveStream()
   }, [])
 

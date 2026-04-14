@@ -77,20 +77,21 @@ export function RealTimeStreams() {
     return () => clearInterval(interval)
   }, [user])
 
+  /** Stop clears selection via onLeaveStream; then we open the stream the user tapped (same as Stop → pick new). */
   useEffect(() => {
-    if (!isMobile) return
     if (selectedStream !== null) return
     const next = pendingStreamRef.current
     if (!next) return
     pendingStreamRef.current = null
     setSelectedStream(next)
-  }, [selectedStream, isMobile])
+  }, [selectedStream])
 
   const handleSelectStream = (stream: SubscriberPermission) => {
     console.log("[v0] Selecting stream:", stream.id)
     if (selectedStream?.id === stream.id) return
-    if (isMobile && selectedStream && selectedStream.id !== stream.id) {
+    if (selectedStream && selectedStream.id !== stream.id) {
       pendingStreamRef.current = stream
+      // Same code path as the StreamViewer Stop button: leaveStream() → handleLeaveStream()
       void streamViewerRef.current?.leaveStream()
       return
     }
@@ -98,6 +99,7 @@ export function RealTimeStreams() {
   }
 
   const handleBackToList = () => {
+    pendingStreamRef.current = null
     void streamViewerRef.current?.leaveStream()
   }
 
