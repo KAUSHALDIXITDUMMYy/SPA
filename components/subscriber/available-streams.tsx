@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,7 +16,7 @@ import {
   matchesSportFilter,
   streamSportLabel,
 } from "@/lib/sports"
-import { StreamViewer } from "./stream-viewer"
+import { StreamViewer, type StreamViewerHandle } from "./stream-viewer"
 import { Radio, Users, Volume2, Clock, RefreshCw, Filter } from "lucide-react"
 
 export function AvailableStreams() {
@@ -26,6 +26,7 @@ export function AvailableStreams() {
   const [selectedStream, setSelectedStream] = useState<SubscriberPermission | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [sportFilter, setSportFilter] = useState<string>(SPORT_FILTER_ALL)
+  const streamViewerRef = useRef<StreamViewerHandle>(null)
 
   const filteredPermissions = useMemo(
     () => permissions.filter((p) => matchesSportFilter(p.streamSession?.sport, sportFilter)),
@@ -77,7 +78,7 @@ export function AvailableStreams() {
   }
 
   const handleBackToList = () => {
-    setSelectedStream(null)
+    void streamViewerRef.current?.leaveStream()
   }
 
   if (loading) {
@@ -96,7 +97,7 @@ export function AvailableStreams() {
     return (
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 sm:gap-4">
-          <Button variant="outline" onClick={handleBackToList} className="w-full sm:w-auto text-sm sm:text-base">
+          <Button type="button" variant="outline" onClick={handleBackToList} className="w-full sm:w-auto text-sm sm:text-base">
             ← Back to Streams
           </Button>
           <Button variant="outline" onClick={loadStreams} disabled={refreshing} className="w-full sm:w-auto text-sm sm:text-base">
@@ -104,9 +105,10 @@ export function AvailableStreams() {
             <span>Refresh</span>
           </Button>
         </div>
-        <StreamViewer 
-          permission={selectedStream} 
-          onLeaveStream={handleBackToList}
+        <StreamViewer
+          ref={streamViewerRef}
+          permission={selectedStream}
+          onLeaveStream={() => setSelectedStream(null)}
           autoJoin={true}
         />
       </div>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -17,7 +17,7 @@ import {
 } from "@/lib/scheduled-calls"
 import { isAwaitingBroadcastSession } from "@/lib/streaming"
 import { streamSportLabel } from "@/lib/sports"
-import { StreamViewer } from "./stream-viewer"
+import { StreamViewer, type StreamViewerHandle } from "./stream-viewer"
 import { SubscriberFloatingChat } from "@/components/subscriber/subscriber-floating-chat"
 import { useAuth } from "@/hooks/use-auth"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -59,6 +59,8 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
   const [callMetaByStreamSessionId, setCallMetaByStreamSessionId] = useState<
     Record<string, ScheduledCall | null>
   >({})
+  const streamViewerRef = useRef<StreamViewerHandle>(null)
+  const pendingListeningRef = useRef<SubscriberPermission | null>(null)
   const dateKey = getLocalDateKey()
 
   const loadScheduledStreams = useCallback(async () => {
@@ -137,6 +139,32 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
       cancelled = true
     }
   }, [dedupedRooms])
+
+  useEffect(() => {
+    if (!isMobile) return
+    if (listening !== null) return
+    const next = pendingListeningRef.current
+    if (!next) return
+    pendingListeningRef.current = null
+    setListening(next)
+  }, [listening, isMobile])
+
+  const handleListenToRoom = useCallback(
+    (perm: SubscriberPermission) => {
+      if (listening?.id === perm.id) return
+      if (isMobile && listening && listening.id !== perm.id) {
+        pendingListeningRef.current = perm
+        void streamViewerRef.current?.leaveStream()
+        return
+      }
+      setListening(perm)
+    },
+    [isMobile, listening],
+  )
+
+  const handleBackToRooms = useCallback(() => {
+    void streamViewerRef.current?.leaveStream()
+  }, [])
 
   const liveCount = useMemo(
     () => dedupedRooms.filter((p) => isPermissionLive(p, activeSessions)).length,
@@ -226,7 +254,12 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
               )}
               <p className="break-all font-mono text-[11px] text-muted-foreground">Room ID: {sess.roomId}</p>
             </div>
-            <Button type="button" size="sm" className="w-full shrink-0 sm:w-auto" onClick={() => setListening(perm)}>
+            <Button
+              type="button"
+              size="sm"
+              className="w-full shrink-0 sm:w-auto"
+              onClick={() => handleListenToRoom(perm)}
+            >
               <Radio className="mr-2 h-3.5 w-3.5" />
               Listen
             </Button>
@@ -291,6 +324,7 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
                   </p>
                   {roomsColumn}
                   <StreamViewer
+                    ref={streamViewerRef}
                     key={listening.streamSession?.id || listening.id}
                     permission={listening}
                     onLeaveStream={() => setListening(null)}
@@ -313,12 +347,13 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setListening(null)}
+                    onClick={handleBackToRooms}
                     className="w-full text-sm sm:w-auto sm:text-base"
                   >
                     ← Back to rooms
                   </Button>
                   <StreamViewer
+                    ref={streamViewerRef}
                     key={listening.streamSession?.id || listening.id}
                     permission={listening}
                     onLeaveStream={() => setListening(null)}

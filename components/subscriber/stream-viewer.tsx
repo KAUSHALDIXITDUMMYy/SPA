@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -19,6 +19,11 @@ import { AudioPlayingIndicator } from "@/components/subscriber/audio-playing-ind
 
 export type StreamViewerLayout = "standard" | "mobileInline"
 
+/** Imperative API so parents can run the same cleanup as the Stop button before switching streams or going back. */
+export type StreamViewerHandle = {
+  leaveStream: () => Promise<void>
+}
+
 interface StreamViewerProps {
   permission: SubscriberPermission
   onJoinStream?: (permission: SubscriberPermission) => void
@@ -28,13 +33,16 @@ interface StreamViewerProps {
   layout?: StreamViewerLayout
 }
 
-export function StreamViewer({
-  permission,
-  onJoinStream,
-  onLeaveStream,
-  autoJoin = true,
-  layout = "standard",
-}: StreamViewerProps) {
+export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(function StreamViewer(
+  {
+    permission,
+    onJoinStream,
+    onLeaveStream,
+    autoJoin = true,
+    layout = "standard",
+  },
+  ref,
+) {
   const { user, userProfile } = useAuth()
   const [isConnected, setIsConnected] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -113,33 +121,44 @@ export function StreamViewer({
   }
 
   /** Leave current stream. Pass explicit permission for analytics when switching (so we record leave for the stream we're leaving, not the new one). */
-  const handleLeaveStream = async (permissionForAnalytics?: SubscriberPermission) => {
-    const forAnalytics = permissionForAnalytics ?? permission
-    if (!user || !userProfile || !forAnalytics.streamSession) return
+  const handleLeaveStream = useCallback(
+    async (permissionForAnalytics?: SubscriberPermission) => {
+      const forAnalytics = permissionForAnalytics ?? permission
+      if (!user || !userProfile || !forAnalytics.streamSession) return
 
-    // Calculate viewing duration
-    const duration = joinTime ? Math.floor((Date.now() - joinTime.getTime()) / 1000) : 0
+      // Calculate viewing duration
+      const duration = joinTime ? Math.floor((Date.now() - joinTime.getTime()) / 1000) : 0
 
-    // Track analytics before leaving (use the stream we're actually leaving)
-    await trackSubscriberActivity({
-      streamSessionId: forAnalytics.streamSession.id!,
-      subscriberId: user.uid,
-      subscriberName: userProfile.displayName || userProfile.email,
-      publisherId: forAnalytics.publisherId,
-      publisherName: forAnalytics.publisherName,
-      action: 'leave',
-      duration
-    })
+      // Track analytics before leaving (use the stream we're actually leaving)
+      await trackSubscriberActivity({
+        streamSessionId: forAnalytics.streamSession.id!,
+        subscriberId: user.uid,
+        subscriberName: userProfile.displayName || userProfile.email,
+        publisherId: forAnalytics.publisherId,
+        publisherName: forAnalytics.publisherName,
+        action: "leave",
+        duration,
+      })
 
-    agoraManager.leave()
-    stopSilentAudio()
-    setIsConnected(false)
-    setLoading(false)
-    setJoinTime(null)
-    currentPermissionRef.current = null
-    currentStreamIdRef.current = null
-    onLeaveStream?.()
-  }
+      await agoraManager.leave()
+      stopSilentAudio()
+      setIsConnected(false)
+      setLoading(false)
+      setJoinTime(null)
+      currentPermissionRef.current = null
+      currentStreamIdRef.current = null
+      onLeaveStream?.()
+    },
+    [user, userProfile, permission, joinTime, onLeaveStream],
+  )
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      leaveStream: () => handleLeaveStream(),
+    }),
+    [handleLeaveStream],
+  )
 
   const handleToggleAudio = async () => {
     if (!permission.allowAudio) return
@@ -462,4 +481,4 @@ export function StreamViewer({
       </CardContent>
     </Card>
   )
-}
+})

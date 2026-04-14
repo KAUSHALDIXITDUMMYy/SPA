@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -12,7 +12,7 @@ import { getAvailableStreamsSplit } from "@/lib/subscriber"
 import { isAwaitingBroadcastSession } from "@/lib/streaming"
 import type { SubscriberPermission } from "@/lib/subscriber"
 import { US_STREAM_SPORTS, SPORT_FILTER_ALL, SPORT_FILTER_UNSPECIFIED, streamSportLabel } from "@/lib/sports"
-import { StreamViewer } from "./stream-viewer"
+import { StreamViewer, type StreamViewerHandle } from "./stream-viewer"
 import { SubscriberFloatingChat } from "@/components/subscriber/subscriber-floating-chat"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Radio, Activity, Filter as FilterIcon } from "lucide-react"
@@ -25,6 +25,9 @@ export function RealTimeStreams() {
   const [sportFilter, setSportFilter] = useState<string>(SPORT_FILTER_ALL)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const streamViewerRef = useRef<StreamViewerHandle>(null)
+  /** After a full Stop-style cleanup, open this stream (mobile tap-to-switch). */
+  const pendingStreamRef = useRef<SubscriberPermission | null>(null)
 
   const filteredStreams = availableStreams.filter((perm) => {
     const sport = perm.streamSession?.sport
@@ -74,14 +77,28 @@ export function RealTimeStreams() {
     return () => clearInterval(interval)
   }, [user])
 
+  useEffect(() => {
+    if (!isMobile) return
+    if (selectedStream !== null) return
+    const next = pendingStreamRef.current
+    if (!next) return
+    pendingStreamRef.current = null
+    setSelectedStream(next)
+  }, [selectedStream, isMobile])
+
   const handleSelectStream = (stream: SubscriberPermission) => {
     console.log("[v0] Selecting stream:", stream.id)
-    // Always switch to the selected stream (no toggle behavior)
+    if (selectedStream?.id === stream.id) return
+    if (isMobile && selectedStream && selectedStream.id !== stream.id) {
+      pendingStreamRef.current = stream
+      void streamViewerRef.current?.leaveStream()
+      return
+    }
     setSelectedStream(stream)
   }
 
   const handleBackToList = () => {
-    setSelectedStream(null)
+    void streamViewerRef.current?.leaveStream()
   }
 
   if (loading) {
@@ -172,6 +189,7 @@ export function RealTimeStreams() {
     <div className="p-0">
       {selectedStream ? (
         <StreamViewer
+          ref={streamViewerRef}
           key={selectedStream.streamSession?.id || selectedStream.id}
           permission={selectedStream}
           onLeaveStream={() => setSelectedStream(null)}
@@ -240,6 +258,7 @@ export function RealTimeStreams() {
             </p>
             {streamListSection}
             <StreamViewer
+              ref={streamViewerRef}
               key={selectedStream.streamSession?.id || selectedStream.id}
               permission={selectedStream}
               onLeaveStream={() => setSelectedStream(null)}
