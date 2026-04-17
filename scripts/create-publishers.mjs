@@ -20,24 +20,22 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// Publisher names (James listed once; deduped)
 const publisherNames = [
-  "Sunny",
-  "Freddy",
-  "Sammy",
-  "Sultan",
-  "ED",
-  "James",
-  "Brian boston",
-  "Steven",
-  "Stedman",
-  "Charles",
-  "Ron"
+  "Quinn",
+  "Kyle",
+  "Justis",
+  "Arthur",
+  "Brian",
+  "Ethan",
+  "Jack",
+  "Kris",
+  "Bob",
+  "Rodrick",
 ];
 
 const password = "11111111";
 const role = "publisher";
-const emailDomain = "pubsportsmagician.com";
+const emailDomain = "sportsmagician.com";
 
 const toEmailBase = (name) => name.toLowerCase().replace(/\s+/g, "");
 

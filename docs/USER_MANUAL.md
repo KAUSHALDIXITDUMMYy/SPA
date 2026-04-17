@@ -1,152 +1,182 @@
 # Sportsmagician Audio — User Manual
 
-This guide explains how **administrators**, **publishers**, and **subscribers** use the web application after an account has been created for them.
+This guide is for **publishers** and **subscribers** who use the web app day to day. Share it as a **FAQ-style reference** so people can self-serve. Administrators have a separate panel; a short admin section is included for context.
 
 ---
 
-## 1. Signing in and roles
+## 1. Signing in, roles, and account status
 
-1. Open the app home page and sign in with the **email** and **password** your organization provided.
-2. After a successful sign-in, you are sent to `/dashboard`, which **redirects automatically** based on your role:
-   - **Admin** → Admin Dashboard (`/admin`)
-   - **Publisher** → Publisher Dashboard (`/publisher`)
-   - **Subscriber** → Subscriber Dashboard (`/subscriber`)
+1. Open the app and sign in with the **email** and **password** your organization provided.
+2. After sign-in you go to `/dashboard`, which **redirects by role**:
+   - **Admin** → `/admin`
+   - **Publisher** → `/publisher`
+   - **Subscriber** → `/subscriber`
 
-You only see the dashboard that matches your role. If something looks wrong, confirm with your administrator that your account role and **active** status are correct.
+You only see the dashboard for your role. If that is wrong, ask your administrator to check your **role** and **active** status.
+
+### Real-time account activation
+
+If an administrator **activates** or **deactivates** your account while you are logged in, you will get an **on-screen notification (toast)**. If you are deactivated, follow the instructions on the page and contact your admin.
 
 ---
 
-## 2. Administrator guide
+## 2. Administrator guide (short)
 
-Admins manage users, assignments, schedules, moderation, and (optionally) live operations.
+Admins manage users, assignments, schedules, live rooms, and notifications. This manual focuses on publishers and subscribers; admins should use the **Admin Dashboard** tabs (User Management, Live rooms, Publisher Assignments, Today’s Schedule, etc.) as labeled in the product.
 
-### 2.1 Header actions
+**Important reminders for admins:**
 
-- **Logout All Users** — Clears stored sessions so people can sign in again from any browser. Use when you want a clean break before a big event (for example, resetting who is logged in where).
-- **Sign Out** — Signs out only you.
-
-### 2.2 Navigating the admin panel
-
-- **Tablet and desktop (medium screens and up):** Use the **tab bar** at the top of the main area to switch sections.
-- **Phone:** The tab bar is hidden. Tap the **menu (☰)** button next to **Admin Dashboard** to open **Jump to section** and pick a screen. The current section name also appears under your welcome line.
-
-### 2.3 Sections (what each tab is for)
-
-| Section | Purpose |
-|--------|---------|
-| **User Management** | Create and manage users (roles, active/inactive, profile fields, and related options your build exposes). |
-| **Live rooms** | See **active** audio stream sessions, **end** a session (marks it inactive in the system), **reassign** the publisher on the record (metadata only—the current broadcaster should still stop on their side), and open **room chat** to read publisher, privileged subscriber, and admin messages. |
-| **Analytics** | View usage and stream-related analytics (as implemented in your deployment). |
-| **Publisher Assignments** | Control which subscribers are assigned to which publishers (who can hear whom). |
-| **Stream Assignments** | Manage how streams / sessions are assigned in the system (as implemented in your deployment). |
-| **Today's Schedule** | Two parts: (1) **plain-text schedule** subscribers can read on their **Today's Schedule** tab; (2) **Scheduled calls & rooms**—timed slots with fixed **room IDs** and assigned publishers. You can add calls one at a time or use **Import from schedule paste** if your app includes it, using the same text format as the plain schedule (date line + lines with times and titles). |
-| **Contact** | Read messages sent through the contact flow (if used). |
-| **Reports** | Review user reports and moderation items (if used). |
-| **Notifications** | Send or manage subscriber notifications / broadcasts (as implemented in your deployment). |
-
-Exact field names and advanced options may vary slightly as the product evolves; use on-screen descriptions as the final word.
-
-### 2.4 Tips for admins
-
-- **Deactivated users** cannot use publisher or subscriber features until you set them **active** again.
-- **Ending a live room** updates the database; the publisher should still **stop broadcasting** in their dashboard so the audio platform fully disconnects.
-- **Reassigning publisher** on a live room updates **who the session is attributed to** in the app; it does not automatically move the live audio feed to someone else’s computer.
+- **Deactivated users** cannot publish or use subscriber content until set **active** again.
+- **Ending a live room** in admin updates the database; the publisher should still **End Stream** on their side so the audio session fully disconnects.
+- **Reassigning** a live room changes **who the session is attributed to** in the app; it does not move the audio from one computer to another by itself.
 
 ---
 
 ## 3. Publisher guide
 
-Publishers are the people who **start and stop** audio streams that subscribers listen to.
+Publishers **start and stop** audio streams that subscribers hear. The dashboard has two main areas: **today’s scheduled rooms** (if your org uses them) and **stream controls**.
 
-### 3.1 When you sign in
+### 3.1 Inactive account
 
-You land on the **Publisher Dashboard**. If your account is **inactive**, you will see a clear message that you cannot stream; contact an administrator.
+If your account is **inactive**, you will see an **Account Inactive** message. You cannot start streams or use publishing features until an administrator reactivates you.
 
-### 3.2 Today’s scheduled rooms (if your admin uses them)
+### 3.2 Today’s scheduled rooms
 
 If your organization uses **scheduled calls**:
 
-1. You will see **today’s scheduled rooms** assigned to **you**.
-2. Choose the slot you are about to cover, then use the stream controls to **go live in that scheduled room** so the **room ID** matches what subscribers expect.
+- You see **Today’s scheduled rooms** for **today’s date**, listing slots assigned to **you**.
+- The list can also include scheduled rooms you are **currently hosting** (for example after a reassignment), even if the calendar view is out of sync—**refresh the page** if your admin just changed an assignment.
+- Each row shows the **title**, **time range**, **room ID**, and badges such as:
+  - **In time window** / **Outside window** (relative to the scheduled slot).
+- Use **Broadcast here** to select that slot. **Clear selection** deselects it.
+- While you are **already live**, choosing another scheduled room is **disabled** so you do not switch rooms by accident.
 
-While you are already live, scheduled-room picking is typically disabled so you do not switch rooms by mistake.
+**If you see no scheduled rooms:** your admin may not have assigned you, or you may need a refresh after changes. Confirm with your admin that the correct publisher is selected on the scheduled call.
 
-### 3.3 Going live (stream controls)
+### 3.3 Two ways to go live
 
-Use the **Stream controls** section to:
+| Mode | When to use | What happens |
+|------|-------------|--------------|
+| **Scheduled room broadcast** | You selected a slot under **Today’s scheduled rooms** | The app uses the **admin-assigned room ID** and the call’s title/metadata. You click **Go live in scheduled room**. |
+| **Ad-hoc audio stream** | No scheduled slot, or you clicked **Use ad-hoc stream instead** | You set your own **title**, optional **description**, **sport / category**, and the app creates a **new room** for that broadcast. You click **Start Audio Stream**. |
 
-- Set a **title** (and any other fields your screen shows, such as **sport / category**).
-- Choose **audio source** (for example microphone vs system audio), per your UI.
-- **Start** the stream when you are ready.
-- **Stop** the stream when you are finished.
+**Scheduled room card:** shows the **room ID** (fixed for that game). **Ad-hoc card:** explains that this stream is **not** tied to today’s scheduled calls—use the scheduled section when you were assigned a room.
 
-When you are live, the header usually shows a **LIVE** indicator with your stream title (and sport, if set).
+### 3.4 Audio source: microphone vs system
 
-### 3.4 Live chat with subscribers
+Before or during a broadcast you choose **Audio source**:
 
-If **chat** is enabled for your account and the subscriber has **chat privilege** for your stream, you can use the **live chat** panel on the stream screen to read and reply to those subscribers. Subscribers without chat access will not be part of that conversation.
+- **Microphone** — what you say into the mic is sent to listeners.
+- **System audio** — the browser will ask you to **share a tab, window, or screen**. **Only audio is sent to listeners**, not your screen video. For a browser tab, enable **Share tab audio** when the picker appears (Chrome). What you can capture depends on your **OS and browser**.
 
-### 3.5 Mobile
+If **system audio** fails to start (permissions, browser, etc.), the app may fall back to **microphone** and show a **warning message**—you are still live; fix sharing and switch source when ready.
 
-On small screens, **Sign out** may appear inside the **menu** sheet instead of the top bar.
+While **live**, you can **switch between microphone and system** using the same control (there may be a short loading state).
 
-### 3.6 Best practices
+### 3.5 Starting, ending, and recovering a stream
 
-- Confirm with admin whether you should use **ad-hoc** rooms or **scheduled** room IDs for each event.
-- Always **end** the stream when you are done so listeners and analytics stay accurate.
-- If you were **logged out everywhere** after an admin used “Logout All Users,” sign in again normally.
+- **Start:** complete the fields, choose audio source, then **Go live in scheduled room** or **Start Audio Stream**.
+- **End:** use **End Stream** when you are completely finished. For scheduled rooms, this also resets the scheduled session in the system as implemented.
+- **Rejoin after refresh:** if your stream is still **active in the system** but you closed or refreshed the page, you may see **Rejoin Your Active Stream**. Pick audio source and **Rejoin Stream** to continue broadcasting.
+- **Use Last Details** (ad-hoc): fills **title**, **description**, and **sport** from your **most recent ended** stream so you do not retype them.
+
+### 3.6 While you are live
+
+- The **header** shows a **LIVE** pill with your **title** (and sport when set).
+- The live card can show a **Scheduled room** badge when applicable.
+- **Mute broadcast** / **Unmute broadcast** temporarily stops or restores what listeners hear from your capture path.
+- **Stream chat:** if chat is enabled for your deployment, you can use the **chat panel** on the live card to talk with **privileged subscribers** and admins; subscribers without chat access will not participate.
+
+**Browser tab / minimize:** if audio stops when you **minimize** the window or switch away, **return to this tab** so the connection can recover. On desktop, the app may suggest using a **popup window** before starting for a more stable session; on mobile, **split screen** is suggested when relevant.
+
+### 3.7 Mobile (publisher)
+
+On small screens, **Sign out** may appear under the **menu** (☰) instead of the top bar.
+
+### 3.8 Publisher FAQ
+
+| Question | Answer |
+|----------|--------|
+| Do I have to use a scheduled room? | Only when your org assigned you to a **scheduled call**. Otherwise use **Ad-hoc audio stream**. |
+| I picked the wrong scheduled slot | **Clear selection** or choose **Use ad-hoc stream instead**, then start the mode you need. |
+| I refreshed and my dashboard says I’m not live but listeners still hear me | Rare edge cases aside, use **Rejoin Your Active Stream** if it appears, or ask an admin to check **Live rooms** and end the session if needed. |
+| System audio will not start | Check browser permissions for **screen/tab capture**. You may be live on **microphone** until you fix it. Use **Chrome** and **Share tab audio** for browser content. |
+| Why are scheduled picks disabled? | You are **already broadcasting**. End the stream first if you need to change mode. |
 
 ---
 
 ## 4. Subscriber guide
 
-Subscribers **listen** to streams they are allowed to hear and can view schedules and notifications their organization enables.
+Subscribers **listen** to audio they are allowed to hear and can view schedules and notifications the organization enables.
 
-### 4.1 When you sign in
+### 4.1 Inactive account
 
-You land on the **Subscriber Dashboard**. If your account is **inactive**, you cannot listen or use normal content until an administrator reactivates you.
+If your account is **inactive**, you cannot listen or use normal content until an administrator reactivates you.
 
-### 4.2 Main tabs (typical layout)
+### 4.2 Main tabs (what each one is for)
+
+The subscriber dashboard uses **tabs**. On narrow screens the labels shorten (for example **Streams**, **Calls**, **Alerts**, **Schedule**).
 
 | Tab | Purpose |
 |-----|---------|
-| **Audio Streams** | Lists **live streams** you have **permission** to access. Pick a stream to listen. You may be able to **filter by sport** if your UI offers it. The list refreshes periodically. |
-| **Scheduled calls** | Shows **today’s scheduled calls** (titles, times, who is assigned). Listening still happens from **Audio Streams** when that publisher is live in the right room. |
+| **Audio Streams** | **Publisher-started “direct” streams only** — not tied to an admin **scheduled game room**. Lists live ad-hoc broadcasts you have permission to hear. **Auto-updates** about every **5 seconds**. |
+| **Scheduled calls** | **Scheduled game / room audio** — the admin-assigned rooms (for example `sched-…` or linked scheduled calls). This is where you listen to **scheduled** coverage. |
 | **Notifications** | Alerts or messages from your organization (as configured). |
-| **Today's Schedule** | The **plain-text schedule** the admin maintains (game times and notes as text). |
+| **Today’s Schedule** | The **plain-text schedule** your admin maintains (times and notes as text). |
 
-You only see streams for publishers (and assignments) your administrator has set up for your account.
+**This split is important:** if you look for a **scheduled game** under **Audio Streams**, you may not find it. **Scheduled rooms** are under the **Scheduled calls** tab.
 
-### 4.3 Listening to a stream
+### 4.3 Audio Streams tab (direct / ad-hoc)
 
-1. Open **Audio Streams**.
-2. Choose a stream from your list.
-3. Use the on-screen controls to **join** / **leave** audio as guided by the app (listen through your device speakers or headphones).
+- The list is sorted by **publisher name**.
+- Use **Filter by sport** to narrow by category: **All sports**, **Not specified**, or a specific sport.
+- Each card shows **LIVE** when the publisher is actively broadcasting that direct stream (plus sport/title as shown).
+- **Select** a stream to listen. On **desktop**, you may see the list on the left and the player on the right; on **mobile**, the list and player stack and you can **tap another stream to switch** (the app stops the previous session before starting the next).
+- If the list is empty, there may be **no direct ad-hoc streams** right now—scheduled games are under **Scheduled calls**.
 
-If a stream does not appear, you may not be assigned to that publisher, or nobody is live yet.
+### 4.4 Scheduled calls tab (scheduled rooms)
 
-### 4.4 Chat (privileged subscribers)
+- Lists **scheduled-room** streams you can access, with **LIVE**, **In window**, **Upcoming / ended**, and **Waiting for host** style states as shown in the UI.
+- **Select a room** to open the player and listen. **Scheduled games stay in this tab**; casual publisher streams are under **Audio Streams**.
+- The list **refreshes periodically** (similar polling to the other tab).
 
-If your administrator enabled **chat** for you on a given stream, you can use **live chat** while viewing that stream to message the **publisher** (and admins may also participate from their tools). If you do not have chat access, you can still listen but will not see chat input.
+### 4.5 Listening behavior
 
-You may be able to **report** or **block** users in chat where the UI provides those actions.
+- Audio plays through your **device speakers or headphones** according to your system volume.
+- Use **Stop** / **Back to Streams** (wording may vary by screen size) to **leave** a stream when you are done.
+- Switching to another stream **leaves** the current one first so you do not stay connected to two rooms at once.
 
-### 4.5 Mobile
+### 4.6 Chat
 
-On small phones, use the **menu** button for **Sign out** if it is not shown in the header row.
+If your administrator enabled **chat** for your account, you can use **live chat** while listening (including a **floating** chat experience on small screens when applicable). If you do not have chat access, you can still listen but will not send chat messages.
+
+### 4.7 Mobile (subscriber)
+
+Use the **menu** button for **Sign out** if it is not in the header row.
+
+### 4.8 Subscriber FAQ
+
+| Question | Answer |
+|----------|--------|
+| I don’t see the game under Audio Streams | **Scheduled** games are under the **Scheduled calls** tab. **Audio Streams** is only for **direct / ad-hoc** publisher streams. |
+| What does “Waiting for host” mean? | The **room exists** in the system but the **publisher has not started broadcasting** yet (or the session is in a pre-broadcast state). Keep the tab open or check back. |
+| Why is my list empty? | You may not be **assigned** to that publisher, nobody is **live**, or everything is under the **other** tab (direct vs scheduled). Ask your admin about **assignments**. |
+| Can I listen to two streams at once? | Switching streams **stops** the previous one. |
+| Sport filter shows no results | Try **All sports** or **Not specified**; the publisher may not have set a category. |
+| I was deactivated mid-session | You will see a notification; you need to be **reactivated** by an admin. |
 
 ---
 
 ## 5. Getting help
 
-- Use your organization’s **admin contact** for access, assignments, schedule mistakes, or account status.
-- If the product exposes **Contact us** or **Terms** on the login page, those links apply to your deployment’s policies.
+- **Access, assignments, schedule mistakes, or account status:** contact your organization’s **administrator**.
+- **Login page** links such as **Contact** or **Terms** apply to your deployment’s policies.
 
 ---
 
 ## 6. Document info
 
-- **Product:** Sportsmagician Audio — professional audio streaming management (web app).
-- This manual describes **intended use** of role-based dashboards; your Firebase security rules and hosting setup must allow the actions you expect (for example, admin updates to live sessions).
+- **Product:** Sportsmagician Audio — web app for managed audio streaming.
+- This manual describes **intended use** of the publisher and subscriber dashboards. Hosting, Firebase rules, and org-specific settings must allow the actions you expect.
 
-If internal workflows change, ask your development team to update this file alongside the app.
+When workflows or the UI change, this file should be updated together with the app.

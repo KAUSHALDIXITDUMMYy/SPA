@@ -76,6 +76,26 @@ export const signIn = async (email: string, password: string) => {
           )
         })
 
+        // Per-stream assignments (admin "Stream Assignments" matrix) — same subscriberId as pending doc
+        const streamAssignmentsSnap = await getDocs(
+          query(collection(db, "streamAssignments"), where("subscriberId", "==", oldPendingId)),
+        )
+        streamAssignmentsSnap.docs.forEach((d) => {
+          permissionUpdates.push(
+            updateDoc(doc(db, "streamAssignments", d.id), { subscriberId: newAuthUid }),
+          )
+        })
+
+        // Per-Zoom-call assignments (distinct from publisher-level zoom assignments above)
+        const zoomCallAssignmentsSnap = await getDocs(
+          query(collection(db, "zoomCallAssignments"), where("subscriberId", "==", oldPendingId)),
+        )
+        zoomCallAssignmentsSnap.docs.forEach((d) => {
+          permissionUpdates.push(
+            updateDoc(doc(db, "zoomCallAssignments", d.id), { subscriberId: newAuthUid }),
+          )
+        })
+
         // Publishers (and any role) may have been assigned using the pending_* user id — repoint to real Auth uid
         const pubDisplayName =
           pendingUserData.displayName || pendingUserData.email?.split("@")[0] || "User"

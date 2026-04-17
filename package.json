@@ -13,7 +13,8 @@
     "check-agora-usage": "node scripts/check-agora-usage.mjs",
     "create-subscribers": "node scripts/create-subscribers.mjs",
     "create-subscriber-ids": "node scripts/create-subscriber-ids.mjs",
-    "delete-subscribers": "node scripts/delete-subscribers.mjs"
+    "delete-subscribers": "node scripts/delete-subscribers.mjs",
+    "create-publishers": "node scripts/create-publishers.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
