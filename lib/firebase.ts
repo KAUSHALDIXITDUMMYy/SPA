@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app"
-import { getAuth } from "firebase/auth"
+import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth"
 import { getFirestore } from "firebase/firestore"
 
 const firebaseConfig = {
@@ -14,5 +14,11 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
+
+// Keep users signed in across browser sessions (same device/browser profile).
+setPersistence(auth, browserLocalPersistence).catch((e) => {
+  console.error("[firebase] setPersistence failed:", e)
+})
+
 export const db = getFirestore(app)
 export default app
