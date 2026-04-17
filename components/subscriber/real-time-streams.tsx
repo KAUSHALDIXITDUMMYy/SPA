@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -26,7 +26,11 @@ export function RealTimeStreams() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const streamViewerRef = useRef<StreamViewerHandle>(null)
-  /** After a full Stop-style cleanup, open this stream (mobile tap-to-switch). */
+  /**
+   * After leave completes we set selection to null (full StreamViewer unmount, same as "Back to Streams").
+   * Then we open the stream the user tapped. A direct A→B swap kept the viewer mounted in one commit and
+   * overlapped Agora teardown with the next join, which on mobile often produced ~2s audio then silence.
+   */
   const pendingStreamRef = useRef<SubscriberPermission | null>(null)
 
   const filteredStreams = availableStreams.filter((perm) => {
@@ -77,7 +81,7 @@ export function RealTimeStreams() {
     return () => clearInterval(interval)
   }, [user])
 
-  /** Stop clears selection via onLeaveStream; then we open the stream the user tapped (same as Stop → pick new). */
+  /** Apply pending stream only after viewer has fully unmounted (selectedStream === null). */
   useEffect(() => {
     if (selectedStream !== null) return
     const next = pendingStreamRef.current
@@ -86,13 +90,22 @@ export function RealTimeStreams() {
     setSelectedStream(next)
   }, [selectedStream])
 
-  const handleSelectStream = (stream: SubscriberPermission) => {
+  const handleAfterLeaveStream = useCallback(() => {
+    setSelectedStream(null)
+  }, [])
+
+  const handleSelectStream = async (stream: SubscriberPermission) => {
     console.log("[v0] Selecting stream:", stream.id)
     if (selectedStream?.id === stream.id) return
+    if (!selectedStream && pendingStreamRef.current?.id === stream.id) return
+
     if (selectedStream && selectedStream.id !== stream.id) {
       pendingStreamRef.current = stream
-      // Same code path as the StreamViewer Stop button: leaveStream() → handleLeaveStream()
-      void streamViewerRef.current?.leaveStream()
+      await streamViewerRef.current?.leaveStream()
+      return
+    }
+    if (!selectedStream && pendingStreamRef.current) {
+      pendingStreamRef.current = stream
       return
     }
     setSelectedStream(stream)
@@ -194,7 +207,7 @@ export function RealTimeStreams() {
           ref={streamViewerRef}
           key={selectedStream.streamSession?.id || selectedStream.id}
           permission={selectedStream}
-          onLeaveStream={() => setSelectedStream(null)}
+          onLeaveStream={handleAfterLeaveStream}
           autoJoin={true}
           layout="standard"
         />
@@ -263,7 +276,7 @@ export function RealTimeStreams() {
               ref={streamViewerRef}
               key={selectedStream.streamSession?.id || selectedStream.id}
               permission={selectedStream}
-              onLeaveStream={() => setSelectedStream(null)}
+              onLeaveStream={handleAfterLeaveStream}
               autoJoin={true}
               layout="mobileInline"
             />
