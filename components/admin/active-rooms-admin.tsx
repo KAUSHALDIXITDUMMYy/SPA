@@ -77,9 +77,8 @@ export function ActiveRoomsAdmin() {
   const [chatSession, setChatSession] = useState<StreamSession | null>(null)
   const [endingAll, setEndingAll] = useState(false)
 
-  const streamsEligibleToEnd = streams.filter(
-    (s) => s.id && !(s.scheduledCallId && isAwaitingBroadcastSession(s)),
-  )
+  /** Every active row can be ended: live broadcasts reset or close; “waiting for host” closes the room row. */
+  const streamsEligibleToEnd = streams.filter((s) => Boolean(s.id))
 
   useEffect(() => {
     const unsub = subscribeToActiveStreams((list) => {
@@ -107,20 +106,23 @@ export function ActiveRoomsAdmin() {
 
   const handleEnd = async (s: StreamSession) => {
     if (!s.id) return
-    if (s.scheduledCallId && isAwaitingBroadcastSession(s)) {
-      return
-    }
     setEndingId(s.id)
-    const r = s.scheduledCallId
-      ? await resetScheduledSessionAfterBroadcast(s.id)
-      : await endStreamSession(s.id)
+    const r =
+      s.scheduledCallId && isAwaitingBroadcastSession(s)
+        ? await endStreamSession(s.id)
+        : s.scheduledCallId
+          ? await resetScheduledSessionAfterBroadcast(s.id)
+          : await endStreamSession(s.id)
     setEndingId(null)
     if (r.success) {
+      const awaiting = s.scheduledCallId && isAwaitingBroadcastSession(s)
       toast({
-        title: s.scheduledCallId ? "Broadcast stopped" : "Room closed",
-        description: s.scheduledCallId
-          ? "The publisher slot is back to “waiting for host.” Use Remove from schedule if you want to delete this game from the calendar entirely."
-          : "Session marked inactive in Firestore.",
+        title: s.scheduledCallId && !awaiting ? "Broadcast stopped" : "Room closed",
+        description: awaiting
+          ? "This slot was not live yet—the room is removed from Live rooms. The calendar entry may still exist; use Remove from schedule to delete the game entirely."
+          : s.scheduledCallId
+            ? "The publisher slot is back to “waiting for host.” Use Remove from schedule if you want to delete this game from the calendar entirely."
+            : "Session marked inactive in Firestore.",
       })
       if (chatSession?.id === s.id) setChatSession(null)
     } else {
@@ -135,9 +137,12 @@ export function ActiveRoomsAdmin() {
     let failed = 0
     for (const s of streamsEligibleToEnd) {
       if (!s.id) continue
-      const r = s.scheduledCallId
-        ? await resetScheduledSessionAfterBroadcast(s.id)
-        : await endStreamSession(s.id)
+      const r =
+        s.scheduledCallId && isAwaitingBroadcastSession(s)
+          ? await endStreamSession(s.id)
+          : s.scheduledCallId
+            ? await resetScheduledSessionAfterBroadcast(s.id)
+            : await endStreamSession(s.id)
       if (r.success) succeeded++
       else failed++
     }
@@ -147,8 +152,8 @@ export function ActiveRoomsAdmin() {
     }
     if (failed === 0) {
       toast({
-        title: "All live broadcasts ended",
-        description: `${succeeded} room(s) closed or returned to “waiting for host.” Publishers should stop broadcasting in their dashboards so Agora disconnects.`,
+        title: "All rooms processed",
+        description: `${succeeded} room(s) ended (live broadcasts reset, waiting rooms closed, or ad-hoc streams stopped). Publishers should stop broadcasting in their dashboards so Agora disconnects.`,
       })
     } else {
       toast({
@@ -213,11 +218,12 @@ export function ActiveRoomsAdmin() {
                 <CardTitle>Live rooms</CardTitle>
               </div>
               <CardDescription>
-                Active <code className="text-xs">streamSessions</code> rows. For <strong>scheduled</strong> rooms:{" "}
-                <strong>End</strong> stops the live broadcast and returns the slot to &quot;waiting for host.&quot;{" "}
-                <strong>Remove from schedule</strong> deletes the calendar entry and this row (you don&apos;t need to use
-                the Schedule tab). The plain-text block at the top of the Schedule tab is separate—it does not list these
-                rooms. Reassigning updates metadata only.
+                Active <code className="text-xs">streamSessions</code> rows. For <strong>scheduled</strong> rooms that are
+                already live, <strong>End</strong> stops the broadcast and returns the slot to &quot;waiting for
+                host.&quot; For rows that are <strong>only waiting for host</strong> (not live yet), <strong>End</strong>{" "}
+                closes that room in Live rooms (calendar entry may remain—use <strong>Remove from schedule</strong> to
+                delete it). <strong>Remove from schedule</strong> deletes the calendar entry and this row. Reassigning
+                updates metadata only.
               </CardDescription>
             </div>
             {streams.length > 0 ? (
@@ -229,11 +235,7 @@ export function ActiveRoomsAdmin() {
                     size="sm"
                     className="shrink-0 w-full lg:w-auto"
                     disabled={endingAll || streamsEligibleToEnd.length === 0}
-                    title={
-                      streamsEligibleToEnd.length === 0
-                        ? "Only “waiting for host” placeholders—use Remove on each row to delete scheduled slots, or wait for a broadcast to start."
-                        : undefined
-                    }
+                    title={streamsEligibleToEnd.length === 0 ? "No active rooms to end." : undefined}
                   >
                     {endingAll ? (
                       <>
@@ -251,13 +253,10 @@ export function ActiveRoomsAdmin() {
                     <AlertDialogDescription asChild>
                       <div className="space-y-2 text-sm text-muted-foreground">
                         <p>
-                          This runs the same action as <strong>End</strong> on each active broadcast:{" "}
-                          <strong>{streamsEligibleToEnd.length}</strong> room(s). Scheduled games go back to
-                          &quot;waiting for host.&quot; Ad-hoc streams are marked inactive.
-                        </p>
-                        <p>
-                          Rows that are only <strong>waiting for host</strong> are skipped—remove those from the schedule
-                          per row if you want them gone.
+                          This runs the same action as <strong>End</strong> on each row:{" "}
+                          <strong>{streamsEligibleToEnd.length}</strong> room(s). Live scheduled broadcasts go back to
+                          &quot;waiting for host.&quot; Rows that are only <strong>waiting for host</strong> are closed
+                          (removed from Live rooms). Ad-hoc streams are marked inactive.
                         </p>
                         <p>Hosts should also stop broadcasting in their publisher dashboard so Agora audio stops.</p>
                       </div>
@@ -338,53 +337,65 @@ export function ActiveRoomsAdmin() {
                             <UserCog className="h-3.5 w-3.5 mr-1" />
                             Reassign
                           </Button>
-                          {s.scheduledCallId && isAwaitingBroadcastSession(s) ? null : (
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="destructive"
-                                  size="sm"
-                                  className="h-8"
-                                  disabled={endingId === s.id || removingScheduleId === s.id}
-                                >
-                                  {endingId === s.id ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                className="h-8"
+                                disabled={endingId === s.id || removingScheduleId === s.id}
+                              >
+                                {endingId === s.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  "End"
+                                )}
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  {s.scheduledCallId && isAwaitingBroadcastSession(s)
+                                    ? "Close this waiting room?"
+                                    : s.scheduledCallId
+                                      ? "Stop live broadcast?"
+                                      : "End this room?"}
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  {s.scheduledCallId && isAwaitingBroadcastSession(s) ? (
+                                    <>
+                                      This game is not live yet. The room row will be marked inactive and disappear from
+                                      Live rooms. The calendar entry may still exist—use{" "}
+                                      <strong>Remove from schedule</strong> if you want to delete the game entirely.
+                                    </>
+                                  ) : s.scheduledCallId ? (
+                                    <>
+                                      Stops the live feed for this scheduled game and returns the room to
+                                      &quot;waiting for host.&quot; The calendar entry stays—use{" "}
+                                      <strong>Remove from schedule</strong> if you want to delete the game from the
+                                      schedule entirely.
+                                    </>
                                   ) : (
-                                    "End"
+                                    <>
+                                      Marks the stream session inactive. The publisher should also stop broadcasting in
+                                      their dashboard so Agora disconnects.
+                                    </>
                                   )}
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>
-                                    {s.scheduledCallId ? "Stop live broadcast?" : "End this room?"}
-                                  </AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    {s.scheduledCallId ? (
-                                      <>
-                                        Stops the live feed for this scheduled game and returns the room to
-                                        &quot;waiting for host.&quot; The calendar entry stays—use{" "}
-                                        <strong>Remove from schedule</strong> if you want to delete the game from the
-                                        schedule entirely.
-                                      </>
-                                    ) : (
-                                      <>
-                                        Marks the stream session inactive. The publisher should also stop broadcasting in
-                                        their dashboard so Agora disconnects.
-                                      </>
-                                    )}
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => handleEnd(s)}>
-                                    {s.scheduledCallId ? "Stop broadcast" : "End room"}
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          )}
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleEnd(s)}>
+                                  {s.scheduledCallId && isAwaitingBroadcastSession(s)
+                                    ? "Close room"
+                                    : s.scheduledCallId
+                                      ? "Stop broadcast"
+                                      : "End room"}
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                           {s.scheduledCallId ? (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
