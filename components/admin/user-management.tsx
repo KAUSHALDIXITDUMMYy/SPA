@@ -17,7 +17,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { createUser, getAllUsers, updateUserStatus, updateUserChatPermission, resetUserPassword } from "@/lib/admin"
 import type { UserProfile, UserRole } from "@/lib/auth"
-import { Plus, Users, UserCheck, UserX, Shield, Video, Eye, ChevronDown, ChevronUp, KeyRound, MessageSquare, Search } from "lucide-react"
+import { Plus, Users, UserCheck, UserX, Shield, Video, Eye, ChevronDown, ChevronUp, KeyRound, MessageSquare, Search, ListTree } from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
 import { db } from "@/lib/firebase"
 import { collection, onSnapshot } from "firebase/firestore"
 import { toast } from "@/hooks/use-toast"
@@ -66,6 +67,18 @@ const sortUsersAlphabetically = (users: (UserProfile & { id: string })[]) => {
   })
 }
 
+/** Split pasted text into trimmed non-empty name lines */
+const parseBulkNames = (text: string): string[] =>
+  text
+    .split(/[\n,;]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+
+/** Local part for email from a display name (matches scripts/create-publishers.mjs) */
+const nameToEmailLocal = (name: string) => name.toLowerCase().replace(/\s+/g, "")
+
+const normalizeDomain = (d: string) => d.trim().toLowerCase().replace(/^@/, "")
+
 export function UserManagement() {
   const { user, userProfile } = useAuth()
   const [users, setUsers] = useState<(UserProfile & { id: string })[]>([])
@@ -82,6 +95,15 @@ export function UserManagement() {
   const [password, setPassword] = useState("")
   const [role, setRole] = useState<UserRole>("subscriber")
   const [displayName, setDisplayName] = useState("")
+
+  /** Bulk create: one display name per line or separated by commas/semicolons */
+  const [bulkNamesText, setBulkNamesText] = useState("")
+  const [bulkEmailDomain, setBulkEmailDomain] = useState("sportsmagician.com")
+  const [bulkPassword, setBulkPassword] = useState("")
+  const [bulkRole, setBulkRole] = useState<"subscriber" | "publisher">("subscriber")
+  const [bulkLoading, setBulkLoading] = useState(false)
+  const [bulkSkippedNames, setBulkSkippedNames] = useState<{ name: string; email: string; reason: string }[]>([])
+  const [bulkCreatedCount, setBulkCreatedCount] = useState<number | null>(null)
 
   // Search state (for All Users tab)
   const [searchQuery, setSearchQuery] = useState("")
@@ -161,6 +183,91 @@ export function UserManagement() {
     }
 
     setCreateLoading(false)
+  }
+
+  const handleBulkCreateUsers = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setBulkLoading(true)
+    setError("")
+    setSuccess("")
+    setBulkSkippedNames([])
+    setBulkCreatedCount(null)
+
+    const domain = normalizeDomain(bulkEmailDomain)
+    if (!domain || !domain.includes(".")) {
+      setError("Enter a valid email domain (e.g. sportsmagician.com)")
+      setBulkLoading(false)
+      return
+    }
+    if (!bulkPassword || bulkPassword.length < 6) {
+      setError("Password must be at least 6 characters for bulk create")
+      setBulkLoading(false)
+      return
+    }
+
+    const rawNames = parseBulkNames(bulkNamesText)
+    if (rawNames.length === 0) {
+      setError("Paste at least one name")
+      setBulkLoading(false)
+      return
+    }
+
+    const skipped: { name: string; email: string; reason: string }[] = []
+    const seenLocals = new Set<string>()
+    const namesToCreate: { displayName: string; email: string }[] = []
+
+    for (const name of rawNames) {
+      const local = nameToEmailLocal(name)
+      if (!local) {
+        skipped.push({ name, email: "", reason: "Invalid name (empty after normalizing)" })
+        continue
+      }
+      if (seenLocals.has(local)) {
+        skipped.push({ name, email: `${local}@${domain}`, reason: "Duplicate in list" })
+        continue
+      }
+      seenLocals.add(local)
+      const email = `${local}@${domain}`
+      const emailTaken = users.some((u) => u.email.toLowerCase() === email)
+      if (emailTaken) {
+        skipped.push({ name, email, reason: "Email already exists" })
+        continue
+      }
+      namesToCreate.push({ displayName: name, email })
+    }
+
+    let created = 0
+    for (const { displayName: dn, email } of namesToCreate) {
+      const result = await createUser(email, bulkPassword, bulkRole, dn)
+      if (result.error) {
+        skipped.push({
+          name: dn,
+          email,
+          reason: result.error,
+        })
+      } else {
+        created++
+      }
+      await new Promise((r) => setTimeout(r, 50))
+    }
+
+    setBulkSkippedNames(skipped)
+    setBulkCreatedCount(created)
+    if (created > 0) {
+      setSuccess(
+        `Created ${created} ${bulkRole} account(s). Same password for all. Login email for each row is &lt;name&gt;@${domain} (name lowercased, spaces removed).`,
+      )
+      toast({
+        title: "Bulk create finished",
+        description: `${created} created${skipped.length ? `, ${skipped.length} skipped or failed` : ""}.`,
+      })
+    } else if (skipped.length) {
+      setError("No new accounts were created. See the list below.")
+    }
+    if (created > 0) {
+      setBulkNamesText("")
+    }
+    setBulkLoading(false)
   }
 
   const handleToggleChat = async (userId: string, currentValue: boolean) => {
@@ -398,7 +505,18 @@ export function UserManagement() {
               <CardTitle>User Management</CardTitle>
               <CardDescription>Create and manage user accounts for Sportsmagician Audio</CardDescription>
             </div>
-            <Button onClick={() => setShowCreateForm(!showCreateForm)}>
+            <Button
+              onClick={() => {
+                const next = !showCreateForm
+                setShowCreateForm(next)
+                if (next) {
+                  setBulkSkippedNames([])
+                  setBulkCreatedCount(null)
+                  setError("")
+                  setSuccess("")
+                }
+              }}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Create User
             </Button>
@@ -407,7 +525,15 @@ export function UserManagement() {
 
         {showCreateForm && (
           <CardContent className="border-t">
-            <form onSubmit={handleCreateUser} className="space-y-4 max-w-md">
+            <Tabs defaultValue="single" className="w-full max-w-2xl space-y-4">
+              <TabsList className="grid w-full max-w-md grid-cols-2">
+                <TabsTrigger value="single">Single user</TabsTrigger>
+                <TabsTrigger value="bulk" className="gap-1">
+                  <ListTree className="h-3.5 w-3.5" />
+                  Bulk from names
+                </TabsTrigger>
+              </TabsList>
+
               {error && (
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
@@ -420,69 +546,173 @@ export function UserManagement() {
                 </Alert>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className={emailExists ? "border-destructive" : ""}
-                  />
-                  {emailExists && (
-                    <p className="text-xs text-destructive">This email is already registered</p>
-                  )}
-                </div>
+              <TabsContent value="single" className="space-y-4 mt-0">
+                <form onSubmit={handleCreateUser} className="space-y-4 max-w-md">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email</Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                        className={emailExists ? "border-destructive" : ""}
+                      />
+                      {emailExists && (
+                        <p className="text-xs text-destructive">This email is already registered</p>
+                      )}
+                    </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="password">Password</Label>
+                      <Input
+                        id="password"
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="displayName">Display Name</Label>
-                  <Input
-                    id="displayName"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="Optional"
-                  />
-                </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="displayName">Display Name</Label>
+                      <Input
+                        id="displayName"
+                        value={displayName}
+                        onChange={(e) => setDisplayName(e.target.value)}
+                        placeholder="Optional"
+                      />
+                    </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="role">Role</Label>
-                  <Select value={role} onValueChange={(value: UserRole) => setRole(value)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="publisher">Publisher</SelectItem>
-                      <SelectItem value="subscriber">Subscriber</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="role">Role</Label>
+                      <Select value={role} onValueChange={(value: UserRole) => setRole(value)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="publisher">Publisher</SelectItem>
+                          <SelectItem value="subscriber">Subscriber</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
 
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Button type="submit" disabled={createLoading || emailExists}>
-                  {createLoading ? "Creating..." : "Create User"}
-                </Button>
-                <Button type="button" variant="outline" onClick={() => setShowCreateForm(false)}>
-                  Cancel
-                </Button>
-              </div>
-            </form>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button type="submit" disabled={createLoading || emailExists}>
+                      {createLoading ? "Creating..." : "Create User"}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={() => setShowCreateForm(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              </TabsContent>
+
+              <TabsContent value="bulk" className="space-y-4 mt-0">
+                <p className="text-sm text-muted-foreground">
+                  Paste one name per line (or separate with commas). Each person gets login{" "}
+                  <code className="text-xs rounded bg-muted px-1 py-0.5">name→email</code> as the name lowercased with
+                  spaces removed, plus your domain. One shared password for everyone in this batch.
+                </p>
+                <form onSubmit={handleBulkCreateUsers} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="bulk-names">Names</Label>
+                    <Textarea
+                      id="bulk-names"
+                      placeholder={"Quinn\nKyle\nArthur"}
+                      value={bulkNamesText}
+                      onChange={(e) => setBulkNamesText(e.target.value)}
+                      rows={8}
+                      className="font-mono text-sm"
+                      disabled={bulkLoading}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="bulk-domain">Email domain</Label>
+                      <Input
+                        id="bulk-domain"
+                        type="text"
+                        value={bulkEmailDomain}
+                        onChange={(e) => setBulkEmailDomain(e.target.value)}
+                        placeholder="sportsmagician.com"
+                        autoComplete="off"
+                        disabled={bulkLoading}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="bulk-password">Password (all new users)</Label>
+                      <Input
+                        id="bulk-password"
+                        type="password"
+                        value={bulkPassword}
+                        onChange={(e) => setBulkPassword(e.target.value)}
+                        required
+                        minLength={6}
+                        disabled={bulkLoading}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2 max-w-xs">
+                    <Label htmlFor="bulk-role">Role</Label>
+                    <Select
+                      value={bulkRole}
+                      onValueChange={(v: "subscriber" | "publisher") => setBulkRole(v)}
+                      disabled={bulkLoading}
+                    >
+                      <SelectTrigger id="bulk-role">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="subscriber">Subscriber</SelectItem>
+                        <SelectItem value="publisher">Publisher</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button type="submit" disabled={bulkLoading}>
+                      {bulkLoading ? "Creating..." : "Create accounts"}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={() => setShowCreateForm(false)} disabled={bulkLoading}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+
+                {bulkCreatedCount !== null && (
+                  <p className="text-sm font-medium">
+                    Created: {bulkCreatedCount}
+                    {bulkSkippedNames.length > 0 ? ` · Not created / failed: ${bulkSkippedNames.length}` : ""}
+                  </p>
+                )}
+
+                {bulkSkippedNames.length > 0 && (
+                  <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-2">
+                    <p className="text-sm font-medium text-destructive">Not created (skipped or error)</p>
+                    <ul className="text-sm space-y-1 max-h-48 overflow-y-auto list-disc pl-5">
+                      {bulkSkippedNames.map((row, i) => (
+                        <li key={`${row.email}-${i}`}>
+                          <span className="font-medium">{row.name}</span>
+                          {row.email ? (
+                            <>
+                              {" "}
+                              <span className="text-muted-foreground">({row.email})</span>
+                            </>
+                          ) : null}
+                          {" — "}
+                          {row.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           </CardContent>
         )}
       </Card>
