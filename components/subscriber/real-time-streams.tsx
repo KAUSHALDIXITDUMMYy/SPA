@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAuth } from "@/hooks/use-auth"
-import { getAvailableStreamsSplit } from "@/lib/subscriber"
+import { compareSubscriberPermissionsByStreamStart, getAvailableStreamsSplit } from "@/lib/subscriber"
 import { isAwaitingBroadcastSession } from "@/lib/streaming"
 import type { SubscriberPermission } from "@/lib/subscriber"
 import { US_STREAM_SPORTS, SPORT_FILTER_ALL, SPORT_FILTER_UNSPECIFIED, streamSportLabel } from "@/lib/sports"
@@ -50,12 +50,7 @@ export function RealTimeStreams() {
         const { adHoc: streams } = await getAvailableStreamsSplit(user.uid)
         console.log("[v0] Ad-hoc streams for subscriber:", streams.length)
         
-        // Sort streams alphabetically by publisher name
-        const sortedStreams = [...streams].sort((a, b) => {
-          const nameA = (a.publisherName || "").toLowerCase()
-          const nameB = (b.publisherName || "").toLowerCase()
-          return nameA.localeCompare(nameB)
-        })
+        const sortedStreams = [...streams].sort(compareSubscriberPermissionsByStreamStart)
         
         setAvailableStreams(sortedStreams)
         // Keep selected stream in sync with latest data or clear if gone

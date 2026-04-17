@@ -13,6 +13,26 @@ import {
 import type { StreamPermission, StreamAssignment } from "./admin"
 import type { StreamSession } from "./streaming"
 
+/** Earliest time first (ascending). Missing dates sort last. */
+export function streamSessionCreatedAtMs(session: StreamSession | undefined): number {
+  if (!session?.createdAt) return Number.MAX_SAFE_INTEGER
+  const c = session.createdAt as Date | { toDate?: () => Date } | string | number
+  if (c instanceof Date) return c.getTime()
+  if (typeof (c as { toDate?: () => Date }).toDate === "function") {
+    return (c as { toDate: () => Date }).toDate().getTime()
+  }
+  const d = new Date(c as string | number)
+  return Number.isNaN(d.getTime()) ? Number.MAX_SAFE_INTEGER : d.getTime()
+}
+
+/** Sort live / ad-hoc streams by session start time (createdAt), then publisher name. */
+export function compareSubscriberPermissionsByStreamStart(a: SubscriberPermission, b: SubscriberPermission): number {
+  const ta = streamSessionCreatedAtMs(a.streamSession)
+  const tb = streamSessionCreatedAtMs(b.streamSession)
+  if (ta !== tb) return ta - tb
+  return (a.publisherName || "").localeCompare(b.publisherName || "")
+}
+
 export interface SubscriberPermission extends StreamPermission {
   publisherName: string
   streamSession?: StreamSession

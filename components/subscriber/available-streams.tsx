@@ -7,7 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAuth } from "@/hooks/use-auth"
-import { getAvailableStreamsSplit, type SubscriberPermission } from "@/lib/subscriber"
+import {
+  compareSubscriberPermissionsByStreamStart,
+  getAvailableStreamsSplit,
+  type SubscriberPermission,
+} from "@/lib/subscriber"
 import { isAwaitingBroadcastSession } from "@/lib/streaming"
 import {
   US_STREAM_SPORTS,
@@ -51,12 +55,7 @@ export function AvailableStreams() {
     try {
       const { adHoc: availableStreams } = await getAvailableStreamsSplit(user.uid)
       
-      // Sort streams alphabetically by publisher name
-      const sortedStreams = [...availableStreams].sort((a, b) => {
-        const nameA = (a.publisherName || "").toLowerCase()
-        const nameB = (b.publisherName || "").toLowerCase()
-        return nameA.localeCompare(nameB)
-      })
+      const sortedStreams = [...availableStreams].sort(compareSubscriberPermissionsByStreamStart)
       
       setPermissions(sortedStreams)
 

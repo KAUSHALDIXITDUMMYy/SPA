@@ -7,7 +7,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { db } from "@/lib/firebase"
 import { collection, onSnapshot, query, where } from "firebase/firestore"
-import { getAvailableStreamsSplit, type SubscriberPermission } from "@/lib/subscriber"
+import {
+  compareSubscriberPermissionsByStreamStart,
+  getAvailableStreamsSplit,
+  streamSessionCreatedAtMs,
+  type SubscriberPermission,
+} from "@/lib/subscriber"
 import {
   getLocalDateKey,
   getScheduledCallById,
@@ -67,12 +72,7 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
     if (!userId) return
     try {
       const { scheduled } = await getAvailableStreamsSplit(userId)
-      const sorted = [...scheduled].sort((a, b) => {
-        const nameA = (a.publisherName || "").toLowerCase()
-        const nameB = (b.publisherName || "").toLowerCase()
-        if (nameA !== nameB) return nameA.localeCompare(nameB)
-        return (a.streamSession?.title || "").localeCompare(b.streamSession?.title || "")
-      })
+      const sorted = [...scheduled].sort(compareSubscriberPermissionsByStreamStart)
       setScheduledPermissions(sorted)
       setListening((cur) => {
         if (!cur) return cur
@@ -116,6 +116,30 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
     })
     return Array.from(m.values())
   }, [scheduledPermissions])
+
+  /** Scheduled call start time when loaded; else session createdAt — ascending (earliest first). */
+  const dedupedRoomsSorted = useMemo(() => {
+    const list = [...dedupedRooms]
+    list.sort((a, b) => {
+      const sessA = a.streamSession
+      const sessB = b.streamSession
+      const idA = sessA?.id
+      const idB = sessB?.id
+      const calA =
+        idA && Object.prototype.hasOwnProperty.call(callMetaByStreamSessionId, idA)
+          ? callMetaByStreamSessionId[idA]
+          : undefined
+      const calB =
+        idB && Object.prototype.hasOwnProperty.call(callMetaByStreamSessionId, idB)
+          ? callMetaByStreamSessionId[idB]
+          : undefined
+      const ta = calA?.startsAt ? calA.startsAt.getTime() : streamSessionCreatedAtMs(sessA)
+      const tb = calB?.startsAt ? calB.startsAt.getTime() : streamSessionCreatedAtMs(sessB)
+      if (ta !== tb) return ta - tb
+      return (sessA?.title || "").localeCompare(sessB?.title || "")
+    })
+    return list
+  }, [dedupedRooms, callMetaByStreamSessionId])
 
   useEffect(() => {
     let cancelled = false
@@ -168,8 +192,8 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
   }, [])
 
   const liveCount = useMemo(
-    () => dedupedRooms.filter((p) => isPermissionLive(p, activeSessions)).length,
-    [dedupedRooms, activeSessions],
+    () => dedupedRoomsSorted.filter((p) => isPermissionLive(p, activeSessions)).length,
+    [dedupedRoomsSorted, activeSessions],
   )
 
   const emptyViewerPane = (
@@ -183,7 +207,7 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
 
   const roomsListUl = (
     <ul className="space-y-3">
-      {dedupedRooms.map((perm) => {
+      {dedupedRoomsSorted.map((perm) => {
         const sess = perm.streamSession!
         const cal =
           sess.id && Object.prototype.hasOwnProperty.call(callMetaByStreamSessionId, sess.id)
@@ -307,7 +331,7 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
         <CardContent className="space-y-4">
           {streamsLoading ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
-          ) : dedupedRooms.length === 0 ? (
+          ) : dedupedRoomsSorted.length === 0 ? (
             <Alert>
               <AlertDescription className="text-sm">
                 No scheduled rooms are available to you yet. After an admin assigns you to a publisher or to a specific
