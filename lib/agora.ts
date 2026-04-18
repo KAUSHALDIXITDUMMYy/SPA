@@ -160,6 +160,9 @@ export class AgoraManager {
   }
 
   private async joinInternal(config: AgoraJoinConfig) {
+    if (!config?.channelName) {
+      throw new Error("Agora join requires a valid channelName")
+    }
     const { channelName, role, uid, container } = config
     this.lastJoinConfig = config
 
@@ -179,46 +182,69 @@ export class AgoraManager {
       mode: "live",
       codec: "vp8",
     })
+
+    const clientInstance = this.client
+    if (!clientInstance) throw new Error("Failed to create Agora client")
     
     // Configure for ultra-low latency audio streaming
     try {
-      // Set client for low latency (if method exists)
-      if (typeof this.client.setLowLatencyMode === 'function') {
-        await this.client.setLowLatencyMode(true)
+      const c = clientInstance as IAgoraRTCClient & { setLowLatencyMode?: (enabled: boolean) => Promise<void> }
+      if (typeof c.setLowLatencyMode === "function") {
+        await c.setLowLatencyMode(true)
         console.log("Low latency mode enabled")
       }
     } catch (err) {
       console.warn("Failed to enable low latency mode:", err)
     }
 
-    this.client?.setClientRole(role === "publisher" ? "host" : "audience")
+    clientInstance.setClientRole(role === "publisher" ? "host" : "audience")
 
-    // Setup handlers before join to catch events during join
-    this.setupAgoraErrorHandling()
+    // Error/reconnect handlers must be bound to this client instance so stale DISCONNECTED events
+    // from a previous channel cannot call leave() on the new client (which caused silent audio after switching).
+    this.setupAgoraErrorHandling(clientInstance)
 
-    await this.client?.join(appId, channelName, token, agoraUid)
-
-    if (role === "publisher") {
-      // For publishers, start microphone audio only
-      await this.enableMic()
-    } else {
-      // Audience: setup audio subscription only
-      await this.setupSubscriberAudioOnly(container)
+    if (role === "audience") {
+      // Register before join so we never miss user-published during join.
+      this.attachSubscriberAudioListeners(clientInstance, container)
     }
 
-    // Network quality monitoring not needed for audio-only
+    await clientInstance.join(appId, channelName, token, agoraUid)
+
+    if (role === "publisher") {
+      await this.enableMic()
+    } else {
+      await this.subscribeExistingRemoteAudio(clientInstance, container)
+    }
   }
 
   // Audio-only: no video streaming setup needed
 
-  // Setup subscriber for audio-only streaming with low latency
-  private async setupSubscriberAudioOnly(container: HTMLElement) {
-    if (!this.client) return
-
-    // Handle user published events - audio only with low latency optimization
-    this.client.on("user-published", async (user, mediaType) => {
+  /** Attach user-published listeners before join (audience). */
+  private attachSubscriberAudioListeners(clientInstance: IAgoraRTCClient, container: HTMLElement) {
+    const playRemoteAudio = async (remoteAudioTrack: IRemoteAudioTrack) => {
       try {
-        await this.client!.subscribe(user, mediaType)
+        remoteAudioTrack.play()
+        try {
+          await remoteAudioTrack.setVolume(100)
+        } catch (volErr) {
+          console.warn("Failed to set remote audio volume:", volErr)
+        }
+        try {
+          if (typeof remoteAudioTrack.setAudioFrameCallback === "function") {
+            await remoteAudioTrack.setAudioFrameCallback(null, 10)
+          }
+        } catch (procErr) {
+          console.warn("Failed to configure remote audio processing:", procErr)
+        }
+      } catch (e) {
+        console.warn("remoteAudioTrack.play failed", e)
+      }
+    }
+
+    clientInstance.on("user-published", async (user, mediaType) => {
+      if (this.client !== clientInstance) return
+      try {
+        await clientInstance.subscribe(user, mediaType)
       } catch (err) {
         console.warn("subscribe failed", err)
         return
@@ -227,43 +253,39 @@ export class AgoraManager {
       if (mediaType === "audio") {
         const remoteAudioTrack = user.audioTrack as IRemoteAudioTrack | undefined
         if (!remoteAudioTrack) return
-        try {
-          // Play audio with low latency settings
-          remoteAudioTrack.play()
-          
-          // Set volume to maximum for clear audio
-          try {
-            await remoteAudioTrack.setVolume(100)
-            console.log("Remote audio volume set to maximum")
-          } catch (volErr) {
-            console.warn("Failed to set remote audio volume:", volErr)
-          }
-          
-          // Configure for low latency playback
-          try {
-            // Set audio processing for minimal buffer delay (if supported)
-            if (typeof remoteAudioTrack.setAudioFrameCallback === 'function') {
-              await remoteAudioTrack.setAudioFrameCallback(undefined, 10) // 10ms buffer
-              console.log("Remote audio frame callback configured for low latency")
-            }
-          } catch (procErr) {
-            console.warn("Failed to configure remote audio processing:", procErr)
-          }
-          
-          console.log("Remote audio track playing with low latency settings")
-        } catch (e) {
-          console.warn("remoteAudioTrack.play failed", e)
-        }
+        await playRemoteAudio(remoteAudioTrack)
       }
     })
 
-    this.client.on("user-unpublished", (user) => {
-      // Cleanup if needed
-    })
+    clientInstance.on("user-unpublished", () => {})
 
-    this.client.on("user-left", (user) => {
-      // Cleanup if needed
-    })
+    clientInstance.on("user-left", () => {})
+  }
+
+  /** After join: subscribe to any remote users already publishing (user-published may have fired before listeners attached in edge cases). */
+  private async subscribeExistingRemoteAudio(clientInstance: IAgoraRTCClient, _container: HTMLElement) {
+    if (this.client !== clientInstance) return
+    const users = clientInstance.remoteUsers
+    if (!users?.length) return
+
+    for (const user of users) {
+      if (this.client !== clientInstance) return
+      try {
+        if (user.hasAudio && !user.audioTrack) {
+          await clientInstance.subscribe(user, "audio")
+        }
+        if (user.audioTrack) {
+          try {
+            user.audioTrack.play()
+            await user.audioTrack.setVolume(100)
+          } catch (e) {
+            console.warn("play existing remote audio failed", e)
+          }
+        }
+      } catch (e) {
+        console.warn("subscribe existing remote audio failed", e)
+      }
+    }
   }
 
   async leave() {
@@ -1053,38 +1075,46 @@ export class AgoraManager {
     }
   }
 
-  // Setup exceptions and reconnection handling
-  private setupAgoraErrorHandling() {
-    if (!this.client) return
-
-    // connection-state-change: attempt simple rejoin if disconnected
-    this.client.on("connection-state-change", async (curState: string, revState: string) => {
+  // Setup exceptions and reconnection handling (must be scoped to clientInstance so stale events
+  // after a channel switch cannot call leave() on the new client).
+  private setupAgoraErrorHandling(clientInstance: IAgoraRTCClient) {
+    clientInstance.on("connection-state-change", (curState: string, revState: string) => {
       console.log("Agora connection state changed:", curState, "from", revState)
+      if (this.client !== clientInstance) return
+
       if (curState === "DISCONNECTED") {
-        if (!this.lastJoinConfig) return
-        setTimeout(async () => {
-          try {
-            await this.client?.leave()
-          } catch {}
-          try {
-            await this.join(this.lastJoinConfig!)
-          } catch (e) {
-            console.warn("Rejoin attempt failed", e)
-          }
+        const snapshot = this.lastJoinConfig
+        if (!snapshot) return
+
+        setTimeout(() => {
+          void (async () => {
+            if (this.client !== clientInstance) return
+            if (!this.lastJoinConfig) return
+            try {
+              await this.join(this.lastJoinConfig)
+            } catch (e) {
+              console.warn("Rejoin attempt failed", e)
+            }
+          })()
         }, 1500)
       }
     })
 
-    // generic exception event
-    this.client.on("exception", (event: any) => {
+    clientInstance.on("exception", (event: any) => {
       console.error("Agora exception:", event)
+      if (this.client !== clientInstance) return
       if (event?.code === 17 && this.lastJoinConfig) {
-        setTimeout(async () => {
-          try {
-            await this.join(this.lastJoinConfig!)
-          } catch (e) {
-            console.warn("Rejoin after exception failed", e)
-          }
+        const cfg = this.lastJoinConfig
+        setTimeout(() => {
+          void (async () => {
+            if (this.client !== clientInstance) return
+            if (!this.lastJoinConfig) return
+            try {
+              await this.join(cfg)
+            } catch (e) {
+              console.warn("Rejoin after exception failed", e)
+            }
+          })()
         }, 2000)
       }
     })
