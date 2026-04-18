@@ -15,7 +15,7 @@ import { US_STREAM_SPORTS, SPORT_FILTER_ALL, SPORT_FILTER_UNSPECIFIED, streamSpo
 import { StreamViewer, type StreamViewerHandle } from "./stream-viewer"
 import { SubscriberFloatingChat } from "@/components/subscriber/subscriber-floating-chat"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { Radio, Activity, Filter as FilterIcon, RefreshCw, Loader2 } from "lucide-react"
+import { Radio, Activity, Filter as FilterIcon, RefreshCw, Loader2, Square } from "lucide-react"
 
 export function RealTimeStreams() {
   const { user, userProfile } = useAuth()
@@ -110,6 +110,11 @@ export function RealTimeStreams() {
     void streamViewerRef.current?.leaveStream()
   }
 
+  const handleStopStream = useCallback(() => {
+    pendingStreamRef.current = null
+    void streamViewerRef.current?.leaveStream()
+  }, [])
+
   if (loading) {
     return (
       <Card>
@@ -159,10 +164,12 @@ export function RealTimeStreams() {
         return (
           <Card
             key={perm.id}
-            className={`cursor-pointer transition-shadow hover:shadow-lg ${isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
-            onClick={() => handleSelectStream(perm)}
+            className={`transition-shadow hover:shadow-lg ${isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
           >
-            <CardHeader className="p-3 sm:p-4 lg:p-6">
+            <CardHeader
+              className="cursor-pointer p-3 sm:p-4 lg:p-6"
+              onClick={() => void handleSelectStream(perm)}
+            >
               <div className="flex items-start justify-between">
                 <div className="min-w-0 flex-1 space-y-2">
                   <CardTitle className="flex flex-wrap items-center gap-2">
@@ -188,6 +195,35 @@ export function RealTimeStreams() {
                 </div>
               </div>
             </CardHeader>
+            <CardContent className="space-y-0 p-3 pt-0 sm:p-4 sm:pt-0 lg:p-6 lg:pt-0">
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  className="min-w-0 flex-1"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    void handleSelectStream(perm)
+                  }}
+                >
+                  <Radio className="mr-2 h-4 w-4 shrink-0" />
+                  Listen
+                </Button>
+                {isSelected ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="shrink-0 gap-1"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleStopStream()
+                    }}
+                  >
+                    <Square className="h-3.5 w-3.5" />
+                    Stop
+                  </Button>
+                ) : null}
+              </div>
+            </CardContent>
           </Card>
         )
       })}

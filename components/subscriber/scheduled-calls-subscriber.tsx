@@ -26,7 +26,7 @@ import { StreamViewer, type StreamViewerHandle } from "./stream-viewer"
 import { SubscriberFloatingChat } from "@/components/subscriber/subscriber-floating-chat"
 import { useAuth } from "@/hooks/use-auth"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { Phone, Radio, Activity, RefreshCw, Loader2 } from "lucide-react"
+import { Phone, Radio, Activity, RefreshCw, Loader2, Square } from "lucide-react"
 
 type ActiveSessionRow = {
   id: string
@@ -286,15 +286,29 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
               )}
               <p className="break-all font-mono text-[11px] text-muted-foreground">Room ID: {sess.roomId}</p>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              className="w-full shrink-0 sm:w-auto"
-              onClick={() => handleListenToRoom(perm)}
-            >
-              <Radio className="mr-2 h-3.5 w-3.5" />
-              Listen
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="min-w-0 flex-1 sm:w-auto sm:flex-initial"
+                onClick={() => handleListenToRoom(perm)}
+              >
+                <Radio className="mr-2 h-3.5 w-3.5 shrink-0" />
+                Listen
+              </Button>
+              {isSelected ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="shrink-0 gap-1"
+                  onClick={handleBackToRooms}
+                >
+                  <Square className="h-3.5 w-3.5" />
+                  Stop
+                </Button>
+              ) : null}
+            </div>
           </li>
         )
       })}
