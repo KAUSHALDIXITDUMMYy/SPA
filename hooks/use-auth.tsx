@@ -114,8 +114,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     }
 
-    // Update every minute to keep session alive
-    const interval = setInterval(updateActivity, 60 * 1000)
+    // Update periodically to keep session alive (avoid excessive Firestore writes)
+    const interval = setInterval(updateActivity, 3 * 60 * 1000)
 
     return () => clearInterval(interval)
   }, [user, userProfile])

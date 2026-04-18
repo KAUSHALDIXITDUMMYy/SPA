@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -26,15 +26,64 @@ import {
   MapPin,
   ExternalLink,
   MessageSquare,
+  Headphones,
 } from "lucide-react"
 import { type StreamAnalytics, type StreamViewer, type AnalyticsSummary } from "@/lib/analytics"
 import { formatViewerLocationLabel, normalizeViewerLocation } from "@/lib/viewer-location"
 import { db } from "@/lib/firebase"
-import { collection, query, where, orderBy, limit, onSnapshot } from "firebase/firestore"
+import { collection, query, where, orderBy, limit, getDocs } from "firebase/firestore"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useAuth } from "@/hooks/use-auth"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
+import { StreamViewer } from "@/components/subscriber/stream-viewer"
+import type { SubscriberPermission } from "@/lib/subscriber"
+import type { StreamSession } from "@/lib/streaming"
+
+/** Polling interval — avoids permanent snapshot listeners that multiply Firestore reads (quota). */
+const ADMIN_ANALYTICS_POLL_MS = 20_000
+
+type ActiveStreamRow = {
+  id: string
+  publisherId: string
+  publisherName: string
+  roomId: string
+  isActive: boolean
+  createdAt: Date
+  title?: string
+  description?: string
+  scheduledCallId?: string
+  awaitingBroadcast?: boolean
+  sport?: string
+}
+
+/** Synthetic permission so admin can join Agora as audience (same path as subscribers). */
+function activeStreamToAdminListenPermission(stream: ActiveStreamRow, adminUid: string): SubscriberPermission {
+  const session: StreamSession = {
+    id: stream.id,
+    publisherId: stream.publisherId,
+    publisherName: stream.publisherName || "",
+    roomId: stream.roomId,
+    isActive: stream.isActive,
+    createdAt: stream.createdAt,
+    title: stream.title,
+    description: stream.description,
+    scheduledCallId: stream.scheduledCallId,
+    awaitingBroadcast: stream.awaitingBroadcast,
+    sport: stream.sport,
+  }
+  return {
+    id: `admin-listen-${stream.id}`,
+    subscriberId: adminUid,
+    publisherId: stream.publisherId,
+    publisherName: stream.publisherName || "",
+    allowVideo: true,
+    allowAudio: true,
+    createdAt: stream.createdAt,
+    isActive: true,
+    streamSession: session,
+  }
+}
 
 export function AdminAnalytics() {
   const [analytics, setAnalytics] = useState<StreamAnalytics[]>([])
@@ -48,124 +97,103 @@ export function AdminAnalytics() {
   const [statsOpen, setStatsOpen] = useState(false)
   /** Which live stream’s chat panel is expanded (only one at a time to limit listeners). */
   const [openStreamChatId, setOpenStreamChatId] = useState<string | null>(null)
+  /** Which stream the admin is preview-listening to via Agora (one at a time). */
+  const [adminListeningStreamId, setAdminListeningStreamId] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
   const isMobile = useIsMobile()
   const { user, userProfile } = useAuth()
+  const dashboardUnmountRef = useRef(false)
 
-  useEffect(() => {
-    setLoading(true)
-    setError("")
-    
-    // Real-time listener for active viewers
-    const activeViewersRef = collection(db, "activeViewers")
-    const activeViewersQuery = query(activeViewersRef, where("isActive", "==", true))
-    
-    const unsubViewers = onSnapshot(
-      activeViewersQuery,
-      (snapshot) => {
-        const viewers = snapshot.docs.map(doc => {
-          const data = doc.data()
-          return {
-            id: doc.id,
-            streamSessionId: data.streamSessionId,
-            subscriberId: data.subscriberId,
-            subscriberName: data.subscriberName,
-            publisherId: data.publisherId,
-            publisherName: data.publisherName,
-            joinedAt: data.joinedAt?.toDate?.() || new Date(data.joinedAt),
-            lastSeen: data.lastSeen?.toDate?.() || new Date(data.lastSeen),
-            isActive: data.isActive,
-            location: normalizeViewerLocation(data.location),
-          }
-        }) as StreamViewer[]
-        
-        setActiveViewers(viewers)
-        setLastUpdated(new Date())
-        setIsLive(true)
-      },
-      (err) => {
-        setError(err.message || "Failed to subscribe to active viewers")
+  const fetchDashboard = useCallback(async (options?: { manual?: boolean }) => {
+    const isManual = options?.manual === true
+    if (isManual) setRefreshing(true)
+    try {
+      const activeViewersQuery = query(collection(db, "activeViewers"), where("isActive", "==", true))
+      const activeStreamsQuery = query(collection(db, "streamSessions"), where("isActive", "==", true))
+      const analyticsQuery = query(
+        collection(db, "streamAnalytics"),
+        orderBy("timestamp", "desc"),
+        limit(100),
+      )
+
+      const [viewersSnap, streamsSnap, analyticsSnap] = await Promise.all([
+        getDocs(activeViewersQuery),
+        getDocs(activeStreamsQuery),
+        getDocs(analyticsQuery),
+      ])
+
+      if (dashboardUnmountRef.current) return
+
+      const viewers = viewersSnap.docs.map((doc) => {
+        const data = doc.data()
+        return {
+          id: doc.id,
+          streamSessionId: data.streamSessionId,
+          subscriberId: data.subscriberId,
+          subscriberName: data.subscriberName,
+          publisherId: data.publisherId,
+          publisherName: data.publisherName,
+          joinedAt: data.joinedAt?.toDate?.() || new Date(data.joinedAt),
+          lastSeen: data.lastSeen?.toDate?.() || new Date(data.lastSeen),
+          isActive: data.isActive,
+          location: normalizeViewerLocation(data.location),
+        }
+      }) as StreamViewer[]
+
+      const streams = streamsSnap.docs.map((doc) => {
+        const data = doc.data()
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt),
+        }
+      })
+
+      const analyticsData = analyticsSnap.docs.map((doc) => {
+        const data = doc.data()
+        return {
+          id: doc.id,
+          streamSessionId: data.streamSessionId,
+          subscriberId: data.subscriberId,
+          subscriberName: data.subscriberName,
+          publisherId: data.publisherId,
+          publisherName: data.publisherName,
+          action: data.action,
+          timestamp: data.timestamp?.toDate?.() || new Date(data.timestamp),
+          duration: data.duration,
+        }
+      }) as StreamAnalytics[]
+
+      setActiveViewers(viewers)
+      setActiveStreams(streams)
+      setAnalytics(analyticsData)
+      setLastUpdated(new Date())
+      setIsLive(true)
+      setError("")
+      setLoading(false)
+    } catch (err: unknown) {
+      if (!dashboardUnmountRef.current) {
+        const message = err instanceof Error ? err.message : "Failed to load analytics"
+        setError(message)
         setIsLive(false)
-      }
-    )
-    
-    // Real-time listener for active streams
-    const streamsRef = collection(db, "streamSessions")
-    const activeStreamsQuery = query(streamsRef, where("isActive", "==", true))
-    
-    const unsubStreams = onSnapshot(
-      activeStreamsQuery,
-      (snapshot) => {
-        const streams = snapshot.docs.map(doc => {
-          const data = doc.data()
-          return {
-            id: doc.id,
-            ...data,
-            createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt)
-          }
-        })
-        
-        setActiveStreams(streams)
-        setLastUpdated(new Date())
-      },
-      (err) => {
-        console.error("Error subscribing to streams:", err)
-      }
-    )
-    
-    // Real-time listener for recent analytics
-    const analyticsRef = collection(db, "streamAnalytics")
-    const analyticsQuery = query(analyticsRef, orderBy("timestamp", "desc"), limit(100))
-    
-    const unsubAnalytics = onSnapshot(
-      analyticsQuery,
-      (snapshot) => {
-        const analyticsData = snapshot.docs.map(doc => {
-          const data = doc.data()
-          return {
-            id: doc.id,
-            streamSessionId: data.streamSessionId,
-            subscriberId: data.subscriberId,
-            subscriberName: data.subscriberName,
-            publisherId: data.publisherId,
-            publisherName: data.publisherName,
-            action: data.action,
-            timestamp: data.timestamp?.toDate?.() || new Date(data.timestamp),
-            duration: data.duration
-          }
-        }) as StreamAnalytics[]
-        
-        setAnalytics(analyticsData)
-        
-        // Calculate summary statistics
-        const uniqueViewers = new Set(analyticsData.map(a => a.subscriberId)).size
-        const leaveEvents = analyticsData.filter(a => a.action === 'leave')
-        const averageViewDuration = leaveEvents.length > 0 
-          ? leaveEvents.reduce((sum, event) => sum + (event.duration || 0), 0) / leaveEvents.length
-          : 0
-        
-        setSummary({
-          totalAnalytics: analyticsData.length,
-          activeViewersCount: activeViewers.length,
-          activeStreamsCount: activeStreams.length,
-          uniqueViewers,
-          averageViewDuration: Math.round(averageViewDuration)
-        })
-        
-        setLastUpdated(new Date())
-        setLoading(false)
-      },
-      (err) => {
-        setError(err.message || "Failed to subscribe to analytics")
         setLoading(false)
       }
-    )
-    
-    return () => {
-      unsubViewers()
-      unsubStreams()
-      unsubAnalytics()
+    } finally {
+      if (isManual && !dashboardUnmountRef.current) setRefreshing(false)
     }
   }, [])
+
+  useEffect(() => {
+    dashboardUnmountRef.current = false
+    setLoading(true)
+    setError("")
+    void fetchDashboard()
+    const intervalId = setInterval(() => void fetchDashboard(), ADMIN_ANALYTICS_POLL_MS)
+    return () => {
+      dashboardUnmountRef.current = true
+      clearInterval(intervalId)
+    }
+  }, [fetchDashboard])
   
   // Filter viewers to only show those watching actually active streams and are currently active
   const validActiveViewers = useMemo(() => {
@@ -175,24 +203,30 @@ export function AdminAnalytics() {
     )
   }, [activeViewers, activeStreams])
   
-  // Update summary when activeViewers or activeStreams change
   useEffect(() => {
-    if (analytics.length > 0 || validActiveViewers.length > 0 || activeStreams.length > 0) {
-      const uniqueViewers = new Set(analytics.map(a => a.subscriberId)).size
-      const leaveEvents = analytics.filter(a => a.action === 'leave')
-      const averageViewDuration = leaveEvents.length > 0 
+    const uniqueViewers = new Set(analytics.map((a) => a.subscriberId)).size
+    const leaveEvents = analytics.filter((a) => a.action === "leave")
+    const averageViewDuration =
+      leaveEvents.length > 0
         ? leaveEvents.reduce((sum, event) => sum + (event.duration || 0), 0) / leaveEvents.length
         : 0
-      
-      setSummary({
-        totalAnalytics: analytics.length,
-        activeViewersCount: validActiveViewers.length,
-        activeStreamsCount: activeStreams.length,
-        uniqueViewers,
-        averageViewDuration: Math.round(averageViewDuration)
-      })
-    }
+
+    setSummary({
+      totalAnalytics: analytics.length,
+      activeViewersCount: validActiveViewers.length,
+      activeStreamsCount: activeStreams.length,
+      uniqueViewers,
+      averageViewDuration: Math.round(averageViewDuration),
+    })
   }, [validActiveViewers, activeStreams, analytics])
+
+  /** Stop preview listen if that stream is no longer active. */
+  useEffect(() => {
+    if (!adminListeningStreamId) return
+    if (!activeStreams.some((s) => s.id === adminListeningStreamId)) {
+      setAdminListeningStreamId(null)
+    }
+  }, [activeStreams, adminListeningStreamId])
 
   const getActionBadgeVariant = (action: string) => {
     switch (action) {
@@ -272,16 +306,28 @@ export function AdminAnalytics() {
             </div>
           </div>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-            Real-time insights • Updates automatically as viewers join and leave
+            Data refreshes about every {ADMIN_ANALYTICS_POLL_MS / 1000}s to reduce Firestore usage
           </p>
         </div>
-        <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
-          <div className="text-right">
-            <p className="text-xs text-muted-foreground">Last update</p>
-            <p className="text-xs sm:text-sm font-medium">{lastUpdated.toLocaleTimeString()}</p>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:max-w-md sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-10 w-full gap-2 sm:h-9 sm:w-auto sm:min-w-[8.5rem]"
+            disabled={loading || refreshing}
+            onClick={() => void fetchDashboard({ manual: true })}
+          >
+            <RefreshCw className={`h-4 w-4 shrink-0 ${refreshing ? "animate-spin" : ""}`} />
+            Refresh data
+          </Button>
+          <div className="flex items-center justify-between gap-3 border-t border-border pt-2 sm:border-t-0 sm:pt-0">
+            <div className="text-left sm:text-right">
+              <p className="text-xs text-muted-foreground">Last update</p>
+              <p className="text-xs sm:text-sm font-medium">{lastUpdated.toLocaleTimeString()}</p>
+            </div>
+            <Wifi className="h-4 w-4 shrink-0 sm:h-5 sm:w-5 text-green-600 dark:text-green-400 animate-pulse" />
           </div>
-          <div className="h-8 w-px bg-border hidden sm:block" />
-          <Wifi className="h-4 w-4 sm:h-5 sm:w-5 text-green-600 dark:text-green-400 animate-pulse" />
         </div>
       </div>
 
@@ -413,7 +459,7 @@ export function AdminAnalytics() {
                       <span className="break-words">Who is Watching What</span>
                     </CardTitle>
                     <CardDescription className="mt-1 text-xs sm:text-sm">
-                      Real-time viewer activity • Updates live
+                      Viewer list refreshes with the dashboard (about every {ADMIN_ANALYTICS_POLL_MS / 1000}s)
                       <span className="block text-muted-foreground mt-1">
                         Approximate location (city/region) from IP when each listener joins.
                       </span>
@@ -514,8 +560,9 @@ export function AdminAnalytics() {
                       <span className="break-words">Live Streams</span>
                     </CardTitle>
                     <CardDescription className="mt-1 text-xs sm:text-sm">
-                      Active broadcasts right now. Open live chat to read publisher and subscriber messages or reply as
-                      admin.
+                      Active broadcasts right now. Open live chat to read messages or reply as admin. Use{" "}
+                      <strong className="text-foreground">Listen to audio</strong> to hear the same feed subscribers hear
+                      (does not count as a viewer in analytics).
                     </CardDescription>
                   </div>
                   <Badge variant="outline" className="bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700 text-xs whitespace-nowrap flex-shrink-0">
@@ -528,9 +575,11 @@ export function AdminAnalytics() {
                   <ScrollArea className="h-[400px] pr-2 sm:pr-4">
                     <div className="space-y-3">
                       {activeStreams.map((stream) => {
+                        const row = stream as ActiveStreamRow
                         const viewersCount = validActiveViewers.filter(v => v.streamSessionId === stream.id).length
                         const streamDuration = Math.floor((new Date().getTime() - new Date(stream.createdAt).getTime()) / 1000)
                         const chatOpen = openStreamChatId === stream.id
+                        const listeningHere = adminListeningStreamId === stream.id
                         return (
                           <div 
                             key={stream.id} 
@@ -573,18 +622,36 @@ export function AdminAnalytics() {
                                 </p>
                               </div>
                               <div className="pt-1 space-y-3">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="w-full sm:w-auto gap-2 text-xs sm:text-sm"
-                                  onClick={() =>
-                                    setOpenStreamChatId((prev) => (prev === stream.id ? null : stream.id))
-                                  }
-                                >
-                                  <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                                  {chatOpen ? "Hide live chat" : "Show live chat"}
-                                </Button>
+                                <div className="flex flex-col xs:flex-row flex-wrap gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full xs:w-auto gap-2 text-xs sm:text-sm"
+                                    onClick={() =>
+                                      setOpenStreamChatId((prev) => (prev === stream.id ? null : stream.id))
+                                    }
+                                  >
+                                    <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                                    {chatOpen ? "Hide live chat" : "Show live chat"}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant={listeningHere ? "default" : "outline"}
+                                    size="sm"
+                                    className="w-full xs:w-auto gap-2 text-xs sm:text-sm"
+                                    disabled={!user}
+                                    onClick={() =>
+                                      setAdminListeningStreamId((prev) => (prev === stream.id ? null : stream.id))
+                                    }
+                                  >
+                                    <Headphones className="h-3.5 w-3.5 shrink-0" />
+                                    {listeningHere ? "Stop listening" : "Listen to audio"}
+                                  </Button>
+                                </div>
+                                {!user && (
+                                  <p className="text-xs text-muted-foreground">Sign in to use live chat and audio preview.</p>
+                                )}
                                 {chatOpen && user && (
                                   <StreamChatPanel
                                     streamSessionId={stream.id}
@@ -599,8 +666,19 @@ export function AdminAnalytics() {
                                     isAdmin
                                   />
                                 )}
-                                {chatOpen && !user && (
-                                  <p className="text-xs text-muted-foreground">Sign in to open live chat.</p>
+                                {listeningHere && user && (
+                                  <div className="rounded-lg border border-purple-200/80 dark:border-purple-900 bg-muted/30 p-2">
+                                    <p className="text-[11px] text-muted-foreground mb-2">
+                                      Admin preview — same channel as subscribers; not counted in viewer analytics.
+                                    </p>
+                                    <StreamViewer
+                                      key={stream.id}
+                                      permission={activeStreamToAdminListenPermission(row, user.uid)}
+                                      layout="mobileInline"
+                                      autoJoin
+                                      skipActivityAnalytics
+                                    />
+                                  </div>
                                 )}
                               </div>
                             </div>

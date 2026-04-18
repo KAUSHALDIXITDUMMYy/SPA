@@ -49,6 +49,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   subscribeToActiveStreams,
+  getActiveStreams,
   endStreamSession,
   updateStreamSessionPublisher,
   isAwaitingBroadcastSession,
@@ -59,7 +60,7 @@ import { getUsersByRole } from "@/lib/admin"
 import { deleteScheduledCall } from "@/lib/scheduled-calls"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
 import { useAuth } from "@/hooks/use-auth"
-import { Radio, MessageSquare, UserCog, Loader2, Trash2 } from "lucide-react"
+import { Radio, MessageSquare, UserCog, Loader2, Trash2, RefreshCw } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 
 type PublisherRow = { id: string; displayName?: string; email?: string }
@@ -76,6 +77,7 @@ export function ActiveRoomsAdmin() {
   const [reassignSaving, setReassignSaving] = useState(false)
   const [chatSession, setChatSession] = useState<StreamSession | null>(null)
   const [endingAll, setEndingAll] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
   /** Every active row can be ended: live broadcasts reset or close; “waiting for host” closes the room row. */
   const streamsEligibleToEnd = streams.filter((s) => Boolean(s.id))
@@ -98,6 +100,16 @@ export function ActiveRoomsAdmin() {
       )
     })
   }, [])
+
+  const handleRefreshRooms = async () => {
+    setRefreshing(true)
+    try {
+      const list = await getActiveStreams()
+      setStreams(list)
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const publisherLabel = (id: string) => {
     const p = publishers.find((x) => x.id === id)
@@ -226,14 +238,27 @@ export function ActiveRoomsAdmin() {
                 updates metadata only.
               </CardDescription>
             </div>
-            {streams.length > 0 ? (
+            <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end lg:w-auto lg:shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full sm:w-auto"
+                disabled={loading || refreshing}
+                onClick={handleRefreshRooms}
+                title="Reload the list from the server"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-2 ${refreshing ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+              {streams.length > 0 ? (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button
                     type="button"
                     variant="destructive"
                     size="sm"
-                    className="shrink-0 w-full lg:w-auto"
+                    className="shrink-0 w-full sm:w-auto"
                     disabled={endingAll || streamsEligibleToEnd.length === 0}
                     title={streamsEligibleToEnd.length === 0 ? "No active rooms to end." : undefined}
                   >
@@ -268,7 +293,8 @@ export function ActiveRoomsAdmin() {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
-            ) : null}
+              ) : null}
+            </div>
           </div>
         </CardHeader>
         <CardContent>

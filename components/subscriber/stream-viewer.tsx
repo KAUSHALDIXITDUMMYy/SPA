@@ -31,6 +31,8 @@ interface StreamViewerProps {
   autoJoin?: boolean
   /** Compact in-list player on phone; chat is expected via floating sheet. */
   layout?: StreamViewerLayout
+  /** When true, do not record join/leave in stream analytics (e.g. admin preview listen). */
+  skipActivityAnalytics?: boolean
 }
 
 export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(function StreamViewer(
@@ -40,6 +42,7 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
     onLeaveStream,
     autoJoin = true,
     layout = "standard",
+    skipActivityAnalytics = false,
   },
   ref,
 ) {
@@ -81,7 +84,7 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
           width: "100%",
           height: 500,
         }),
-        fetchApproximateViewerLocation(),
+        skipActivityAnalytics ? Promise.resolve(undefined) : fetchApproximateViewerLocation(),
       ])
 
       if (!isMountedRef.current) {
@@ -100,16 +103,17 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
       // Start silent audio to reduce tab throttling when backgrounded (minimized)
       startSilentAudio()
 
-      // Track analytics (approximate location for admin live viewer map)
-      await trackSubscriberActivity({
-        streamSessionId: permission.streamSession.id!,
-        subscriberId: user.uid,
-        subscriberName: userProfile.displayName || userProfile.email,
-        publisherId: permission.publisherId,
-        publisherName: permission.publisherName,
-        action: "join",
-        location: approxLocation ?? undefined,
-      })
+      if (!skipActivityAnalytics) {
+        await trackSubscriberActivity({
+          streamSessionId: permission.streamSession.id!,
+          subscriberId: user.uid,
+          subscriberName: userProfile.displayName || userProfile.email,
+          publisherId: permission.publisherId,
+          publisherName: permission.publisherName,
+          action: "join",
+          location: approxLocation ?? undefined,
+        })
+      }
     } catch (err: any) {
       if (isMountedRef.current) {
         setError(err.message || "Failed to join stream")
@@ -129,16 +133,17 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
       // Calculate viewing duration
       const duration = joinTime ? Math.floor((Date.now() - joinTime.getTime()) / 1000) : 0
 
-      // Track analytics before leaving (use the stream we're actually leaving)
-      await trackSubscriberActivity({
-        streamSessionId: forAnalytics.streamSession.id!,
-        subscriberId: user.uid,
-        subscriberName: userProfile.displayName || userProfile.email,
-        publisherId: forAnalytics.publisherId,
-        publisherName: forAnalytics.publisherName,
-        action: "leave",
-        duration,
-      })
+      if (!skipActivityAnalytics) {
+        await trackSubscriberActivity({
+          streamSessionId: forAnalytics.streamSession.id!,
+          subscriberId: user.uid,
+          subscriberName: userProfile.displayName || userProfile.email,
+          publisherId: forAnalytics.publisherId,
+          publisherName: forAnalytics.publisherName,
+          action: "leave",
+          duration,
+        })
+      }
 
       await agoraManager.leave()
       stopSilentAudio()
@@ -149,7 +154,7 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
       currentStreamIdRef.current = null
       onLeaveStream?.()
     },
-    [user, userProfile, permission, joinTime, onLeaveStream],
+    [user, userProfile, permission, joinTime, onLeaveStream, skipActivityAnalytics],
   )
 
   useImperativeHandle(

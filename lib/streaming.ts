@@ -288,19 +288,15 @@ export function subscribeToActiveStreams(
   })
 }
 
-export const getActiveStreams = async () => {
+export const getActiveStreams = async (): Promise<StreamSession[]> => {
   try {
     const streamsRef = collection(db, "streamSessions")
-    // Use simpler query to avoid index requirements
     const q = query(streamsRef, where("isActive", "==", true))
     const querySnapshot = await getDocs(q)
 
-    const streams = querySnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    })) as StreamSession[]
-
-    // Sort by createdAt in memory to avoid composite index
+    const streams = querySnapshot.docs.map((doc) =>
+      normalizeStreamSession(doc.id, doc.data() as Record<string, unknown>),
+    )
     return streams.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   } catch (error) {
     console.error("Error fetching active streams:", error)

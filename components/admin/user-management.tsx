@@ -17,10 +17,24 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { createUser, getAllUsers, updateUserStatus, updateUserChatPermission, resetUserPassword } from "@/lib/admin"
 import type { UserProfile, UserRole } from "@/lib/auth"
-import { Plus, Users, UserCheck, UserX, Shield, Video, Eye, ChevronDown, ChevronUp, KeyRound, MessageSquare, Search, ListTree } from "lucide-react"
+import {
+  Plus,
+  Users,
+  UserCheck,
+  UserX,
+  Shield,
+  Video,
+  Eye,
+  ChevronDown,
+  ChevronUp,
+  KeyRound,
+  MessageSquare,
+  Search,
+  ListTree,
+  RefreshCw,
+  Loader2,
+} from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
-import { db } from "@/lib/firebase"
-import { collection, onSnapshot } from "firebase/firestore"
 import { toast } from "@/hooks/use-toast"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -114,43 +128,32 @@ export function UserManagement() {
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [resetPasswordLoading, setResetPasswordLoading] = useState(false)
+  const [listRefreshing, setListRefreshing] = useState(false)
 
   useEffect(() => {
-    loadUsers()
-    
-    // Set up real-time listener for users
-    const usersRef = collection(db, "users")
-    const unsubscribe = onSnapshot(usersRef, (snapshot) => {
-      const usersData = snapshot.docs.map((doc) => {
-        const data = doc.data()
-        return {
-          id: doc.id,
-          ...data,
-          // Convert Firestore Timestamps to JS Date objects
-          createdAt: convertTimestampToDate(data.createdAt) || new Date(),
-          lastLoginAt: convertTimestampToDate(data.lastLoginAt) || undefined,
-        }
-      }) as (UserProfile & { id: string })[]
-      
-      // Sort by createdAt
-      const sorted = usersData.sort((a: any, b: any) => {
-        const dateA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt)
-        const dateB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt)
-        return dateB.getTime() - dateA.getTime()
-      })
-      
-      setUsers(sorted)
-      setLoading(false)
-    })
-    
-    return () => unsubscribe()
+    void loadUsers(false)
+    const intervalId = setInterval(() => void loadUsers(true), 60_000)
+    return () => clearInterval(intervalId)
   }, [])
 
-  const loadUsers = async () => {
-    setLoading(true)
-    const usersData = await getAllUsers()
-    setUsers(usersData as (UserProfile & { id: string })[])
-    setLoading(false)
+  /** @param silent When true, refresh list without full-page loading spinner (reduces Firestore reads vs. realtime snapshot on entire collection). */
+  const loadUsers = async (silent = false) => {
+    if (!silent) setLoading(true)
+    try {
+      const usersData = await getAllUsers()
+      setUsers(usersData as (UserProfile & { id: string })[])
+    } finally {
+      if (!silent) setLoading(false)
+    }
+  }
+
+  const handleRefreshUserList = async () => {
+    setListRefreshing(true)
+    try {
+      await loadUsers(true)
+    } finally {
+      setListRefreshing(false)
+    }
   }
 
   const emailExists = useMemo(
@@ -273,6 +276,7 @@ export function UserManagement() {
   const handleToggleChat = async (userId: string, currentValue: boolean) => {
     const result = await updateUserChatPermission(userId, !currentValue)
     if (result.success) {
+      void loadUsers(true)
       const u = users.find((x) => x.id === userId)
       toast({
         title: "Chat Updated",
@@ -290,8 +294,7 @@ export function UserManagement() {
   const handleToggleUserStatus = async (userId: string, currentStatus: boolean) => {
     const result = await updateUserStatus(userId, !currentStatus)
     if (result.success) {
-      // Don't call loadUsers() - the real-time listener will automatically update the state
-      // This prevents page refresh and scroll position reset
+      void loadUsers(true)
       const user = users.find(u => u.id === userId)
       toast({
         title: "Status Updated",
@@ -500,26 +503,43 @@ export function UserManagement() {
       {/* Create User Section */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
               <CardTitle>User Management</CardTitle>
               <CardDescription>Create and manage user accounts for Sportsmagician Audio</CardDescription>
             </div>
-            <Button
-              onClick={() => {
-                const next = !showCreateForm
-                setShowCreateForm(next)
-                if (next) {
-                  setBulkSkippedNames([])
-                  setBulkCreatedCount(null)
-                  setError("")
-                  setSuccess("")
-                }
-              }}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Create User
-            </Button>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-0 sm:flex-row sm:shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full gap-2 sm:w-auto"
+                disabled={listRefreshing}
+                onClick={() => void handleRefreshUserList()}
+              >
+                {listRefreshing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                Refresh list
+              </Button>
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  const next = !showCreateForm
+                  setShowCreateForm(next)
+                  if (next) {
+                    setBulkSkippedNames([])
+                    setBulkCreatedCount(null)
+                    setError("")
+                    setSuccess("")
+                  }
+                }}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Create User
+              </Button>
+            </div>
           </div>
         </CardHeader>
 

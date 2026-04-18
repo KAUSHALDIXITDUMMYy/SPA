@@ -26,7 +26,7 @@ import { StreamViewer, type StreamViewerHandle } from "./stream-viewer"
 import { SubscriberFloatingChat } from "@/components/subscriber/subscriber-floating-chat"
 import { useAuth } from "@/hooks/use-auth"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { Phone, Radio, Activity } from "lucide-react"
+import { Phone, Radio, Activity, RefreshCw, Loader2 } from "lucide-react"
 
 type ActiveSessionRow = {
   id: string
@@ -60,6 +60,7 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
   const [scheduledPermissions, setScheduledPermissions] = useState<SubscriberPermission[]>([])
   const [listening, setListening] = useState<SubscriberPermission | null>(null)
   const [streamsLoading, setStreamsLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   /** Calendar row for each stream session id (from scheduledCallId when present). */
   const [callMetaByStreamSessionId, setCallMetaByStreamSessionId] = useState<
     Record<string, ScheduledCall | null>
@@ -68,24 +69,30 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
   const pendingListeningRef = useRef<SubscriberPermission | null>(null)
   const dateKey = getLocalDateKey()
 
-  const loadScheduledStreams = useCallback(async () => {
-    if (!userId) return
-    try {
-      const { scheduled } = await getAvailableStreamsSplit(userId)
-      const sorted = [...scheduled].sort(compareSubscriberPermissionsByStreamStart)
-      setScheduledPermissions(sorted)
-      setListening((cur) => {
-        if (!cur) return cur
-        return sorted.find((p) => p.id === cur.id) ?? null
-      })
-    } finally {
-      setStreamsLoading(false)
-    }
-  }, [userId])
+  const loadScheduledStreams = useCallback(
+    async (options?: { manual?: boolean }) => {
+      if (!userId) return
+      const isManual = options?.manual === true
+      if (isManual) setRefreshing(true)
+      try {
+        const { scheduled } = await getAvailableStreamsSplit(userId)
+        const sorted = [...scheduled].sort(compareSubscriberPermissionsByStreamStart)
+        setScheduledPermissions(sorted)
+        setListening((cur) => {
+          if (!cur) return cur
+          return sorted.find((p) => p.id === cur.id) ?? null
+        })
+      } finally {
+        setStreamsLoading(false)
+        if (isManual) setRefreshing(false)
+      }
+    },
+    [userId],
+  )
 
   useEffect(() => {
     loadScheduledStreams()
-    const interval = setInterval(loadScheduledStreams, 5000)
+    const interval = setInterval(loadScheduledStreams, 15_000)
     return () => clearInterval(interval)
   }, [loadScheduledStreams])
 
@@ -308,18 +315,35 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Phone className="h-5 w-5 text-primary" />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <Phone className="h-5 w-5 text-primary shrink-0" />
               <CardTitle className="text-lg">Your scheduled rooms</CardTitle>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="animate-pulse text-xs w-fit">
-                Auto-updating
-              </Badge>
-              <Badge variant={liveCount > 0 ? "default" : "secondary"} className="w-fit">
-                {liveCount} live now
-              </Badge>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 w-full gap-2 sm:w-auto sm:min-w-[8.5rem]"
+                disabled={streamsLoading || refreshing}
+                onClick={() => void loadScheduledStreams({ manual: true })}
+              >
+                {refreshing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                Refresh
+              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="animate-pulse text-xs w-fit">
+                  Auto-updating
+                </Badge>
+                <Badge variant={liveCount > 0 ? "default" : "secondary"} className="w-fit">
+                  {liveCount} live now
+                </Badge>
+              </div>
             </div>
           </div>
           <CardDescription>

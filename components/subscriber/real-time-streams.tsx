@@ -15,7 +15,7 @@ import { US_STREAM_SPORTS, SPORT_FILTER_ALL, SPORT_FILTER_UNSPECIFIED, streamSpo
 import { StreamViewer, type StreamViewerHandle } from "./stream-viewer"
 import { SubscriberFloatingChat } from "@/components/subscriber/subscriber-floating-chat"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { Radio, Activity, Filter as FilterIcon } from "lucide-react"
+import { Radio, Activity, Filter as FilterIcon, RefreshCw, Loader2 } from "lucide-react"
 
 export function RealTimeStreams() {
   const { user, userProfile } = useAuth()
@@ -24,6 +24,7 @@ export function RealTimeStreams() {
   const [selectedStream, setSelectedStream] = useState<SubscriberPermission | null>(null)
   const [sportFilter, setSportFilter] = useState<string>(SPORT_FILTER_ALL)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState("")
   const streamViewerRef = useRef<StreamViewerHandle>(null)
   /**
@@ -41,19 +42,15 @@ export function RealTimeStreams() {
     return s === sportFilter
   })
 
-  useEffect(() => {
-    if (!user) return
-
-    const loadStreams = async () => {
+  const loadStreams = useCallback(
+    async (options?: { manual?: boolean }) => {
+      if (!user) return
+      const isManual = options?.manual === true
+      if (isManual) setRefreshing(true)
       try {
-        console.log("[v0] Loading streams for user:", user.uid)
         const { adHoc: streams } = await getAvailableStreamsSplit(user.uid)
-        console.log("[v0] Ad-hoc streams for subscriber:", streams.length)
-        
         const sortedStreams = [...streams].sort(compareSubscriberPermissionsByStreamStart)
-        
         setAvailableStreams(sortedStreams)
-        // Keep selected stream in sync with latest data or clear if gone
         setSelectedStream((current) => {
           if (!current) return current
           const updated = streams.find((s) => s.id === current.id) || null
@@ -65,16 +62,18 @@ export function RealTimeStreams() {
         setError("Failed to load streams")
       } finally {
         setLoading(false)
+        if (isManual) setRefreshing(false)
       }
-    }
+    },
+    [user],
+  )
 
-    loadStreams()
-
-    // Set up polling for real-time updates
-    const interval = setInterval(loadStreams, 5000) // Poll every 5 seconds
-
+  useEffect(() => {
+    if (!user) return
+    void loadStreams()
+    const interval = setInterval(() => void loadStreams(), 15_000)
     return () => clearInterval(interval)
-  }, [user])
+  }, [user, loadStreams])
 
   /** Apply pending stream only after viewer has fully unmounted (selectedStream === null). */
   useEffect(() => {
@@ -221,14 +220,29 @@ export function RealTimeStreams() {
       {/* Real-time Status */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Activity className="h-5 w-5 text-green-500" />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <Activity className="h-5 w-5 text-green-500 shrink-0" />
               <CardTitle>Live Audio Streams</CardTitle>
               <Badge variant="outline" className="animate-pulse">
                 Auto-updating
               </Badge>
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 w-full shrink-0 gap-2 sm:w-auto sm:min-w-[8.5rem]"
+              disabled={loading || refreshing}
+              onClick={() => void loadStreams({ manual: true })}
+            >
+              {refreshing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Refresh
+            </Button>
           </div>
           <CardDescription>
             Only <strong className="text-foreground">publisher-started</strong> streams (not tied to a scheduled game room).
@@ -258,6 +272,20 @@ export function RealTimeStreams() {
                 <p className="text-xs sm:text-sm mt-2">
                   Contact your administrator for access, or wait for a publisher to go live outside a scheduled room.
                 </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4 gap-2"
+                  disabled={refreshing}
+                  onClick={() => void loadStreams({ manual: true })}
+                >
+                  {refreshing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Check again
+                </Button>
               </div>
             </CardContent>
           </Card>
