@@ -105,11 +105,6 @@ export function RealTimeStreams() {
     setSelectedStream(stream)
   }
 
-  const handleBackToList = () => {
-    pendingStreamRef.current = null
-    void streamViewerRef.current?.leaveStream()
-  }
-
   const handleStopStream = useCallback(() => {
     pendingStreamRef.current = null
     void streamViewerRef.current?.leaveStream()
@@ -244,7 +239,7 @@ export function RealTimeStreams() {
       ) : (
         <Card>
           <CardContent className="flex items-center justify-center p-12 text-muted-foreground">
-            Select an audio stream to start listening
+            Choose a stream from the list on the left to listen. You can switch anytime without leaving this page.
           </CardContent>
         </Card>
       )}
@@ -294,7 +289,7 @@ export function RealTimeStreams() {
         </Alert>
       )}
 
-      {/* Available Streams + Viewer */}
+      {/* Available Streams + Viewer: split on web; stacked list + player on phone */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {availableStreams.length === 0 ? (
           <Card className="lg:col-span-3">
@@ -350,19 +345,26 @@ export function RealTimeStreams() {
               />
             ) : null}
           </div>
-        ) : selectedStream ? (
-          <div className="lg:col-span-3">
-            <div className="mb-4">
-              <Button variant="outline" onClick={handleBackToList} className="w-full text-sm sm:w-auto sm:text-base">
-                ← Back to Streams
-              </Button>
-            </div>
-            {rightPane}
-          </div>
+        ) : isMobile ? (
+          <div className="lg:col-span-3">{streamListSection}</div>
         ) : (
           <>
-            <div className="space-y-3 sm:space-y-4 lg:col-span-1">{streamListSection}</div>
-            <div className="hidden lg:col-span-2 lg:block">{rightPane}</div>
+            <div className="lg:col-span-1 min-h-0 lg:max-h-[min(75vh,640px)] lg:overflow-y-auto lg:pr-1">
+              {streamListSection}
+            </div>
+            <div className="lg:col-span-2 min-h-0 space-y-4">
+              {rightPane}
+              {selectedStream && user && userProfile && selectedStream.streamSession?.id ? (
+                <SubscriberFloatingChat
+                  streamSessionId={selectedStream.streamSession.id}
+                  streamTitle={selectedStream.streamSession.title}
+                  userId={user.uid}
+                  userName={userProfile.displayName || userProfile.email || ""}
+                  userEmail={userProfile.email}
+                  allowChat={userProfile.allowChat === true}
+                />
+              ) : null}
+            </div>
           </>
         )}
       </div>

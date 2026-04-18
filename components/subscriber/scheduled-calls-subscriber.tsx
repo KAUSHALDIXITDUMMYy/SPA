@@ -206,8 +206,8 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
   const emptyViewerPane = (
     <Card>
       <CardContent className="flex items-center justify-center p-12 text-center text-sm text-muted-foreground">
-        Select a room below to listen. Scheduled games stay in this tab; publisher direct streams are under{" "}
-        <strong className="mx-1 text-foreground">Audio Streams</strong>.
+        Select a room on the left to listen. Switch anytime by choosing another room. Scheduled games stay in this tab;
+        publisher direct streams are under <strong className="mx-1 text-foreground">Audio Streams</strong>.
       </CardContent>
     </Card>
   )
@@ -316,7 +316,7 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
   )
 
   const roomsColumn = (
-    <div className="space-y-3 lg:col-span-1">
+    <div className="space-y-3">
       <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
         <Activity className="h-4 w-4" />
         Rooms you can open
@@ -405,29 +405,39 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
                     />
                   ) : null}
                 </div>
-              ) : listening ? (
-                <div className="space-y-4 lg:col-span-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleBackToRooms}
-                    className="w-full text-sm sm:w-auto sm:text-base"
-                  >
-                    ← Back to rooms
-                  </Button>
-                  <StreamViewer
-                    ref={streamViewerRef}
-                    key={listening.streamSession?.id || listening.id}
-                    permission={listening}
-                    onLeaveStream={() => setListening(null)}
-                    autoJoin={true}
-                    layout="standard"
-                  />
-                </div>
+              ) : isMobile && !listening ? (
+                <div className="lg:col-span-3">{roomsColumn}</div>
               ) : (
                 <>
-                  {roomsColumn}
-                  <div className="hidden lg:col-span-2 lg:block">{emptyViewerPane}</div>
+                  <div className="min-h-0 lg:col-span-1 lg:max-h-[min(75vh,640px)] lg:overflow-y-auto lg:pr-1">
+                    {roomsColumn}
+                  </div>
+                  <div className="space-y-4 lg:col-span-2">
+                    {listening ? (
+                      <>
+                        <StreamViewer
+                          ref={streamViewerRef}
+                          key={listening.streamSession?.id || listening.id}
+                          permission={listening}
+                          onLeaveStream={() => setListening(null)}
+                          autoJoin={true}
+                          layout="standard"
+                        />
+                        {user && userProfile && listening.streamSession?.id ? (
+                          <SubscriberFloatingChat
+                            streamSessionId={listening.streamSession.id}
+                            streamTitle={listening.streamSession.title}
+                            userId={user.uid}
+                            userName={userProfile.displayName || userProfile.email || ""}
+                            userEmail={userProfile.email}
+                            allowChat={userProfile.allowChat === true}
+                          />
+                        ) : null}
+                      </>
+                    ) : (
+                      emptyViewerPane
+                    )}
+                  </div>
                 </>
               )}
             </div>
