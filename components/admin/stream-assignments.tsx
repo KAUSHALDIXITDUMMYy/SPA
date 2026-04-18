@@ -34,7 +34,20 @@ import {
 } from "@/lib/admin"
 import { getAllStreams as getAllStreamSessions, type StreamSession } from "@/lib/streaming"
 import type { UserProfile } from "@/lib/auth"
-import { Radio, Users, Loader2, CheckCircle2, Search, X, ChevronDown, ChevronUp, Mail, Grid3x3 } from "lucide-react"
+import {
+  Radio,
+  Users,
+  Loader2,
+  CheckCircle2,
+  Search,
+  X,
+  ChevronDown,
+  ChevronUp,
+  Mail,
+  Grid3x3,
+  CheckSquare,
+  Square,
+} from "lucide-react"
 
 // Memoized matrix cell to prevent unnecessary re-renders
 const MatrixCell = memo(({ 
@@ -134,6 +147,32 @@ export function StreamAssignments() {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     })
   }, [searchStreams, streams])
+
+  const filteredStreamIds = useMemo(
+    () => filteredStreams.map((s) => s.id).filter((id): id is string => Boolean(id)),
+    [filteredStreams],
+  )
+
+  const allFilteredSubscribersSelected = useMemo(
+    () =>
+      filteredSubscribers.length > 0 &&
+      filteredSubscribers.every((s) => selectedSubscribers.has(s.id)),
+    [filteredSubscribers, selectedSubscribers],
+  )
+
+  const allFilteredStreamsSelected = useMemo(
+    () =>
+      filteredStreamIds.length > 0 &&
+      filteredStreamIds.every((id) => selectedStreams.has(id)),
+    [filteredStreamIds, selectedStreams],
+  )
+
+  const allBulkEmailStreamsSelected = useMemo(
+    () =>
+      filteredStreamIds.length > 0 &&
+      filteredStreamIds.every((id) => bulkEmailSelectedStreams.has(id)),
+    [filteredStreamIds, bulkEmailSelectedStreams],
+  )
 
   // Check if subscriber has stream assigned
   const isAssigned = useCallback((subscriberId: string, streamId: string) => {
@@ -387,6 +426,34 @@ export function StreamAssignments() {
     })
   }, [])
 
+  const toggleAllSubscribers = useCallback(() => {
+    if (filteredSubscribers.length === 0) return
+    const ids = filteredSubscribers.map((s) => s.id)
+    if (allFilteredSubscribersSelected) {
+      setSelectedSubscribers(new Set())
+    } else {
+      setSelectedSubscribers(new Set(ids))
+    }
+  }, [filteredSubscribers, allFilteredSubscribersSelected])
+
+  const toggleAllStreams = useCallback(() => {
+    if (filteredStreamIds.length === 0) return
+    if (allFilteredStreamsSelected) {
+      setSelectedStreams(new Set())
+    } else {
+      setSelectedStreams(new Set(filteredStreamIds))
+    }
+  }, [filteredStreamIds, allFilteredStreamsSelected])
+
+  const toggleBulkEmailAllStreams = useCallback(() => {
+    if (filteredStreamIds.length === 0) return
+    if (allBulkEmailStreamsSelected) {
+      setBulkEmailSelectedStreams(new Set())
+    } else {
+      setBulkEmailSelectedStreams(new Set(filteredStreamIds))
+    }
+  }, [filteredStreamIds, allBulkEmailStreamsSelected])
+
   // Toggle bulk email stream selection
   const toggleBulkEmailStreamSelection = useCallback((id: string) => {
     setBulkEmailSelectedStreams((prev) => {
@@ -477,7 +544,29 @@ export function StreamAssignments() {
               </div>
 
               <div className="space-y-2">
-                <Label>Select Streams</Label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <Label className="shrink-0">Select Streams</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full sm:w-auto shrink-0"
+                    onClick={toggleBulkEmailAllStreams}
+                    disabled={filteredStreamIds.length === 0}
+                  >
+                    {allBulkEmailStreamsSelected ? (
+                      <>
+                        <Square className="h-4 w-4 mr-2 shrink-0" />
+                        Deselect all streams
+                      </>
+                    ) : (
+                      <>
+                        <CheckSquare className="h-4 w-4 mr-2 shrink-0" />
+                        Select all streams
+                      </>
+                    )}
+                  </Button>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[300px] overflow-y-auto p-2 border rounded-lg">
                   {filteredStreams.map((stream) => (
                     <div
@@ -565,15 +654,59 @@ export function StreamAssignments() {
       <Card className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/20 dark:to-purple-950/20">
         <CardContent className="pt-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant="secondary" className="text-sm sm:text-base px-2 sm:px-3 py-1">
-                <Users className="h-4 w-4 mr-1" />
-                {selectedSubscribers.size} Subscribers
-              </Badge>
-              <Badge variant="secondary" className="text-sm sm:text-base px-2 sm:px-3 py-1">
-                <Radio className="h-4 w-4 mr-1" />
-                {selectedStreams.size} Streams
-              </Badge>
+            <div className="flex flex-col gap-2 w-full sm:flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="secondary" className="text-sm sm:text-base px-2 sm:px-3 py-1">
+                  <Users className="h-4 w-4 mr-1" />
+                  {selectedSubscribers.size} Subscribers
+                </Badge>
+                <Badge variant="secondary" className="text-sm sm:text-base px-2 sm:px-3 py-1">
+                  <Radio className="h-4 w-4 mr-1" />
+                  {selectedStreams.size} Streams
+                </Badge>
+              </div>
+              <div className="flex flex-wrap gap-2 w-full">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 min-w-[140px] sm:flex-initial"
+                  onClick={toggleAllSubscribers}
+                  disabled={filteredSubscribers.length === 0}
+                >
+                  {allFilteredSubscribersSelected ? (
+                    <>
+                      <Square className="h-4 w-4 mr-2 shrink-0" />
+                      Deselect subscribers
+                    </>
+                  ) : (
+                    <>
+                      <CheckSquare className="h-4 w-4 mr-2 shrink-0" />
+                      Select all subscribers
+                    </>
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 min-w-[140px] sm:flex-initial"
+                  onClick={toggleAllStreams}
+                  disabled={filteredStreamIds.length === 0}
+                >
+                  {allFilteredStreamsSelected ? (
+                    <>
+                      <Square className="h-4 w-4 mr-2 shrink-0" />
+                      Deselect streams
+                    </>
+                  ) : (
+                    <>
+                      <CheckSquare className="h-4 w-4 mr-2 shrink-0" />
+                      Select all streams
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
 
             <div className="flex-1 hidden sm:block" />
@@ -623,7 +756,8 @@ export function StreamAssignments() {
                 <div>
                   <CardTitle>Assignment Matrix</CardTitle>
                   <CardDescription>
-                    Rows = Subscribers, Columns = Streams. Click checkboxes to toggle assignments.
+                    Rows = Subscribers, Columns = Streams. Use the corner checkboxes or the bulk bar to select all
+                    subscribers or all streams; cell checkboxes toggle individual assignments.
                   </CardDescription>
                 </div>
                 {matrixExpanded ? (
@@ -665,18 +799,26 @@ export function StreamAssignments() {
                         <thead className="sticky top-0 bg-background z-10">
                           <tr>
                             <th className="border p-2 text-left bg-muted font-semibold min-w-[200px] sticky left-0 z-20 bg-muted">
-                              <div className="flex items-center justify-between">
-                                <span className="truncate text-xs sm:text-sm">Subscriber \ Stream</span>
-                                <Checkbox
-                                  checked={selectedSubscribers.size === filteredSubscribers.length && filteredSubscribers.length > 0}
-                                  onCheckedChange={() => {
-                                    if (selectedSubscribers.size === filteredSubscribers.length) {
-                                      setSelectedSubscribers(new Set())
-                                    } else {
-                                      setSelectedSubscribers(new Set(filteredSubscribers.map((s) => s.id)))
-                                    }
-                                  }}
-                                />
+                              <div className="flex flex-col gap-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="truncate text-xs sm:text-sm">Subscriber \ Stream</span>
+                                  <Checkbox
+                                    checked={allFilteredSubscribersSelected}
+                                    onCheckedChange={toggleAllSubscribers}
+                                    title="Select or deselect all subscribers matching the search"
+                                  />
+                                </div>
+                                <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/70">
+                                  <span className="text-[10px] sm:text-xs text-muted-foreground leading-tight">
+                                    All streams (bulk)
+                                  </span>
+                                  <Checkbox
+                                    checked={allFilteredStreamsSelected}
+                                    onCheckedChange={toggleAllStreams}
+                                    disabled={filteredStreamIds.length === 0}
+                                    title="Select or deselect all live streams matching the stream search"
+                                  />
+                                </div>
                               </div>
                             </th>
                             {filteredStreams.slice(0, 50).map((stream) => (
