@@ -68,6 +68,9 @@ const MatrixCell = memo(({
 
 MatrixCell.displayName = "MatrixCell"
 
+/** Matrix virtual window: load 100 rows/columns at a time; scroll loads more. */
+const MATRIX_PAGE_SIZE = 100
+
 export function StreamAssignments() {
   const [subscribers, setSubscribers] = useState<(UserProfile & { id: string })[]>([])
   const [streams, setStreams] = useState<StreamSession[]>([])
@@ -84,6 +87,8 @@ export function StreamAssignments() {
   const [bulkEmailDialogOpen, setBulkEmailDialogOpen] = useState(false)
   const [bulkEmailSearch, setBulkEmailSearch] = useState("")
   const [bulkEmailSelectedStreams, setBulkEmailSelectedStreams] = useState<Set<string>>(new Set())
+  const [matrixRowsVisible, setMatrixRowsVisible] = useState(MATRIX_PAGE_SIZE)
+  const [matrixColsVisible, setMatrixColsVisible] = useState(MATRIX_PAGE_SIZE)
 
   // Load data only once
   useEffect(() => {
@@ -172,6 +177,39 @@ export function StreamAssignments() {
       filteredStreamIds.length > 0 &&
       filteredStreamIds.every((id) => bulkEmailSelectedStreams.has(id)),
     [filteredStreamIds, bulkEmailSelectedStreams],
+  )
+
+  useEffect(() => {
+    setMatrixRowsVisible(Math.min(MATRIX_PAGE_SIZE, filteredSubscribers.length))
+  }, [searchSubs, filteredSubscribers.length])
+
+  useEffect(() => {
+    setMatrixColsVisible(Math.min(MATRIX_PAGE_SIZE, filteredStreams.length))
+  }, [searchStreams, filteredStreams.length])
+
+  const streamsForMatrix = useMemo(
+    () => filteredStreams.slice(0, matrixColsVisible),
+    [filteredStreams, matrixColsVisible],
+  )
+  const subsForMatrix = useMemo(
+    () => filteredSubscribers.slice(0, matrixRowsVisible),
+    [filteredSubscribers, matrixRowsVisible],
+  )
+
+  const handleMatrixScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      const el = e.currentTarget
+      const edge = 72
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - edge) {
+        setMatrixRowsVisible((n) =>
+          Math.min(n + MATRIX_PAGE_SIZE, filteredSubscribers.length),
+        )
+      }
+      if (el.scrollLeft + el.clientWidth >= el.scrollWidth - edge) {
+        setMatrixColsVisible((n) => Math.min(n + MATRIX_PAGE_SIZE, filteredStreams.length))
+      }
+    },
+    [filteredSubscribers.length, filteredStreams.length],
   )
 
   // Check if subscriber has stream assigned
@@ -793,7 +831,11 @@ export function StreamAssignments() {
                 </div>
 
                 <div className="border rounded-lg overflow-hidden">
-                  <div className="overflow-auto max-h-[500px]" style={{ scrollbarWidth: 'thin' }}>
+                  <div
+                    onScroll={handleMatrixScroll}
+                    className="overflow-auto max-h-[500px]"
+                    style={{ scrollbarWidth: "thin" }}
+                  >
                     <div className="inline-block min-w-full">
                       <table className="w-full border-collapse">
                         <thead className="sticky top-0 bg-background z-10">
@@ -821,7 +863,7 @@ export function StreamAssignments() {
                                 </div>
                               </div>
                             </th>
-                            {filteredStreams.slice(0, 50).map((stream) => (
+                            {streamsForMatrix.map((stream) => (
                               <th
                                 key={stream.id}
                                 className="border p-2 text-left bg-muted font-medium min-w-[150px]"
@@ -847,15 +889,10 @@ export function StreamAssignments() {
                                 </div>
                               </th>
                             ))}
-                            {filteredStreams.length > 50 && (
-                              <th className="border p-2 text-center bg-muted text-xs text-muted-foreground">
-                                +{filteredStreams.length - 50} more
-                              </th>
-                            )}
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredSubscribers.slice(0, 100).map((sub) => (
+                          {subsForMatrix.map((sub) => (
                             <tr key={sub.id} className="hover:bg-muted/50">
                               <td className="border p-2 font-medium bg-muted/50 sticky left-0 z-10 bg-muted/50">
                                 <div className="flex items-center justify-between gap-2">
@@ -869,24 +906,37 @@ export function StreamAssignments() {
                                   />
                                 </div>
                               </td>
-                              {filteredStreams.slice(0, 50).map((stream) => (
+                              {streamsForMatrix.map((stream) => (
                                 <MatrixCell
                                   key={stream.id}
                                   assigned={isAssigned(sub.id, stream.id!)}
                                   onToggle={() => toggleAssignment(sub.id, stream.id!, !isAssigned(sub.id, stream.id!))}
                                 />
                               ))}
-                              {filteredStreams.length > 50 && (
-                                <td className="border p-2 text-center text-xs text-muted-foreground">
-                                  ...
-                                </td>
-                              )}
                             </tr>
                           ))}
-                          {filteredSubscribers.length > 100 && (
+                          {(matrixColsVisible < filteredStreams.length ||
+                            matrixRowsVisible < filteredSubscribers.length) && (
                             <tr>
-                              <td colSpan={filteredStreams.length + 1} className="border p-2 text-center text-xs text-muted-foreground bg-muted/50">
-                                Showing first 100 subscribers. Use search to find specific ones.
+                              <td
+                                colSpan={Math.max(streamsForMatrix.length, 1) + 1}
+                                className="border p-2 text-center text-xs text-muted-foreground bg-muted/50"
+                              >
+                                {matrixRowsVisible < filteredSubscribers.length && (
+                                  <span>
+                                    Showing {matrixRowsVisible} of {filteredSubscribers.length} subscribers — scroll down
+                                    to load {Math.min(MATRIX_PAGE_SIZE, filteredSubscribers.length - matrixRowsVisible)}{" "}
+                                    more.
+                                  </span>
+                                )}
+                                {matrixRowsVisible < filteredSubscribers.length &&
+                                  matrixColsVisible < filteredStreams.length && <span className="mx-1">·</span>}
+                                {matrixColsVisible < filteredStreams.length && (
+                                  <span>
+                                    Showing {matrixColsVisible} of {filteredStreams.length} streams — scroll right to
+                                    load {Math.min(MATRIX_PAGE_SIZE, filteredStreams.length - matrixColsVisible)} more.
+                                  </span>
+                                )}
                               </td>
                             </tr>
                           )}
