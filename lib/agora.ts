@@ -288,6 +288,20 @@ export class AgoraManager {
     }
   }
 
+  /**
+   * When the app returns to the foreground, the mic track may be gone (OS/WebView) while the client
+   * is still joined — republish audio so the broadcast does not stay silent.
+   */
+  async recoverPublisherAudioIfMissing(): Promise<void> {
+    if (this.lastJoinConfig?.role !== "publisher" || !this.client) return
+    if (this.localAudio) return
+    try {
+      await this.enableMic()
+    } catch (e) {
+      console.warn("[Agora] recoverPublisherAudioIfMissing failed:", e)
+    }
+  }
+
   async leave() {
     return this.enqueueAgora(() => this.leaveInternal())
   }

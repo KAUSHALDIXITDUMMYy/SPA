@@ -24,17 +24,10 @@ import {
   type StreamSession,
 } from "@/lib/streaming"
 import { DEFAULT_STREAM_SPORT, US_STREAM_SPORTS, streamSportLabel } from "@/lib/sports"
-import { startSilentAudio, stopSilentAudio } from "@/lib/silent-audio"
+import { startSilentAudio, stopSilentAudio, resumeSilentAudioIfNeeded } from "@/lib/silent-audio"
+import { requestScreenWakeLock, releaseWakeLock } from "@/lib/publisher-wake-lock"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+import { toast } from "@/hooks/use-toast"
 import type { ScheduledCall } from "@/lib/scheduled-calls"
 
 const PUBLISHER_LIVE_HISTORY_KEY = "publisherLiveBroadcastGuard"
@@ -109,11 +102,10 @@ export function StreamControls({
   /** Active stream in DB that we can rejoin (e.g. after page refresh) */
   const [activeStreamToRejoin, setActiveStreamToRejoin] = useState<StreamSession | null>(null)
 
-  /** Android / WebView hardware back: confirm before leaving the live broadcast UI */
-  const [backNavConfirmOpen, setBackNavConfirmOpen] = useState(false)
+  /** Android / WebView hardware back: never navigate away while live — only End Stream ends the session here */
   const isStreamingRef = useRef(isStreaming)
   const historyGuardAddedRef = useRef(false)
-  const historyLeaveConfirmedRef = useRef(false)
+  const lastBackToastAtRef = useRef(0)
 
   useEffect(() => {
     isStreamingRef.current = isStreaming
@@ -123,11 +115,10 @@ export function StreamControls({
     if (typeof window === "undefined") return
 
     if (!isStreaming) {
-      if (historyGuardAddedRef.current && !historyLeaveConfirmedRef.current) {
+      if (historyGuardAddedRef.current) {
         historyGuardAddedRef.current = false
         window.history.go(-1)
       }
-      historyLeaveConfirmedRef.current = false
       return
     }
 
@@ -137,7 +128,14 @@ export function StreamControls({
     const onPopState = () => {
       if (!isStreamingRef.current) return
       window.history.pushState({ [PUBLISHER_LIVE_HISTORY_KEY]: 1 }, "", window.location.href)
-      setBackNavConfirmOpen(true)
+      const now = Date.now()
+      if (now - lastBackToastAtRef.current > 2800) {
+        lastBackToastAtRef.current = now
+        toast({
+          title: "You're still live",
+          description: "Back can't leave this screen during a broadcast. Tap End Stream when you're completely finished.",
+        })
+      }
     }
 
     window.addEventListener("popstate", onPopState)
@@ -147,6 +145,49 @@ export function StreamControls({
         window.history.go(-1)
         historyGuardAddedRef.current = false
       }
+    }
+  }, [isStreaming])
+
+  /** Discourage refresh/close during broadcast (desktop; limited on mobile WebViews). */
+  useEffect(() => {
+    if (typeof window === "undefined" || !isStreaming) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ""
+    }
+    window.addEventListener("beforeunload", onBeforeUnload)
+    return () => window.removeEventListener("beforeunload", onBeforeUnload)
+  }, [isStreaming])
+
+  /** Screen stays on when supported; re-acquire after returning from background (wake lock is often released). */
+  useEffect(() => {
+    if (typeof window === "undefined" || !isStreaming) return
+    let cancelled = false
+    let sentinel: WakeLockSentinel | null = null
+
+    const acquire = async () => {
+      if (cancelled || !isStreamingRef.current) return
+      await releaseWakeLock(sentinel)
+      sentinel = null
+      if (cancelled || !isStreamingRef.current) return
+      sentinel = await requestScreenWakeLock()
+    }
+
+    void acquire()
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void resumeSilentAudioIfNeeded()
+        void acquire()
+        void agoraManager.recoverPublisherAudioIfMissing()
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibility)
+
+    return () => {
+      cancelled = true
+      document.removeEventListener("visibilitychange", onVisibility)
+      void releaseWakeLock(sentinel)
     }
   }, [isStreaming])
 
@@ -376,7 +417,6 @@ export function StreamControls({
       setStreamDescription("")
       setStreamSport(DEFAULT_STREAM_SPORT)
       setSuccess("Stream ended successfully!")
-      setBackNavConfirmOpen(false)
       onClearBroadcastScheduledCall?.()
       onStreamEnd?.()
     } catch (err: any) {
@@ -424,34 +464,8 @@ export function StreamControls({
     }
   }
 
-  const confirmLeaveLiveUi = () => {
-    setBackNavConfirmOpen(false)
-    historyLeaveConfirmedRef.current = true
-    historyGuardAddedRef.current = false
-    window.history.go(-2)
-  }
-
   return (
     <div className="space-y-6">
-      <AlertDialog open={backNavConfirmOpen} onOpenChange={setBackNavConfirmOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Leave the live broadcast screen?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You are still on air. Going back can take you away from the live controls and may interrupt your
-              connection. Use &quot;Stay live&quot; to keep this page open, or &quot;Leave anyway&quot; if you
-              intend to go back.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel type="button">Stay live</AlertDialogCancel>
-            <Button type="button" variant="destructive" onClick={confirmLeaveLiveUi}>
-              Leave anyway
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {/* Rejoin active stream (after refresh) */}
       {!isStreaming && activeStreamToRejoin && (
         <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
@@ -677,8 +691,15 @@ export function StreamControls({
           </CardHeader>
           <CardContent>
             <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs sm:text-sm text-amber-800 dark:text-amber-200 mb-3 break-words overflow-hidden">
-              <span className="hidden sm:inline">If audio stops when you minimize, return to this tab to auto-reconnect. Next time: use &quot;Open in popup&quot; before starting.</span>
-              <span className="sm:hidden">If audio stops, return to this tab to auto-reconnect. On mobile: use split screen.</span>
+              <span className="hidden sm:inline">
+                This screen stays on your broadcast until you tap End Stream. Back and sign-out won&apos;t leave while
+                you&apos;re live. If audio drops after minimizing, come back to this tab — we try to recover the mic
+                automatically.
+              </span>
+              <span className="sm:hidden">
+                Stay on this screen until End Stream. Back won&apos;t exit while live. Return here if audio pauses
+                after switching apps.
+              </span>
             </div>
 
             <div className="mb-3">

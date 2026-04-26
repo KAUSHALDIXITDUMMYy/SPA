@@ -76,3 +76,15 @@ export function stopSilentAudio(): void {
 export function isSilentAudioRunning(): boolean {
   return isRunning
 }
+
+/** After returning from background, browsers often suspend AudioContext — resume so throttling stays relaxed. */
+export async function resumeSilentAudioIfNeeded(): Promise<void> {
+  if (!audioContext || !isRunning) return
+  if (audioContext.state === "suspended") {
+    try {
+      await audioContext.resume()
+    } catch {
+      // ignore
+    }
+  }
+}

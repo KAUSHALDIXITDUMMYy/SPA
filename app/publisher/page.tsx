@@ -5,6 +5,15 @@ import { StreamControls } from "@/components/publisher/stream-controls"
 import { ScheduledCallsPublisherSection } from "@/components/publisher/scheduled-calls-publisher"
 import type { ScheduledCall } from "@/lib/scheduled-calls"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
@@ -24,6 +33,7 @@ export default function PublisherDashboard() {
   const [broadcastScheduledCall, setBroadcastScheduledCall] = useState<ScheduledCall | null>(null)
   const previousActiveStatus = useRef<boolean | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [signOutWhileLiveOpen, setSignOutWhileLiveOpen] = useState(false)
 
   // Monitor for real-time changes to active status
   useEffect(() => {
@@ -57,6 +67,14 @@ export default function PublisherDashboard() {
     router.push("/")
   }
 
+  const requestSignOut = () => {
+    if (currentStream) {
+      setSignOutWhileLiveOpen(true)
+      return
+    }
+    void handleSignOut()
+  }
+
   const handleStreamStart = (session: StreamSession) => {
     setCurrentStream(session)
   }
@@ -69,6 +87,23 @@ export default function PublisherDashboard() {
   return (
     <ProtectedRoute allowedRoles={["publisher"]}>
       <div className="min-h-screen bg-background">
+        <AlertDialog open={signOutWhileLiveOpen} onOpenChange={setSignOutWhileLiveOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>End your broadcast first</AlertDialogTitle>
+              <AlertDialogDescription>
+                You are still live. Use the red &quot;End Stream&quot; button in the live controls below, then sign out
+                when you are done. Signing out now would disconnect listeners while the session may still appear active.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogAction type="button" onClick={() => setSignOutWhileLiveOpen(false)}>
+                OK
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         {/* Header */}
         <header className="border-b bg-card">
           <div className="container mx-auto px-4 py-4">
@@ -95,7 +130,7 @@ export default function PublisherDashboard() {
                     </span>
                   </div>
                 )}
-                <Button variant="outline" onClick={handleSignOut} className="hidden sm:flex flex-1 sm:flex-initial">
+                <Button variant="outline" onClick={requestSignOut} className="hidden sm:flex flex-1 sm:flex-initial">
                   <LogOut className="h-4 w-4 mr-2" />
                   Sign Out
                 </Button>
@@ -110,7 +145,7 @@ export default function PublisherDashboard() {
                       <SheetTitle>Menu</SheetTitle>
                     </SheetHeader>
                     <div className="py-4">
-                      <Button variant="outline" className="w-full justify-start" onClick={handleSignOut}>
+                      <Button variant="outline" className="w-full justify-start" onClick={requestSignOut}>
                         <LogOut className="h-4 w-4 mr-2" />
                         Sign Out
                       </Button>
@@ -160,7 +195,7 @@ export default function PublisherDashboard() {
                 </div>
 
                 <div className="flex gap-2 pt-4">
-                  <Button variant="outline" onClick={handleSignOut} className="hidden sm:inline-flex">
+                  <Button variant="outline" onClick={requestSignOut} className="hidden sm:inline-flex">
                     <LogOut className="h-4 w-4 mr-2" />
                     Sign Out
                   </Button>
