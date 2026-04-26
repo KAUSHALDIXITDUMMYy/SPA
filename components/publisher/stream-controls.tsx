@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -26,7 +26,18 @@ import {
 import { DEFAULT_STREAM_SPORT, US_STREAM_SPORTS, streamSportLabel } from "@/lib/sports"
 import { startSilentAudio, stopSilentAudio } from "@/lib/silent-audio"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import type { ScheduledCall } from "@/lib/scheduled-calls"
+
+const PUBLISHER_LIVE_HISTORY_KEY = "publisherLiveBroadcastGuard"
 
 interface StreamControlsProps {
   onStreamStart?: (session: StreamSession) => void
@@ -97,6 +108,47 @@ export function StreamControls({
   const [lastStream, setLastStream] = useState<StreamSession | null>(null)
   /** Active stream in DB that we can rejoin (e.g. after page refresh) */
   const [activeStreamToRejoin, setActiveStreamToRejoin] = useState<StreamSession | null>(null)
+
+  /** Android / WebView hardware back: confirm before leaving the live broadcast UI */
+  const [backNavConfirmOpen, setBackNavConfirmOpen] = useState(false)
+  const isStreamingRef = useRef(isStreaming)
+  const historyGuardAddedRef = useRef(false)
+  const historyLeaveConfirmedRef = useRef(false)
+
+  useEffect(() => {
+    isStreamingRef.current = isStreaming
+  }, [isStreaming])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    if (!isStreaming) {
+      if (historyGuardAddedRef.current && !historyLeaveConfirmedRef.current) {
+        historyGuardAddedRef.current = false
+        window.history.go(-1)
+      }
+      historyLeaveConfirmedRef.current = false
+      return
+    }
+
+    window.history.pushState({ [PUBLISHER_LIVE_HISTORY_KEY]: 1 }, "", window.location.href)
+    historyGuardAddedRef.current = true
+
+    const onPopState = () => {
+      if (!isStreamingRef.current) return
+      window.history.pushState({ [PUBLISHER_LIVE_HISTORY_KEY]: 1 }, "", window.location.href)
+      setBackNavConfirmOpen(true)
+    }
+
+    window.addEventListener("popstate", onPopState)
+    return () => {
+      window.removeEventListener("popstate", onPopState)
+      if (isStreamingRef.current && historyGuardAddedRef.current) {
+        window.history.go(-1)
+        historyGuardAddedRef.current = false
+      }
+    }
+  }, [isStreaming])
 
   // Subscribe to publisher's active stream for rejoin-after-refresh
   useEffect(() => {
@@ -324,6 +376,7 @@ export function StreamControls({
       setStreamDescription("")
       setStreamSport(DEFAULT_STREAM_SPORT)
       setSuccess("Stream ended successfully!")
+      setBackNavConfirmOpen(false)
       onClearBroadcastScheduledCall?.()
       onStreamEnd?.()
     } catch (err: any) {
@@ -371,8 +424,34 @@ export function StreamControls({
     }
   }
 
+  const confirmLeaveLiveUi = () => {
+    setBackNavConfirmOpen(false)
+    historyLeaveConfirmedRef.current = true
+    historyGuardAddedRef.current = false
+    window.history.go(-2)
+  }
+
   return (
     <div className="space-y-6">
+      <AlertDialog open={backNavConfirmOpen} onOpenChange={setBackNavConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave the live broadcast screen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You are still on air. Going back can take you away from the live controls and may interrupt your
+              connection. Use &quot;Stay live&quot; to keep this page open, or &quot;Leave anyway&quot; if you
+              intend to go back.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel type="button">Stay live</AlertDialogCancel>
+            <Button type="button" variant="destructive" onClick={confirmLeaveLiveUi}>
+              Leave anyway
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Rejoin active stream (after refresh) */}
       {!isStreaming && activeStreamToRejoin && (
         <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20">
