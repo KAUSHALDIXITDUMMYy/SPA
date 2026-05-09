@@ -102,6 +102,17 @@ export class AgoraManager {
   // Track-ended recovery (publisher): when mic track stops due to tab backgrounding
   private trackEndedRecoveryCleanup: (() => void) | null = null
 
+  /**
+   * Subscriber (audience): after jitter/network issues, playback can sit far behind live.
+   * We watch RemoteAudioTrackStats and periodically restart play to drop buffered audio.
+   */
+  private audienceRemoteTracks = new Map<string, IRemoteAudioTrack>()
+  private audienceFlushAtMs = new Map<string, number>()
+  private subscriberLatencyWatchdog: ReturnType<typeof setInterval> | null = null
+  private readonly SUBSCRIBER_AUDIO_DELAY_FLUSH_MS = 480
+  private readonly SUBSCRIBER_FLUSH_COOLDOWN_MS = 2800
+  private readonly SUBSCRIBER_LATENCY_POLL_MS = 1800
+
   /** getDisplayMedia stream kept alive while publishing tab/system audio (video tracks disabled, not sent) */
   private displayCaptureStream: MediaStream | null = null
   private publisherAudioMode: PublisherAudioSource = "microphone"
@@ -197,7 +208,15 @@ export class AgoraManager {
       console.warn("Failed to enable low latency mode:", err)
     }
 
-    clientInstance.setClientRole(role === "publisher" ? "host" : "audience")
+    if (role === "publisher") {
+      await clientInstance.setClientRole("host")
+    } else {
+      const ultraLow =
+        typeof AgoraRTC.AudienceLatencyLevelType?.AUDIENCE_LEVEL_ULTRA_LOW_LATENCY === "number"
+          ? AgoraRTC.AudienceLatencyLevelType.AUDIENCE_LEVEL_ULTRA_LOW_LATENCY
+          : 2
+      await clientInstance.setClientRole("audience", { level: ultraLow })
+    }
 
     // Error/reconnect handlers must be bound to this client instance so stale DISCONNECTED events
     // from a previous channel cannot call leave() on the new client (which caused silent audio after switching).
@@ -206,6 +225,7 @@ export class AgoraManager {
     if (role === "audience") {
       // Register before join so we never miss user-published during join.
       this.attachSubscriberAudioListeners(clientInstance, container)
+      this.startSubscriberAudioLatencyWatchdog(clientInstance)
     }
 
     await clientInstance.join(appId, channelName, token, agoraUid)
@@ -219,28 +239,110 @@ export class AgoraManager {
 
   // Audio-only: no video streaming setup needed
 
-  /** Attach user-published listeners before join (audience). */
-  private attachSubscriberAudioListeners(clientInstance: IAgoraRTCClient, container: HTMLElement) {
-    const playRemoteAudio = async (remoteAudioTrack: IRemoteAudioTrack) => {
+  private resetAudiencePlaybackAssist() {
+    if (this.subscriberLatencyWatchdog) {
+      clearInterval(this.subscriberLatencyWatchdog)
+      this.subscriberLatencyWatchdog = null
+    }
+    this.audienceRemoteTracks.clear()
+    this.audienceFlushAtMs.clear()
+  }
+
+  /** Poll playback delay; when the jitter buffer is too large, restart play to stay near live. */
+  private startSubscriberAudioLatencyWatchdog(clientInstance: IAgoraRTCClient) {
+    if (this.subscriberLatencyWatchdog) {
+      clearInterval(this.subscriberLatencyWatchdog)
+      this.subscriberLatencyWatchdog = null
+    }
+    this.subscriberLatencyWatchdog = setInterval(() => {
+      if (this.client !== clientInstance) return
+      for (const [uidKey, track] of this.audienceRemoteTracks) {
+        this.maybeFlushSubscriberAudioCatchup(track, uidKey, false)
+      }
+    }, this.SUBSCRIBER_LATENCY_POLL_MS)
+  }
+
+  private maybeFlushSubscriberAudioCatchup(
+    track: IRemoteAudioTrack,
+    uidKey: string,
+    bypassThrottle: boolean
+  ) {
+    let delayMs = 0
+    try {
+      const stats = typeof track.getStats === "function" ? track.getStats() : null
+      if (!stats) return
+      const s = stats as { receiveDelay?: number; end2EndDelay?: number }
+      const parts = [s.receiveDelay, s.end2EndDelay].filter(
+        (n): n is number => typeof n === "number" && !Number.isNaN(n) && n > 0
+      )
+      delayMs = parts.length ? Math.max(...parts) : 0
+    } catch {
+      return
+    }
+    if (delayMs < this.SUBSCRIBER_AUDIO_DELAY_FLUSH_MS) return
+
+    const now = Date.now()
+    if (!bypassThrottle) {
+      const last = this.audienceFlushAtMs.get(uidKey) ?? 0
+      if (now - last < this.SUBSCRIBER_FLUSH_COOLDOWN_MS) return
+    }
+    this.audienceFlushAtMs.set(uidKey, now)
+    try {
+      track.stop()
+      track.play()
       try {
-        remoteAudioTrack.play()
+        track.setVolume(100)
+      } catch {
+        /* ignore */
+      }
+    } catch (e) {
+      console.warn("[Agora] subscriber audio catch-up (stop/play) failed:", e)
+    }
+  }
+
+  /** After RTC reconnect, always drop any built-up playout buffer (stats may lag). */
+  private forceFlushSubscriberPlayback() {
+    const now = Date.now()
+    for (const [uidKey, track] of this.audienceRemoteTracks) {
+      this.audienceFlushAtMs.set(uidKey, now)
+      try {
+        track.stop()
+        track.play()
         try {
-          await remoteAudioTrack.setVolume(100)
-        } catch (volErr) {
-          console.warn("Failed to set remote audio volume:", volErr)
-        }
-        try {
-          if (typeof remoteAudioTrack.setAudioFrameCallback === "function") {
-            await remoteAudioTrack.setAudioFrameCallback(null, 10)
-          }
-        } catch (procErr) {
-          console.warn("Failed to configure remote audio processing:", procErr)
+          track.setVolume(100)
+        } catch {
+          /* ignore */
         }
       } catch (e) {
-        console.warn("remoteAudioTrack.play failed", e)
+        console.warn("[Agora] subscriber audio reconnect flush failed:", e)
       }
     }
+  }
 
+  private async playAndRegisterRemoteSubscriberAudio(remoteAudioTrack: IRemoteAudioTrack) {
+    const uidKey = String(remoteAudioTrack.getUserId())
+    try {
+      remoteAudioTrack.play()
+      try {
+        await remoteAudioTrack.setVolume(100)
+      } catch (volErr) {
+        console.warn("Failed to set remote audio volume:", volErr)
+      }
+      try {
+        if (typeof remoteAudioTrack.setAudioFrameCallback === "function") {
+          await remoteAudioTrack.setAudioFrameCallback(null, 10)
+        }
+      } catch (procErr) {
+        console.warn("Failed to configure remote audio processing:", procErr)
+      }
+      this.audienceRemoteTracks.set(uidKey, remoteAudioTrack)
+    } catch (e) {
+      console.warn("remoteAudioTrack.play failed", e)
+    }
+  }
+
+  /** Attach user-published listeners before join (audience). */
+  private attachSubscriberAudioListeners(clientInstance: IAgoraRTCClient, _container: HTMLElement) {
     clientInstance.on("user-published", async (user, mediaType) => {
       if (this.client !== clientInstance) return
       try {
@@ -253,13 +355,25 @@ export class AgoraManager {
       if (mediaType === "audio") {
         const remoteAudioTrack = user.audioTrack as IRemoteAudioTrack | undefined
         if (!remoteAudioTrack) return
-        await playRemoteAudio(remoteAudioTrack)
+        await this.playAndRegisterRemoteSubscriberAudio(remoteAudioTrack)
       }
     })
 
-    clientInstance.on("user-unpublished", () => {})
+    clientInstance.on("user-unpublished", (user, mediaType) => {
+      if (this.client !== clientInstance) return
+      if (mediaType === "audio") {
+        const uidKey = String(user.uid)
+        this.audienceRemoteTracks.delete(uidKey)
+        this.audienceFlushAtMs.delete(uidKey)
+      }
+    })
 
-    clientInstance.on("user-left", () => {})
+    clientInstance.on("user-left", (user) => {
+      if (this.client !== clientInstance) return
+      const uidKey = String(user.uid)
+      this.audienceRemoteTracks.delete(uidKey)
+      this.audienceFlushAtMs.delete(uidKey)
+    })
   }
 
   /** After join: subscribe to any remote users already publishing (user-published may have fired before listeners attached in edge cases). */
@@ -275,12 +389,7 @@ export class AgoraManager {
           await clientInstance.subscribe(user, "audio")
         }
         if (user.audioTrack) {
-          try {
-            user.audioTrack.play()
-            await user.audioTrack.setVolume(100)
-          } catch (e) {
-            console.warn("play existing remote audio failed", e)
-          }
+          await this.playAndRegisterRemoteSubscriberAudio(user.audioTrack as IRemoteAudioTrack)
         }
       } catch (e) {
         console.warn("subscribe existing remote audio failed", e)
@@ -312,6 +421,7 @@ export class AgoraManager {
     // won't have its client nulled by our finally block when this leave() completes.
     const clientToLeave = this.client
     this.client = null
+    this.resetAudiencePlaybackAssist()
 
     try {
       // Clear network monitoring
@@ -1095,6 +1205,10 @@ export class AgoraManager {
     clientInstance.on("connection-state-change", (curState: string, revState: string) => {
       console.log("Agora connection state changed:", curState, "from", revState)
       if (this.client !== clientInstance) return
+
+      if (curState === "CONNECTED" && revState === "RECONNECTING" && this.lastJoinConfig?.role === "audience") {
+        this.forceFlushSubscriberPlayback()
+      }
 
       if (curState === "DISCONNECTED") {
         const snapshot = this.lastJoinConfig
