@@ -7,9 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Bell, Shield } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
+import { broadcastVisibleToSubscriber } from "@/lib/tenant"
 
 export function SubscriberNotifications() {
-  const { user } = useAuth()
+  const { user, userProfile } = useAuth()
   const [eligible, setEligible] = useState(false)
   const [eligibilityReady, setEligibilityReady] = useState(false)
   const [broadcasts, setBroadcasts] = useState<AdminBroadcast[]>([])
@@ -24,13 +25,15 @@ export function SubscriberNotifications() {
   }, [user?.uid])
 
   useEffect(() => {
-    if (!eligible) {
+    if (!eligible || !userProfile) {
       setBroadcasts([])
       return
     }
-    const unsub = subscribeAdminBroadcasts(setBroadcasts)
+    const unsub = subscribeAdminBroadcasts((items) => {
+      setBroadcasts(items.filter((b) => broadcastVisibleToSubscriber(b, userProfile)))
+    })
     return unsub
-  }, [eligible])
+  }, [eligible, userProfile])
 
   const formatDate = (d: Date) => {
     const date = d instanceof Date ? d : new Date(d)

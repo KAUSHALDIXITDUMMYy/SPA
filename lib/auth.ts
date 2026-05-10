@@ -7,6 +7,7 @@ import {
   type User,
 } from "firebase/auth"
 import { doc, setDoc, getDoc, updateDoc, collection, query, where, getDocs, deleteDoc } from "firebase/firestore"
+import { resolveUserTenant, type UserTenant } from "./tenant"
 
 export type UserRole = "admin" | "publisher" | "subscriber"
 
@@ -14,6 +15,8 @@ export interface UserProfile {
   uid: string
   email: string
   role: UserRole
+  /** Stored on create; omitted on legacy users → inferred from @kevionics.com email. */
+  tenant?: UserTenant
   displayName?: string
   zoomUserId?: string
   zoomUserEmail?: string
@@ -151,6 +154,7 @@ export const signIn = async (email: string, password: string) => {
           uid: newAuthUid,
           email: authResult.user.email!,
           role: pendingUserData.role,
+          tenant: pendingUserData.tenant ?? resolveUserTenant({ email: authResult.user.email! }),
           displayName: pendingUserData.displayName,
           createdAt: pendingUserData.createdAt,
           isActive: pendingUserData.isActive,
@@ -268,6 +272,7 @@ export const signUp = async (email: string, password: string, role: UserRole, di
       uid: result.user.uid,
       email: result.user.email!,
       role,
+      tenant: resolveUserTenant({ email: result.user.email! }),
       displayName: displayName || email.split("@")[0],
       createdAt: new Date(),
       isActive: true,

@@ -12,6 +12,7 @@ import { isAwaitingBroadcastSession } from "@/lib/streaming"
 import { trackSubscriberActivity } from "@/lib/analytics"
 import { fetchApproximateViewerLocation } from "@/lib/viewer-location"
 import { useAuth } from "@/hooks/use-auth"
+import { resolveUserTenant } from "@/lib/tenant"
 import { Volume2, VolumeX, Users, Clock, Radio, Headphones, Square } from "lucide-react"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
 import { streamSportLabel } from "@/lib/sports"
@@ -111,6 +112,7 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
           publisherId: permission.publisherId,
           publisherName: permission.publisherName,
           action: "join",
+          subscriberTenant: resolveUserTenant(userProfile),
           location: approxLocation ?? undefined,
         })
       }
@@ -142,6 +144,7 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
           publisherName: forAnalytics.publisherName,
           action: "leave",
           duration,
+          subscriberTenant: resolveUserTenant(userProfile),
         })
       }
 

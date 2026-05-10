@@ -23,14 +23,13 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { 
-  getUsersByRole, 
-  getAllStreams, 
-  createStreamAssignment, 
-  deleteStreamAssignment, 
+import {
+  getUsersByRole,
+  createStreamAssignment,
+  deleteStreamAssignment,
   updateStreamAssignment,
   getStreamAssignments,
-  type StreamAssignment 
+  type StreamAssignment,
 } from "@/lib/admin"
 import { getAllStreams as getAllStreamSessions, type StreamSession } from "@/lib/streaming"
 import type { UserProfile } from "@/lib/auth"
@@ -48,6 +47,7 @@ import {
   CheckSquare,
   Square,
 } from "lucide-react"
+import { useAuth } from "@/hooks/use-auth"
 
 // Memoized matrix cell to prevent unnecessary re-renders
 const MatrixCell = memo(({ 
@@ -72,6 +72,7 @@ MatrixCell.displayName = "MatrixCell"
 const MATRIX_PAGE_SIZE = 100
 
 export function StreamAssignments() {
+  const { userProfile, loading: authLoading } = useAuth()
   const [subscribers, setSubscribers] = useState<(UserProfile & { id: string })[]>([])
   const [streams, setStreams] = useState<StreamSession[]>([])
   const [selectedSubscribers, setSelectedSubscribers] = useState<Set<string>>(new Set())
@@ -90,18 +91,21 @@ export function StreamAssignments() {
   const [matrixRowsVisible, setMatrixRowsVisible] = useState(MATRIX_PAGE_SIZE)
   const [matrixColsVisible, setMatrixColsVisible] = useState(MATRIX_PAGE_SIZE)
 
-  // Load data only once
   useEffect(() => {
+    if (authLoading || !userProfile || userProfile.role !== "admin") {
+      if (!authLoading) setLoading(false)
+      return
+    }
     const load = async () => {
       setLoading(true)
       try {
         const [subs, allStreams] = await Promise.all([
-          getUsersByRole("subscriber"),
-          getAllStreamSessions()
+          getUsersByRole("subscriber", userProfile),
+          getAllStreamSessions(),
         ])
         setSubscribers(subs as any)
         setStreams(allStreams)
-        
+
         const assignments = await getStreamAssignments()
         const assignmentsMap = new Map<string, StreamAssignment[]>()
         assignments.forEach((assignment) => {
@@ -115,8 +119,8 @@ export function StreamAssignments() {
         setLoading(false)
       }
     }
-    load()
-  }, [])
+    void load()
+  }, [authLoading, userProfile])
 
   // Only refresh assignments when needed (not every 5 seconds)
   const refreshAssignments = useCallback(async () => {

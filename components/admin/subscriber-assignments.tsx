@@ -14,8 +14,10 @@ import { permissionsManager } from "@/lib/permissions"
 import { Video, Volume2, X, Users, Link2, Unlink, CheckSquare, Square, Grid3x3, List, ArrowRightLeft, Loader2, CheckCircle2 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { useAuth } from "@/hooks/use-auth"
 
 export function SubscriberAssignments() {
+  const { userProfile, loading: authLoading } = useAuth()
   const [subscribers, setSubscribers] = useState<(UserProfile & { id: string })[]>([])
   const [publishers, setPublishers] = useState<(UserProfile & { id: string })[]>([])
   const [selectedSubscribers, setSelectedSubscribers] = useState<Set<string>>(new Set())
@@ -30,15 +32,22 @@ export function SubscriberAssignments() {
   const [viewMode, setViewMode] = useState<"list" | "matrix">("matrix")
 
   useEffect(() => {
+    if (authLoading || !userProfile || userProfile.role !== "admin") {
+      if (!authLoading) setLoading(false)
+      return
+    }
     const load = async () => {
       setLoading(true)
-      const [subs, pubs] = await Promise.all([getUsersByRole("subscriber"), getUsersByRole("publisher")])
+      const [subs, pubs] = await Promise.all([
+        getUsersByRole("subscriber", userProfile),
+        getUsersByRole("publisher", userProfile),
+      ])
       setSubscribers(subs as any)
       setPublishers(pubs as any)
       setLoading(false)
     }
-    load()
-  }, [])
+    void load()
+  }, [authLoading, userProfile])
 
   // Load all permissions for all subscribers
   useEffect(() => {

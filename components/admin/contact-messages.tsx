@@ -7,8 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Mail, RefreshCw } from "lucide-react"
+import { useAuth } from "@/hooks/use-auth"
+import { resolveUserTenant } from "@/lib/tenant"
 
 export function ContactMessages() {
+  const { userProfile } = useAuth()
   const [messages, setMessages] = useState<ContactMessage[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -16,13 +19,19 @@ export function ContactMessages() {
   const load = async () => {
     setLoading(true)
     const list = await getContactMessages()
-    setMessages(list)
+    const scope = userProfile?.role === "admin" ? resolveUserTenant(userProfile) : "default"
+    const filtered =
+      userProfile?.role === "admin"
+        ? list.filter((m) => resolveUserTenant({ email: m.email }) === scope)
+        : list
+    setMessages(filtered)
     setLoading(false)
   }
 
   useEffect(() => {
-    load()
-  }, [])
+    if (!userProfile) return
+    void load()
+  }, [userProfile?.uid, userProfile?.email, userProfile?.tenant])
 
   const handleMarkRead = async (id: string) => {
     await markContactMessageRead(id)

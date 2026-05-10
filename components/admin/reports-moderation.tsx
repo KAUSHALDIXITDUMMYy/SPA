@@ -17,9 +17,57 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useAuth } from "@/hooks/use-auth"
 import { Flag, UserX, Ban, RefreshCw, Clock } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
+import { getUserProfile, type UserProfile } from "@/lib/auth"
+import { resolveUserTenant, type UserTenant } from "@/lib/tenant"
+
+async function filterModerationListsForAdmin(
+  reports: Report[],
+  blocks: BlockEvent[],
+  adminProfile: UserProfile | null,
+): Promise<{ reports: Report[]; blocks: BlockEvent[] }> {
+  if (!adminProfile || adminProfile.role !== "admin") {
+    return { reports, blocks }
+  }
+  const scope = resolveUserTenant(adminProfile)
+  const cache = new Map<string, UserTenant>()
+
+  const uidTenant = async (uid: string): Promise<UserTenant> => {
+    if (cache.has(uid)) return cache.get(uid)!
+    const p = await getUserProfile(uid)
+    const t = resolveUserTenant(p ?? { email: "" })
+    cache.set(uid, t)
+    return t
+  }
+
+  const repFiltered: Report[] = []
+  for (const r of reports) {
+    const rt = r.reportedUserId ? await uidTenant(r.reportedUserId) : ("default" as UserTenant)
+    const rr = r.reporterId
+      ? await uidTenant(r.reporterId)
+      : resolveUserTenant({ email: r.reporterEmail })
+    const inc =
+      scope === "kevionics"
+        ? rt === "kevionics" || rr === "kevionics"
+        : rt !== "kevionics" && rr !== "kevionics"
+    if (inc) repFiltered.push(r)
+  }
+
+  const blkFiltered: BlockEvent[] = []
+  for (const e of blocks) {
+    const t1 = await uidTenant(e.blockerId)
+    const t2 = await uidTenant(e.blockedUserId)
+    const inc =
+      scope === "kevionics"
+        ? t1 === "kevionics" || t2 === "kevionics"
+        : t1 !== "kevionics" && t2 !== "kevionics"
+    if (inc) blkFiltered.push(e)
+  }
+
+  return { reports: repFiltered, blocks: blkFiltered }
+}
 
 export function ReportsModeration() {
-  const { userProfile } = useAuth()
+  const { userProfile, loading: authLoading } = useAuth()
   const [reports, setReports] = useState<Report[]>([])
   const [blockEvents, setBlockEvents] = useState<BlockEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -28,14 +76,16 @@ export function ReportsModeration() {
   const load = async () => {
     setLoading(true)
     const [r, b] = await Promise.all([getReports(), getBlockEvents()])
-    setReports(r)
-    setBlockEvents(b)
+    const { reports: rf, blocks: bf } = await filterModerationListsForAdmin(r, b, userProfile)
+    setReports(rf)
+    setBlockEvents(bf)
     setLoading(false)
   }
 
   useEffect(() => {
-    load()
-  }, [])
+    if (authLoading || !userProfile) return
+    void load()
+  }, [authLoading, userProfile])
 
   const handleResolve = async (reportId: string) => {
     if (!userProfile?.uid) return

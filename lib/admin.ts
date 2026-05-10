@@ -1,6 +1,7 @@
 import { db } from "./firebase"
 import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, orderBy, setDoc, arrayUnion, onSnapshot, type Unsubscribe } from "firebase/firestore"
-import { type UserRole } from "./auth"
+import { type UserProfile, type UserRole } from "./auth"
+import { resolveUserTenant, validateNewUserForCreator, type UserTenant } from "./tenant"
 
 export interface StreamPermission {
   id?: string
@@ -32,7 +33,15 @@ export interface StreamAssignment {
   isActive: boolean
 }
 
-export const createUser = async (email: string, password: string, role: UserRole, displayName?: string) => {
+export type CreateUserCreatorContext = { tenant: UserTenant; role: UserRole }
+
+export const createUser = async (
+  email: string,
+  password: string,
+  role: UserRole,
+  displayName?: string,
+  creator?: CreateUserCreatorContext,
+) => {
   try {
     // Create user ONLY in Firestore database (not in Firebase Auth yet)
     // They will be created in Auth when they log in for the first time
@@ -41,6 +50,12 @@ export const createUser = async (email: string, password: string, role: UserRole
     if (!normalizedEmail || !normalizedEmail.includes("@")) {
       return { user: null, error: "Please enter a valid email address" }
     }
+
+    const validated = validateNewUserForCreator(normalizedEmail, role, creator)
+    if (!validated.ok) {
+      return { user: null, error: validated.error }
+    }
+    const tenant = validated.tenant
 
     // Check if user already exists in Firestore (case-insensitive)
     const usersRef = collection(db, "users")
@@ -59,6 +74,7 @@ export const createUser = async (email: string, password: string, role: UserRole
       uid: pendingUserId, // Temporary ID until they log in
       email: normalizedEmail,
       role,
+      tenant,
       displayName: displayName || email.split("@")[0],
       createdAt: new Date(),
       isActive: true,
@@ -78,32 +94,48 @@ export const createUser = async (email: string, password: string, role: UserRole
   }
 }
 
-export const getAllUsers = async () => {
+export const getAllUsers = async (adminViewer?: UserProfile | null) => {
   try {
     const usersRef = collection(db, "users")
     const q = query(usersRef, orderBy("createdAt", "desc"))
     const querySnapshot = await getDocs(q)
 
-    return querySnapshot.docs.map((doc) => ({
+    let rows = querySnapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
-    }))
+    })) as (UserProfile & { id: string })[]
+
+    if (adminViewer?.role === "admin") {
+      const scope = resolveUserTenant(adminViewer)
+      if (scope === "kevionics") {
+        rows = rows.filter((u) => resolveUserTenant(u) === "kevionics" && u.role === "subscriber")
+      } else {
+        rows = rows.filter((u) => resolveUserTenant(u) !== "kevionics")
+      }
+    }
+
+    return rows
   } catch (error) {
     console.error("Error fetching users:", error)
     return []
   }
 }
 
-export const getUsersByRole = async (role: UserRole) => {
+export const getUsersByRole = async (role: UserRole, adminViewer?: UserProfile | null) => {
   try {
     const usersRef = collection(db, "users")
     const q = query(usersRef, where("role", "==", role))
     const querySnapshot = await getDocs(q)
 
-    const users = querySnapshot.docs.map((doc) => ({
+    let users = querySnapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
-    }))
+    })) as (UserProfile & { id: string })[]
+
+    if (role === "subscriber" && adminViewer?.role === "admin") {
+      const scope = resolveUserTenant(adminViewer)
+      users = users.filter((u) => resolveUserTenant(u) === scope)
+    }
 
     // Sort by createdAt in memory to avoid composite index
     return users.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -195,23 +227,24 @@ export const deleteStreamPermission = async (permissionId: string) => {
   }
 }
 
-export const logoutAllUsers = async () => {
+export const logoutAllUsers = async (adminViewer?: UserProfile | null) => {
   try {
     // Get all users
     const usersRef = collection(db, "users")
     const querySnapshot = await getDocs(usersRef)
-    
-    // Clear sessionId for all users
+
+    const scope = adminViewer?.role === "admin" ? resolveUserTenant(adminViewer) : "default"
+
     const updatePromises: Promise<void>[] = []
     querySnapshot.docs.forEach((userDoc) => {
-      const userData = userDoc.data()
-      if (userData.sessionId) {
-        updatePromises.push(
-          updateDoc(doc(db, "users", userDoc.id), {
-            sessionId: null,
-          })
-        )
-      }
+      const userData = userDoc.data() as UserProfile
+      if (!userData.sessionId || userData.role !== "subscriber") return
+      if (resolveUserTenant(userData) !== scope) return
+      updatePromises.push(
+        updateDoc(doc(db, "users", userDoc.id), {
+          sessionId: null,
+        }),
+      )
     })
     
     await Promise.all(updatePromises)
@@ -344,12 +377,14 @@ export interface AdminBroadcast {
   createdAt: Date
   createdByUid: string
   createdByName?: string
+  targetTenant?: UserTenant
 }
 
 export const createAdminBroadcast = async (
   message: string,
   createdByUid: string,
-  createdByName?: string
+  createdByName?: string,
+  targetTenant: UserTenant = "default",
 ): Promise<{ success: boolean; id?: string; error?: string }> => {
   const trimmed = message.trim()
   if (!trimmed) {
@@ -361,6 +396,7 @@ export const createAdminBroadcast = async (
       createdAt: new Date(),
       createdByUid,
       createdByName: createdByName?.trim() || undefined,
+      targetTenant,
     })
     return { success: true, id: docRef.id }
   } catch (error: any) {
@@ -381,6 +417,7 @@ export const getAdminBroadcasts = async (): Promise<AdminBroadcast[]> => {
         createdByUid: data.createdByUid,
         createdByName: data.createdByName,
         createdAt: data.createdAt?.toDate?.() ?? data.createdAt,
+        targetTenant: data.targetTenant as UserTenant | undefined,
       }
     }) as AdminBroadcast[]
   } catch (error) {
@@ -404,6 +441,7 @@ export const subscribeAdminBroadcasts = (onUpdate: (items: AdminBroadcast[]) => 
           createdByUid: data.createdByUid,
           createdByName: data.createdByName,
           createdAt: data.createdAt?.toDate?.() ?? data.createdAt,
+          targetTenant: data.targetTenant as UserTenant | undefined,
         }
       }) as AdminBroadcast[]
       onUpdate(items)

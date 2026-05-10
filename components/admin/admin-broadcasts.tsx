@@ -13,6 +13,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Bell, Send } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 import { toast } from "@/hooks/use-toast"
+import { resolveUserTenant } from "@/lib/tenant"
 
 export function AdminBroadcasts() {
   const { user, userProfile } = useAuth()
@@ -35,7 +36,8 @@ export function AdminBroadcasts() {
       const result = await createAdminBroadcast(
         message,
         user.uid,
-        userProfile?.displayName || userProfile?.email || undefined
+        userProfile?.displayName || userProfile?.email || undefined,
+        userProfile ? resolveUserTenant(userProfile) : "default",
       )
       if (result.success) {
         toast({ title: "Sent", description: "Subscribers with assignments will see this in their notifications tab." })
@@ -65,8 +67,9 @@ export function AdminBroadcasts() {
           Subscriber notifications
         </CardTitle>
         <CardDescription>
-          Write a message for every subscriber who has at least one publisher or stream assignment. They will see it
-          under Notifications as &quot;Message from ADMIN&quot;.
+          {userProfile && resolveUserTenant(userProfile) === "kevionics"
+            ? "Kevionics subscribers with assignments see this under Notifications. Main-tenant subscribers will not receive it."
+            : 'Write a message for every main-tenant subscriber who has at least one publisher or stream assignment. They will see it under Notifications as "Message from ADMIN". Kevionics subscribers use a separate notification feed.'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

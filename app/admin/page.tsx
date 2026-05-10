@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { signOut } from "@/lib/auth"
 import { logoutAllUsers } from "@/lib/admin"
 import { useAuth } from "@/hooks/use-auth"
+import { isShadowAdmin, KEVIONICS_PRODUCT_NAME } from "@/lib/tenant"
 import { useRouter } from "next/navigation"
 import {
   Settings,
@@ -92,7 +93,7 @@ export default function AdminDashboard() {
   const handleLogoutAll = async () => {
     setLogoutAllLoading(true)
     try {
-      const result = await logoutAllUsers()
+      const result = await logoutAllUsers(userProfile)
       if (result.success) {
         toast({
           title: "Success",
@@ -127,7 +128,11 @@ export default function AdminDashboard() {
                 <Settings className="h-6 w-6 flex-shrink-0 mt-1" />
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-2 min-w-0">
-                    <h1 className="text-xl sm:text-2xl font-bold truncate">Admin Dashboard</h1>
+                    <h1 className="text-xl sm:text-2xl font-bold truncate">
+                      {userProfile && isShadowAdmin(userProfile)
+                        ? `${KEVIONICS_PRODUCT_NAME} — Admin`
+                        : "Admin Dashboard"}
+                    </h1>
                     <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
                       <SheetTrigger asChild>
                         <Button
@@ -193,8 +198,9 @@ export default function AdminDashboard() {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Logout All Users?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This will clear all active sessions and allow users to log in from any browser. 
-                        This is useful before starting a new stream session. All users will need to log in again.
+                        {userProfile && isShadowAdmin(userProfile)
+                          ? "This clears active subscriber sessions only for Kevionics (@kevionics.com) accounts."
+                          : "This clears active subscriber sessions for main-tenant accounts only (not Kevionics shadow subscribers)."}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="flex-col sm:flex-row gap-2">

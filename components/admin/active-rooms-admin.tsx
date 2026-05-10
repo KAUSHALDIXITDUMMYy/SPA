@@ -91,7 +91,8 @@ export function ActiveRoomsAdmin() {
   }, [])
 
   useEffect(() => {
-    getUsersByRole("publisher").then((rows) => {
+    if (!userProfile || userProfile.role !== "admin") return
+    void getUsersByRole("publisher", userProfile).then((rows) => {
       setPublishers(
         (rows as PublisherRow[]).map((r) => {
           const uid = (r as { uid?: string }).uid || r.id
@@ -99,7 +100,7 @@ export function ActiveRoomsAdmin() {
         }),
       )
     })
-  }, [])
+  }, [userProfile])
 
   const handleRefreshRooms = async () => {
     setRefreshing(true)

@@ -32,11 +32,12 @@ import { type StreamAnalytics, type StreamViewer, type AnalyticsSummary } from "
 import { formatViewerLocationLabel, normalizeViewerLocation } from "@/lib/viewer-location"
 import { db } from "@/lib/firebase"
 import { collection, query, where, orderBy, limit, getDocs } from "firebase/firestore"
+import { getUsersByRole } from "@/lib/admin"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useAuth } from "@/hooks/use-auth"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
-import { StreamViewer } from "@/components/subscriber/stream-viewer"
+import { StreamViewer as SubscriberStreamPlayer } from "@/components/subscriber/stream-viewer"
 import type { SubscriberPermission } from "@/lib/subscriber"
 import type { StreamSession } from "@/lib/streaming"
 
@@ -101,13 +102,25 @@ export function AdminAnalytics() {
   const [adminListeningStreamId, setAdminListeningStreamId] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const isMobile = useIsMobile()
-  const { user, userProfile } = useAuth()
+  const { user, userProfile, loading: authLoading } = useAuth()
   const dashboardUnmountRef = useRef(false)
 
   const fetchDashboard = useCallback(async (options?: { manual?: boolean }) => {
     const isManual = options?.manual === true
     if (isManual) setRefreshing(true)
     try {
+      if (authLoading || !userProfile || userProfile.role !== "admin") {
+        if (!dashboardUnmountRef.current) {
+          setLoading(false)
+          setIsLive(false)
+        }
+        return
+      }
+
+      const allowedSubscriberIds = new Set(
+        (await getUsersByRole("subscriber", userProfile)).map((s) => s.id),
+      )
+
       const activeViewersQuery = query(collection(db, "activeViewers"), where("isActive", "==", true))
       const activeStreamsQuery = query(collection(db, "streamSessions"), where("isActive", "==", true))
       const analyticsQuery = query(
@@ -124,21 +137,24 @@ export function AdminAnalytics() {
 
       if (dashboardUnmountRef.current) return
 
-      const viewers = viewersSnap.docs.map((doc) => {
-        const data = doc.data()
-        return {
-          id: doc.id,
-          streamSessionId: data.streamSessionId,
-          subscriberId: data.subscriberId,
-          subscriberName: data.subscriberName,
-          publisherId: data.publisherId,
-          publisherName: data.publisherName,
-          joinedAt: data.joinedAt?.toDate?.() || new Date(data.joinedAt),
-          lastSeen: data.lastSeen?.toDate?.() || new Date(data.lastSeen),
-          isActive: data.isActive,
-          location: normalizeViewerLocation(data.location),
-        }
-      }) as StreamViewer[]
+      const viewers = viewersSnap.docs
+        .map((doc) => {
+          const data = doc.data()
+          return {
+            id: doc.id,
+            streamSessionId: data.streamSessionId,
+            subscriberId: data.subscriberId,
+            subscriberName: data.subscriberName,
+            publisherId: data.publisherId,
+            publisherName: data.publisherName,
+            joinedAt: data.joinedAt?.toDate?.() || new Date(data.joinedAt),
+            lastSeen: data.lastSeen?.toDate?.() || new Date(data.lastSeen),
+            isActive: data.isActive,
+            subscriberTenant: data.subscriberTenant,
+            location: normalizeViewerLocation(data.location),
+          }
+        })
+        .filter((v) => allowedSubscriberIds.has(v.subscriberId)) as StreamViewer[]
 
       const streams = streamsSnap.docs.map((doc) => {
         const data = doc.data()
@@ -149,20 +165,22 @@ export function AdminAnalytics() {
         }
       })
 
-      const analyticsData = analyticsSnap.docs.map((doc) => {
-        const data = doc.data()
-        return {
-          id: doc.id,
-          streamSessionId: data.streamSessionId,
-          subscriberId: data.subscriberId,
-          subscriberName: data.subscriberName,
-          publisherId: data.publisherId,
-          publisherName: data.publisherName,
-          action: data.action,
-          timestamp: data.timestamp?.toDate?.() || new Date(data.timestamp),
-          duration: data.duration,
-        }
-      }) as StreamAnalytics[]
+      const analyticsData = analyticsSnap.docs
+        .map((doc) => {
+          const data = doc.data()
+          return {
+            id: doc.id,
+            streamSessionId: data.streamSessionId,
+            subscriberId: data.subscriberId,
+            subscriberName: data.subscriberName,
+            publisherId: data.publisherId,
+            publisherName: data.publisherName,
+            action: data.action,
+            timestamp: data.timestamp?.toDate?.() || new Date(data.timestamp),
+            duration: data.duration,
+          }
+        })
+        .filter((a) => allowedSubscriberIds.has(a.subscriberId)) as StreamAnalytics[]
 
       setActiveViewers(viewers)
       setActiveStreams(streams)
@@ -181,7 +199,7 @@ export function AdminAnalytics() {
     } finally {
       if (isManual && !dashboardUnmountRef.current) setRefreshing(false)
     }
-  }, [])
+  }, [authLoading, userProfile])
 
   useEffect(() => {
     dashboardUnmountRef.current = false
@@ -671,7 +689,7 @@ export function AdminAnalytics() {
                                     <p className="text-[11px] text-muted-foreground mb-2">
                                       Admin preview — same channel as subscribers; not counted in viewer analytics.
                                     </p>
-                                    <StreamViewer
+                                    <SubscriberStreamPlayer
                                       key={stream.id}
                                       permission={activeStreamToAdminListenPermission(row, user.uid)}
                                       layout="mobileInline"

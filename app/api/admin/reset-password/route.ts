@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/firebase"
-import { doc, getDoc, updateDoc, query, where, getDocs, collection } from "firebase/firestore"
+import { doc, getDoc, updateDoc } from "firebase/firestore"
+import { adminCanManageTargetUser } from "@/lib/tenant"
 
 // Initialize Firebase Admin SDK
 let admin: any = null
@@ -102,6 +103,13 @@ export async function POST(req: NextRequest) {
     }
 
     const userData = userSnap.data()
+
+    if (!adminCanManageTargetUser(adminUserData as any, userData as any)) {
+      return NextResponse.json(
+        { success: false, error: "You do not have permission to reset this user's password." },
+        { status: 403 },
+      )
+    }
 
     // Check if user is pending (not yet created in Firebase Auth)
     if (userData.isPending) {

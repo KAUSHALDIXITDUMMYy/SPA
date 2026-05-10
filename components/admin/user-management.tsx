@@ -39,6 +39,7 @@ import { toast } from "@/hooks/use-toast"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useAuth } from "@/hooks/use-auth"
+import { isShadowAdmin, KEVIONICS_EMAIL_DOMAIN, resolveUserTenant } from "@/lib/tenant"
 
 // Utility function to convert Firestore Timestamp to Date
 const convertTimestampToDate = (timestamp: any): Date | null => {
@@ -94,7 +95,8 @@ const nameToEmailLocal = (name: string) => name.toLowerCase().replace(/\s+/g, ""
 const normalizeDomain = (d: string) => d.trim().toLowerCase().replace(/^@/, "")
 
 export function UserManagement() {
-  const { user, userProfile } = useAuth()
+  const { user, userProfile, loading: authLoading } = useAuth()
+  const isKevShadow = Boolean(userProfile && isShadowAdmin(userProfile))
   const [users, setUsers] = useState<(UserProfile & { id: string })[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -131,16 +133,26 @@ export function UserManagement() {
   const [listRefreshing, setListRefreshing] = useState(false)
 
   useEffect(() => {
+    if (!userProfile || userProfile.role !== "admin") return
     void loadUsers(false)
     const intervalId = setInterval(() => void loadUsers(true), 60_000)
     return () => clearInterval(intervalId)
-  }, [])
+  }, [userProfile?.uid, userProfile?.tenant, userProfile?.email])
+
+  useEffect(() => {
+    if (isKevShadow) {
+      setBulkEmailDomain(KEVIONICS_EMAIL_DOMAIN)
+      setBulkRole("subscriber")
+      setRole("subscriber")
+    }
+  }, [isKevShadow])
 
   /** @param silent When true, refresh list without full-page loading spinner (reduces Firestore reads vs. realtime snapshot on entire collection). */
   const loadUsers = async (silent = false) => {
+    if (!userProfile || userProfile.role !== "admin") return
     if (!silent) setLoading(true)
     try {
-      const usersData = await getAllUsers()
+      const usersData = await getAllUsers(userProfile)
       setUsers(usersData as (UserProfile & { id: string })[])
     } finally {
       if (!silent) setLoading(false)
@@ -157,12 +169,18 @@ export function UserManagement() {
   }
 
   const emailExists = useMemo(
-    () => users.some((u) => u.email.toLowerCase() === email.trim().toLowerCase()) && email.trim(),
-    [users, email]
+    () =>
+      Boolean(email.trim()) &&
+      users.some((u) => u.email.toLowerCase() === email.trim().toLowerCase()),
+    [users, email],
   )
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!userProfile || userProfile.role !== "admin") {
+      setError("You must be signed in as an administrator.")
+      return
+    }
     if (emailExists) {
       setError("A user with this email already exists")
       return
@@ -171,7 +189,10 @@ export function UserManagement() {
     setError("")
     setSuccess("")
 
-    const result = await createUser(email, password, role, displayName)
+    const result = await createUser(email, password, role, displayName, {
+      tenant: resolveUserTenant(userProfile),
+      role: userProfile.role,
+    })
 
     if (result.error) {
       setError(result.error)
@@ -190,15 +211,27 @@ export function UserManagement() {
 
   const handleBulkCreateUsers = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!userProfile || userProfile.role !== "admin") {
+      setError("You must be signed in as an administrator.")
+      return
+    }
     setBulkLoading(true)
     setError("")
     setSuccess("")
     setBulkSkippedNames([])
     setBulkCreatedCount(null)
 
-    const domain = normalizeDomain(bulkEmailDomain)
+    let domain = normalizeDomain(bulkEmailDomain)
+    if (isKevShadow) {
+      domain = KEVIONICS_EMAIL_DOMAIN
+    }
     if (!domain || !domain.includes(".")) {
       setError("Enter a valid email domain (e.g. sportsmagician.com)")
+      setBulkLoading(false)
+      return
+    }
+    if (isKevShadow && domain !== KEVIONICS_EMAIL_DOMAIN) {
+      setError(`Kevionics shadow admins must use @${KEVIONICS_EMAIL_DOMAIN}`)
       setBulkLoading(false)
       return
     }
@@ -241,7 +274,10 @@ export function UserManagement() {
 
     let created = 0
     for (const { displayName: dn, email } of namesToCreate) {
-      const result = await createUser(email, bulkPassword, bulkRole, dn)
+      const result = await createUser(email, bulkPassword, bulkRole, dn, {
+        tenant: resolveUserTenant(userProfile),
+        role: userProfile.role,
+      })
       if (result.error) {
         skipped.push({
           name: dn,
@@ -428,11 +464,17 @@ export function UserManagement() {
 
   const stats = getStats()
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="flex items-center justify-center p-8">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
+    )
+  }
+
+  if (!userProfile || userProfile.role !== "admin") {
+    return (
+      <div className="p-8 text-center text-muted-foreground text-sm">Administrator session required.</div>
     )
   }
 
@@ -506,7 +548,11 @@ export function UserManagement() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <CardTitle>User Management</CardTitle>
-              <CardDescription>Create and manage user accounts for Sportsmagician Audio</CardDescription>
+              <CardDescription>
+                {isKevShadow
+                  ? `Create and manage Kevionics shadow subscribers (@${KEVIONICS_EMAIL_DOMAIN}). Publishers and live streams stay shared with the main deployment.`
+                  : "Create and manage user accounts for Sportsmagician Audio"}
+              </CardDescription>
             </div>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-0 sm:flex-row sm:shrink-0">
               <Button
@@ -614,8 +660,12 @@ export function UserManagement() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="admin">Admin</SelectItem>
-                          <SelectItem value="publisher">Publisher</SelectItem>
+                          {!isKevShadow && (
+                            <>
+                              <SelectItem value="admin">Admin</SelectItem>
+                              <SelectItem value="publisher">Publisher</SelectItem>
+                            </>
+                          )}
                           <SelectItem value="subscriber">Subscriber</SelectItem>
                         </SelectContent>
                       </Select>
@@ -662,7 +712,7 @@ export function UserManagement() {
                         onChange={(e) => setBulkEmailDomain(e.target.value)}
                         placeholder="sportsmagician.com"
                         autoComplete="off"
-                        disabled={bulkLoading}
+                        disabled={bulkLoading || isKevShadow}
                       />
                     </div>
                     <div className="space-y-2">
@@ -683,14 +733,14 @@ export function UserManagement() {
                     <Select
                       value={bulkRole}
                       onValueChange={(v: "subscriber" | "publisher") => setBulkRole(v)}
-                      disabled={bulkLoading}
+                      disabled={bulkLoading || isKevShadow}
                     >
                       <SelectTrigger id="bulk-role">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="subscriber">Subscriber</SelectItem>
-                        <SelectItem value="publisher">Publisher</SelectItem>
+                        {!isKevShadow && <SelectItem value="publisher">Publisher</SelectItem>}
                       </SelectContent>
                     </Select>
                   </div>
@@ -740,10 +790,27 @@ export function UserManagement() {
       {/* Users Table with Tabs by Role */}
       <Card>
         <CardHeader>
-          <CardTitle>Users by Role</CardTitle>
-          <CardDescription>View and manage users organized by their roles (sorted alphabetically)</CardDescription>
+          <CardTitle>{isKevShadow ? "Kevionics shadow subscribers" : "Users by Role"}</CardTitle>
+          <CardDescription>
+            {isKevShadow
+              ? "Only @kevionics.com subscribers you manage (sorted alphabetically)."
+              : "View and manage users organized by their roles (sorted alphabetically)"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
+          {isKevShadow ? (
+            usersByRole.subscribers.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">No subscribers found</div>
+            ) : (
+              <UserTable
+                users={usersByRole.subscribers}
+                onToggleStatus={handleToggleUserStatus}
+                onToggleChat={handleToggleChat}
+                getRoleBadgeVariant={getRoleBadgeVariant}
+                onResetPassword={openResetPasswordDialog}
+              />
+            )
+          ) : (
           <Tabs defaultValue="all" className="space-y-4">
             <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto overflow-x-auto">
               <TabsTrigger value="all" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
@@ -839,6 +906,7 @@ export function UserManagement() {
               )}
             </TabsContent>
           </Tabs>
+          )}
         </CardContent>
       </Card>
 

@@ -11,8 +11,10 @@ import { permissionsManager, getPermissionSummary } from "@/lib/permissions"
 import { updateStreamPermission, deleteStreamPermission, getUsersByRole, type StreamPermission } from "@/lib/admin"
 import type { UserProfile } from "@/lib/auth"
 import { Users, Shield, Trash2, Activity } from "lucide-react"
+import { useAuth } from "@/hooks/use-auth"
 
 export function RealTimePermissions() {
+  const { userProfile, loading: authLoading } = useAuth()
   const [permissions, setPermissions] = useState<StreamPermission[]>([])
   const [publishers, setPublishers] = useState<(UserProfile & { id: string })[]>([])
   const [subscribers, setSubscribers] = useState<(UserProfile & { id: string })[]>([])
@@ -21,26 +23,14 @@ export function RealTimePermissions() {
   const [success, setSuccess] = useState("")
 
   useEffect(() => {
-    loadUsers()
-
-    // Set up real-time permissions listener
-    const unsubscribe = permissionsManager.subscribeToAllPermissions((updatedPermissions) => {
-      setPermissions(updatedPermissions)
-      setLoading(false)
-    })
-
-    return () => {
-      unsubscribe()
+    if (authLoading || !userProfile || userProfile.role !== "admin") {
+      if (!authLoading) setLoading(false)
+      return
     }
-  }, [])
 
-  const loadUsers = async () => {
-    const [publishersData, subscribersData] = await Promise.all([
-      getUsersByRole("publisher"),
-      getUsersByRole("subscriber"),
-    ])
+    let unsubscribe: (() => void) | undefined
+    let cancelled = false
 
-    // Sort alphabetically
     const sortUsers = (users: any[]) => {
       return users.sort((a, b) => {
         const nameA = (a.displayName || a.email).toLowerCase()
@@ -49,9 +39,32 @@ export function RealTimePermissions() {
       })
     }
 
-    setPublishers(sortUsers(publishersData as (UserProfile & { id: string })[]))
-    setSubscribers(sortUsers(subscribersData as (UserProfile & { id: string })[]))
-  }
+    const run = async () => {
+      setLoading(true)
+      const [publishersData, subscribersData] = await Promise.all([
+        getUsersByRole("publisher", userProfile),
+        getUsersByRole("subscriber", userProfile),
+      ])
+      if (cancelled) return
+
+      setPublishers(sortUsers(publishersData as (UserProfile & { id: string })[]))
+      const sortedSubs = sortUsers(subscribersData as (UserProfile & { id: string })[])
+      setSubscribers(sortedSubs)
+
+      const subIds = new Set(sortedSubs.map((s) => s.id))
+      unsubscribe = permissionsManager.subscribeToAllPermissions((updatedPermissions) => {
+        setPermissions(updatedPermissions.filter((p) => subIds.has(p.subscriberId)))
+        setLoading(false)
+      })
+    }
+
+    void run()
+
+    return () => {
+      cancelled = true
+      unsubscribe?.()
+    }
+  }, [authLoading, userProfile])
 
   const getPublisherName = (publisherId: string) => {
     const publisher = publishers.find((p) => p.id === publisherId)

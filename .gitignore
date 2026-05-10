@@ -3,6 +3,10 @@
 # dependencies
 /node_modules
 
+# Second Next app (own install + build artifacts)
+/kevionics-audio/node_modules/
+/kevionics-audio/.next/
+
 # next.js
 /.next/
 /out/

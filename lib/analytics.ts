@@ -1,6 +1,7 @@
 import { db } from "./firebase"
 import { collection, query, where, getDocs, addDoc, updateDoc, doc, orderBy, limit, onSnapshot } from "firebase/firestore"
 import type { ViewerLocation } from "./viewer-location"
+import type { UserTenant } from "./tenant"
 
 export type { ViewerLocation } from "./viewer-location"
 
@@ -26,6 +27,7 @@ export interface StreamViewer {
   joinedAt: Date
   lastSeen: Date
   isActive: boolean
+  subscriberTenant?: UserTenant
   /** Approximate location (usually IP-based) when the viewer joined */
   location?: ViewerLocation | null
 }
@@ -47,6 +49,7 @@ export const trackSubscriberActivity = async (data: {
   publisherName: string
   action: 'join' | 'leave' | 'viewing'
   duration?: number
+  subscriberTenant?: UserTenant
   /** Stored on activeViewers for live admin map/list; not written to streamAnalytics */
   location?: ViewerLocation | null
 }) => {
@@ -71,7 +74,9 @@ export const trackSubscriberActivity = async (data: {
       const snapshot = await getDocs(q)
 
       const loc = location ?? undefined
-      
+      const tenantFields =
+        data.subscriberTenant !== undefined ? { subscriberTenant: data.subscriberTenant } : {}
+
       if (snapshot.empty) {
         // No existing document, create new one
         await addDoc(collection(db, "activeViewers"), {
@@ -83,6 +88,7 @@ export const trackSubscriberActivity = async (data: {
           joinedAt: new Date(),
           lastSeen: new Date(),
           isActive: true,
+          ...tenantFields,
           ...(loc ? { location: loc } : {}),
         })
       } else {
@@ -95,6 +101,7 @@ export const trackSubscriberActivity = async (data: {
           // Update name in case it changed
           subscriberName: data.subscriberName,
           publisherName: data.publisherName,
+          ...tenantFields,
           ...(loc ? { location: loc } : {}),
         })
       }

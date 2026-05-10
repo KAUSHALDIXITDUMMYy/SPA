@@ -34,10 +34,12 @@ import { buildScheduleImportPreview, type ScheduleImportRow } from "@/lib/schedu
 import { US_STREAM_SPORTS, DEFAULT_STREAM_SPORT } from "@/lib/sports"
 import { Phone, Plus, Trash2, Loader2, FileText } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
+import { useAuth } from "@/hooks/use-auth"
 
 type PublisherRow = { id: string; displayName?: string; email?: string; uid?: string }
 
 export function ScheduledCallsAdmin() {
+  const { userProfile } = useAuth()
   const [dateKey, setDateKey] = useState(() => getLocalDateKey())
   const [calls, setCalls] = useState<ScheduledCall[]>([])
   const [publishers, setPublishers] = useState<PublisherRow[]>([])
@@ -58,7 +60,8 @@ export function ScheduledCallsAdmin() {
   const [importing, setImporting] = useState(false)
 
   useEffect(() => {
-    getUsersByRole("publisher").then((rows) => {
+    if (!userProfile || userProfile.role !== "admin") return
+    void getUsersByRole("publisher", userProfile).then((rows) => {
       setPublishers(
         (rows as PublisherRow[]).map((r) => {
           const uid = (r as { uid?: string }).uid || r.id
@@ -66,7 +69,7 @@ export function ScheduledCallsAdmin() {
         }),
       )
     })
-  }, [])
+  }, [userProfile])
 
   useEffect(() => {
     setLoading(true)
