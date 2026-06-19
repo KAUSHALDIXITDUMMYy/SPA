@@ -30,6 +30,8 @@ import {
 } from "lucide-react"
 import { type StreamAnalytics, type StreamViewer, type AnalyticsSummary } from "@/lib/analytics"
 import { formatViewerLocationLabel, normalizeViewerLocation } from "@/lib/viewer-location"
+import { resolveUserTenant, type UserTenant } from "@/lib/tenant"
+import type { UserProfile } from "@/lib/auth"
 import { db } from "@/lib/firebase"
 import { collection, query, where, orderBy, limit, getDocs } from "firebase/firestore"
 import { getUsersByRole } from "@/lib/admin"
@@ -43,6 +45,24 @@ import type { StreamSession } from "@/lib/streaming"
 
 /** Polling interval — avoids permanent snapshot listeners that multiply Firestore reads (quota). */
 const ADMIN_ANALYTICS_POLL_MS = 20_000
+
+function subscriberIdFromUserRow(row: { id: string; uid?: string }): string {
+  return row.uid || row.id
+}
+
+/** Match viewers/events to the signed-in admin's tenant; fall back to user list for legacy rows. */
+function subscriberVisibleToAdmin(
+  subscriberId: string,
+  subscriberTenant: UserTenant | undefined,
+  admin: UserProfile,
+  allowedSubscriberIds: Set<string>,
+): boolean {
+  const adminScope = resolveUserTenant(admin)
+  if (subscriberTenant === "kevionics" || subscriberTenant === "default") {
+    return subscriberTenant === adminScope
+  }
+  return allowedSubscriberIds.has(subscriberId)
+}
 
 type ActiveStreamRow = {
   id: string
@@ -118,7 +138,9 @@ export function AdminAnalytics() {
       }
 
       const allowedSubscriberIds = new Set(
-        (await getUsersByRole("subscriber", userProfile)).map((s) => s.id),
+        (await getUsersByRole("subscriber", userProfile)).map((s) =>
+          subscriberIdFromUserRow(s as { id: string; uid?: string }),
+        ),
       )
 
       const activeViewersQuery = query(collection(db, "activeViewers"), where("isActive", "==", true))
@@ -154,7 +176,9 @@ export function AdminAnalytics() {
             location: normalizeViewerLocation(data.location),
           }
         })
-        .filter((v) => allowedSubscriberIds.has(v.subscriberId)) as StreamViewer[]
+        .filter((v) =>
+          subscriberVisibleToAdmin(v.subscriberId, v.subscriberTenant, userProfile, allowedSubscriberIds),
+        ) as StreamViewer[]
 
       const streams = streamsSnap.docs.map((doc) => {
         const data = doc.data()
@@ -215,10 +239,15 @@ export function AdminAnalytics() {
   
   // Filter viewers to only show those watching actually active streams and are currently active
   const validActiveViewers = useMemo(() => {
-    const activeStreamIds = new Set(activeStreams.map(s => s.id))
-    return activeViewers.filter(viewer => 
-      activeStreamIds.has(viewer.streamSessionId) && viewer.isActive === true
-    )
+    const activeStreamIds = new Set(activeStreams.map((s) => s.id))
+    const seen = new Set<string>()
+    return activeViewers.filter((viewer) => {
+      if (!activeStreamIds.has(viewer.streamSessionId) || viewer.isActive !== true) return false
+      const key = `${viewer.streamSessionId}:${viewer.subscriberId}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
   }, [activeViewers, activeStreams])
   
   useEffect(() => {

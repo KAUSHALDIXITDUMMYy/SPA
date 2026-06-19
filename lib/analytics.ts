@@ -1,9 +1,22 @@
 import { db } from "./firebase"
-import { collection, query, where, getDocs, addDoc, updateDoc, doc, orderBy, limit, onSnapshot } from "firebase/firestore"
+import { collection, query, where, getDocs, addDoc, updateDoc, doc, orderBy, limit, onSnapshot, Timestamp } from "firebase/firestore"
 import type { ViewerLocation } from "./viewer-location"
 import type { UserTenant } from "./tenant"
 
 export type { ViewerLocation } from "./viewer-location"
+
+function toDate(value: unknown): Date {
+  if (value instanceof Date) return value
+  if (value instanceof Timestamp) return value.toDate()
+  if (value && typeof (value as { toDate?: () => Date }).toDate === "function") {
+    return (value as { toDate: () => Date }).toDate()
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+  }
+  return new Date()
+}
 
 export interface StreamAnalytics {
   id?: string
@@ -40,6 +53,23 @@ export interface AnalyticsSummary {
   averageViewDuration: number
 }
 
+function mapActiveViewerDoc(viewerDoc: { id: string; data: () => Record<string, unknown> }): StreamViewer {
+  const data = viewerDoc.data()
+  return {
+    id: viewerDoc.id,
+    streamSessionId: data.streamSessionId as string,
+    subscriberId: data.subscriberId as string,
+    subscriberName: (data.subscriberName as string) || "Unknown",
+    publisherId: data.publisherId as string,
+    publisherName: (data.publisherName as string) || "Unknown",
+    joinedAt: toDate(data.joinedAt),
+    lastSeen: toDate(data.lastSeen),
+    isActive: data.isActive !== false,
+    subscriberTenant: data.subscriberTenant as UserTenant | undefined,
+    location: data.location as ViewerLocation | null | undefined,
+  }
+}
+
 // Track subscriber activity
 export const trackSubscriberActivity = async (data: {
   streamSessionId: string
@@ -60,11 +90,8 @@ export const trackSubscriberActivity = async (data: {
       timestamp: new Date(),
     }
 
-    const docRef = await addDoc(collection(db, "streamAnalytics"), analyticsData)
-    
-    // Update active viewers collection
+    // Update active viewers collection before analytics so live dashboards see joiners immediately
     if (data.action === 'join') {
-      // Check if viewer already exists (active or inactive) for this stream
       const activeViewersRef = collection(db, "activeViewers")
       const q = query(
         activeViewersRef,
@@ -76,54 +103,36 @@ export const trackSubscriberActivity = async (data: {
       const loc = location ?? undefined
       const tenantFields =
         data.subscriberTenant !== undefined ? { subscriberTenant: data.subscriberTenant } : {}
+      const viewerFields = {
+        isActive: true,
+        joinedAt: new Date(),
+        lastSeen: new Date(),
+        subscriberName: data.subscriberName,
+        publisherName: data.publisherName,
+        ...tenantFields,
+        ...(loc ? { location: loc } : {}),
+      }
 
       if (snapshot.empty) {
-        // No existing document, create new one
         await addDoc(collection(db, "activeViewers"), {
           streamSessionId: data.streamSessionId,
           subscriberId: data.subscriberId,
-          subscriberName: data.subscriberName,
           publisherId: data.publisherId,
-          publisherName: data.publisherName,
-          joinedAt: new Date(),
-          lastSeen: new Date(),
-          isActive: true,
-          ...tenantFields,
-          ...(loc ? { location: loc } : {}),
+          ...viewerFields,
         })
       } else {
-        // Existing document found, reactivate it
-        const viewerDoc = snapshot.docs[0]
-        await updateDoc(doc(db, "activeViewers", viewerDoc.id), {
-          isActive: true,
-          joinedAt: new Date(),
-          lastSeen: new Date(),
-          // Update name in case it changed
-          subscriberName: data.subscriberName,
-          publisherName: data.publisherName,
-          ...tenantFields,
-          ...(loc ? { location: loc } : {}),
-        })
+        const [primaryDoc, ...duplicateDocs] = snapshot.docs
+        await updateDoc(doc(db, "activeViewers", primaryDoc.id), viewerFields)
+        await Promise.all(
+          duplicateDocs.map((viewerDoc) =>
+            updateDoc(doc(db, "activeViewers", viewerDoc.id), {
+              isActive: false,
+              lastSeen: new Date(),
+            }),
+          ),
+        )
       }
     } else if (data.action === 'leave') {
-      // Mark viewer as inactive
-      const activeViewersRef = collection(db, "activeViewers")
-      const q = query(
-        activeViewersRef,
-        where("streamSessionId", "==", data.streamSessionId),
-        where("subscriberId", "==", data.subscriberId),
-        where("isActive", "==", true) // Only update active viewers
-      )
-      const snapshot = await getDocs(q)
-      
-      for (const viewerDoc of snapshot.docs) {
-        await updateDoc(doc(db, "activeViewers", viewerDoc.id), {
-          isActive: false,
-          lastSeen: new Date(),
-        })
-      }
-    } else if (data.action === 'viewing') {
-      // Update lastSeen for active viewers
       const activeViewersRef = collection(db, "activeViewers")
       const q = query(
         activeViewersRef,
@@ -133,12 +142,34 @@ export const trackSubscriberActivity = async (data: {
       )
       const snapshot = await getDocs(q)
       
-      for (const viewerDoc of snapshot.docs) {
-        await updateDoc(doc(db, "activeViewers", viewerDoc.id), {
-          lastSeen: new Date(),
-        })
-      }
+      await Promise.all(
+        snapshot.docs.map((viewerDoc) =>
+          updateDoc(doc(db, "activeViewers", viewerDoc.id), {
+            isActive: false,
+            lastSeen: new Date(),
+          }),
+        ),
+      )
+    } else if (data.action === 'viewing') {
+      const activeViewersRef = collection(db, "activeViewers")
+      const q = query(
+        activeViewersRef,
+        where("streamSessionId", "==", data.streamSessionId),
+        where("subscriberId", "==", data.subscriberId),
+        where("isActive", "==", true)
+      )
+      const snapshot = await getDocs(q)
+      
+      await Promise.all(
+        snapshot.docs.map((viewerDoc) =>
+          updateDoc(doc(db, "activeViewers", viewerDoc.id), {
+            lastSeen: new Date(),
+          }),
+        ),
+      )
     }
+
+    const docRef = await addDoc(collection(db, "streamAnalytics"), analyticsData)
 
     return { success: true, id: docRef.id }
   } catch (error: any) {
@@ -162,10 +193,7 @@ export const getAdminAnalytics = async (limitCount: number = 100) => {
     // Get current active viewers
     const activeViewersRef = collection(db, "activeViewers")
     const activeSnapshot = await getDocs(query(activeViewersRef, where("isActive", "==", true)))
-    const activeViewers = activeSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as StreamViewer[]
+    const activeViewers = activeSnapshot.docs.map((viewerDoc) => mapActiveViewerDoc(viewerDoc))
 
     // Get stream sessions for context
     const streamsRef = collection(db, "streamSessions")
@@ -223,10 +251,7 @@ export const getPublisherAnalytics = async (publisherId: string, limitCount: num
     // Get current viewers for this publisher's active streams
     const activeViewersRef = collection(db, "activeViewers")
     const activeSnapshot = await getDocs(query(activeViewersRef, where("publisherId", "==", publisherId)))
-    const currentViewers = activeSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as StreamViewer[]
+    const currentViewers = activeSnapshot.docs.map((viewerDoc) => mapActiveViewerDoc(viewerDoc))
 
     // Get this publisher's stream sessions
     const streamsRef = collection(db, "streamSessions")
@@ -239,7 +264,7 @@ export const getPublisherAnalytics = async (publisherId: string, limitCount: num
     // Calculate publisher-specific statistics
     const uniqueViewers = new Set(analytics.map(a => a.subscriberId)).size
     const totalViews = analytics.filter(a => a.action === 'join').length
-    const activeViewersCount = currentViewers.filter(v => v.isActive).length
+    const currentViewersCount = currentViewers.filter((v) => v.isActive).length
 
     return {
       analytics,
@@ -304,25 +329,36 @@ export const subscribeToAnalytics = (
     where("isActive", "==", true)
   )
 
+  let latestAnalytics: StreamAnalytics[] = []
+  let latestViewers: StreamViewer[] = []
+  let analyticsReady = false
+  let viewersReady = false
+
+  const emit = () => {
+    if (analyticsReady && viewersReady) {
+      callback({ analytics: latestAnalytics, currentViewers: latestViewers })
+    }
+  }
+
   const unsubscribeAnalytics = onSnapshot(analyticsQuery, (snapshot) => {
-    const analytics = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
+    latestAnalytics = snapshot.docs.map((analyticsDoc) => ({
+      id: analyticsDoc.id,
+      ...analyticsDoc.data(),
+      timestamp: toDate(analyticsDoc.data().timestamp),
     })) as StreamAnalytics[]
+    analyticsReady = true
+    emit()
+  })
 
-    // Get current viewers
-    getDocs(viewersQuery).then((viewersSnapshot) => {
-      const currentViewers = viewersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as StreamViewer[]
-
-      callback({ analytics, currentViewers })
-    })
+  const unsubscribeViewers = onSnapshot(viewersQuery, (snapshot) => {
+    latestViewers = snapshot.docs.map((viewerDoc) => mapActiveViewerDoc(viewerDoc))
+    viewersReady = true
+    emit()
   })
 
   return () => {
     unsubscribeAnalytics()
+    unsubscribeViewers()
   }
 }
 

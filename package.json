@@ -14,7 +14,8 @@
     "create-subscribers": "node scripts/create-subscribers.mjs",
     "create-subscriber-ids": "node scripts/create-subscriber-ids.mjs",
     "delete-subscribers": "node scripts/delete-subscribers.mjs",
-    "create-publishers": "node scripts/create-publishers.mjs"
+    "create-publishers": "node scripts/create-publishers.mjs",
+    "reset-subscriber-admin-passwords": "node scripts/reset-subscriber-admin-passwords.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

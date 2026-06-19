@@ -104,7 +104,15 @@ export function PublisherAnalytics() {
   }
 
   const getCurrentStreamViewers = () => {
-    return currentViewers.filter(viewer => viewer.isActive)
+    const activeStream = streamSessions.find((s) => s.isActive)
+    const seen = new Set<string>()
+    return currentViewers.filter((viewer) => {
+      if (viewer.isActive !== true) return false
+      if (activeStream?.id && viewer.streamSessionId !== activeStream.id) return false
+      if (seen.has(viewer.subscriberId)) return false
+      seen.add(viewer.subscriberId)
+      return true
+    })
   }
 
   const getStreamStats = () => {
@@ -313,13 +321,13 @@ export function PublisherAnalytics() {
               {getCurrentStreamViewers().length > 0 ? (
                 <div className="space-y-2">
                   {getCurrentStreamViewers().map((viewer) => (
-                    <div key={viewer.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                    <div key={viewer.id ?? viewer.subscriberId} className="flex items-center justify-between p-3 bg-muted rounded-lg">
                       <div className="flex items-center space-x-3">
                         <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white text-sm font-medium">
-                          {viewer.subscriberName.charAt(0).toUpperCase()}
+                          {(viewer.subscriberName || "?").charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <p className="font-medium">{viewer.subscriberName}</p>
+                          <p className="font-medium">{viewer.subscriberName || "Unknown viewer"}</p>
                           <p className="text-sm text-muted-foreground">
                             Joined {new Date(viewer.joinedAt).toLocaleTimeString()}
                           </p>
@@ -362,10 +370,10 @@ export function PublisherAnalytics() {
                   <div key={activity.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
                     <div className="flex items-center space-x-3">
                       <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-white text-sm font-medium">
-                        {activity.subscriberName.charAt(0).toUpperCase()}
+                        {(activity.subscriberName || "?").charAt(0).toUpperCase()}
                       </div>
                       <div>
-                        <p className="font-medium">{activity.subscriberName}</p>
+                        <p className="font-medium">{activity.subscriberName || "Unknown viewer"}</p>
                         <p className="text-sm text-muted-foreground">
                           {activity.action === 'join' ? 'joined your stream' : 
                            activity.action === 'leave' ? 'left your stream' : 
