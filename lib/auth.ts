@@ -29,6 +29,7 @@ export interface UserProfile {
   pendingPassword?: string // Temporary password storage for pending users
   termsAcceptedAt?: Date // EULA/Terms acceptance (required for app store compliance)
   blockedUserIds?: string[] // Users this person has blocked
+  totpEnabled?: boolean // Subscribers: TOTP (Google Authenticator) 2FA is enabled
 }
 
 export const signIn = async (email: string, password: string) => {
@@ -293,6 +294,15 @@ export const signOut = async () => {
     // Clear session ID from localStorage
     if (typeof window !== "undefined") {
       localStorage.removeItem("sessionId")
+      // Clear any per-session 2FA verification flags so the next sign-in re-challenges.
+      try {
+        for (let i = sessionStorage.length - 1; i >= 0; i--) {
+          const key = sessionStorage.key(i)
+          if (key && key.startsWith("mfa_verified_")) sessionStorage.removeItem(key)
+        }
+      } catch {
+        // ignore storage access errors
+      }
     }
     
     // Clear session ID from Firestore for subscribers

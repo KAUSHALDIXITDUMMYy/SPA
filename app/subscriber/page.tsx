@@ -14,7 +14,7 @@ import { signOut } from "@/lib/auth"
 import { useAuth } from "@/hooks/use-auth"
 import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
-import { Radio, LogOut, AlertTriangle, UserX, Calendar, Menu, Bell, Phone } from "lucide-react"
+import { Radio, LogOut, AlertTriangle, UserX, Calendar, Menu, Bell, Phone, ShieldCheck } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 
 export default function SubscriberDashboard() {
@@ -73,6 +73,10 @@ export default function SubscriberDashboard() {
                 </div>
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Button variant="outline" onClick={() => router.push("/security")} className="hidden sm:flex flex-1 sm:flex-initial">
+                  <ShieldCheck className="h-4 w-4 mr-2" />
+                  Security
+                </Button>
                 <Button variant="outline" onClick={handleSignOut} className="hidden sm:flex flex-1 sm:flex-initial">
                   <LogOut className="h-4 w-4 mr-2" />
                   Sign Out
@@ -87,7 +91,18 @@ export default function SubscriberDashboard() {
                     <SheetHeader>
                       <SheetTitle>Menu</SheetTitle>
                     </SheetHeader>
-                    <div className="py-4">
+                    <div className="py-4 space-y-2">
+                      <Button
+                        variant="outline"
+                        className="w-full justify-start"
+                        onClick={() => {
+                          setMenuOpen(false)
+                          router.push("/security")
+                        }}
+                      >
+                        <ShieldCheck className="h-4 w-4 mr-2" />
+                        Security &amp; 2FA
+                      </Button>
                       <Button variant="outline" className="w-full justify-start" onClick={handleSignOut}>
                         <LogOut className="h-4 w-4 mr-2" />
                         Sign Out

@@ -9,8 +9,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { signIn, signOut } from "@/lib/auth"
+import { signIn, signOut, getUserProfile, type UserProfile } from "@/lib/auth"
 import { useAuth } from "@/hooks/use-auth"
+import { MfaChallenge } from "@/components/auth/mfa-challenge"
+import { isMfaVerifiedThisSession } from "@/lib/mfa-client"
 
 export function LoginForm() {
   const { user, userProfile, loading: authLoading } = useAuth()
@@ -18,19 +20,39 @@ export function LoginForm() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const [mfaUid, setMfaUid] = useState<string | null>(null)
   const router = useRouter()
 
-  // If Firebase already has a session, skip the login form (stay signed in across visits).
-  useEffect(() => {
-    if (authLoading) return
-    if (!user || !userProfile) return
-
-    if (!userProfile.termsAcceptedAt) {
+  // Decide where to go after credentials are accepted. Subscribers with 2FA
+  // enabled must pass the TOTP challenge before leaving the login screen.
+  const proceedAfterAuth = (uid: string, profile: UserProfile) => {
+    if (profile.role === "subscriber") {
+      // Mandatory 2FA: a player who hasn't enrolled must set it up first.
+      if (!profile.totpEnabled) {
+        router.replace("/security?setup=required")
+        return
+      }
+      // Enrolled but this browser session hasn't passed the code challenge yet.
+      if (!isMfaVerifiedThisSession(uid)) {
+        setMfaUid(uid)
+        return
+      }
+    }
+    if (!profile.termsAcceptedAt) {
       router.replace(`/terms?redirect=${encodeURIComponent("/dashboard")}`)
       return
     }
     router.replace("/dashboard")
-  }, [authLoading, user, userProfile, router])
+  }
+
+  // If Firebase already has a session, route appropriately (or show 2FA).
+  useEffect(() => {
+    if (authLoading) return
+    if (!user || !userProfile) return
+    if (mfaUid) return
+    proceedAfterAuth(user.uid, userProfile)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, user, userProfile, router, mfaUid])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -42,11 +64,28 @@ export function LoginForm() {
     if (signInError) {
       setError(signInError)
     } else if (user) {
-      // Successfully logged in
-      router.push("/dashboard")
+      const profile = await getUserProfile(user.uid)
+      if (profile) {
+        proceedAfterAuth(user.uid, profile)
+      } else {
+        router.push("/dashboard")
+      }
     }
 
     setLoading(false)
+  }
+
+  if (mfaUid) {
+    return (
+      <MfaChallenge
+        uid={mfaUid}
+        onVerified={() => router.replace("/dashboard")}
+        onCancel={() => {
+          setMfaUid(null)
+          setPassword("")
+        }}
+      />
+    )
   }
 
   if (authLoading) {

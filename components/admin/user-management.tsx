@@ -33,8 +33,11 @@ import {
   ListTree,
   RefreshCw,
   Loader2,
+  ShieldCheck,
 } from "lucide-react"
+import { disableMfa } from "@/lib/mfa-client"
 import { Textarea } from "@/components/ui/textarea"
+import { GeneratePasswordButton } from "@/components/admin/generate-password-button"
 import { toast } from "@/hooks/use-toast"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -631,10 +634,13 @@ export function UserManagement() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="password">Password</Label>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="password">Password</Label>
+                        <GeneratePasswordButton onGenerate={setPassword} disabled={createLoading} />
+                      </div>
                       <Input
                         id="password"
-                        type="password"
+                        type="text"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         required
@@ -716,10 +722,13 @@ export function UserManagement() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="bulk-password">Password (all new users)</Label>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="bulk-password">Password (all new users)</Label>
+                        <GeneratePasswordButton onGenerate={setBulkPassword} disabled={bulkLoading} />
+                      </div>
                       <Input
                         id="bulk-password"
-                        type="password"
+                        type="text"
                         value={bulkPassword}
                         onChange={(e) => setBulkPassword(e.target.value)}
                         required
@@ -921,10 +930,19 @@ export function UserManagement() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="newPassword">New Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="newPassword">New Password</Label>
+                <GeneratePasswordButton
+                  onGenerate={(pwd) => {
+                    setNewPassword(pwd)
+                    setConfirmPassword(pwd)
+                  }}
+                  disabled={resetPasswordLoading}
+                />
+              </div>
               <Input
                 id="newPassword"
-                type="password"
+                type="text"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Enter new password"
@@ -1011,6 +1029,12 @@ function UserTable({
                         Pending
                       </Badge>
                     )}
+                    {user.totpEnabled && (
+                      <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-300 whitespace-nowrap inline-flex items-center gap-1">
+                        <ShieldCheck className="h-3 w-3" />
+                        2FA
+                      </Badge>
+                    )}
                   </div>
                   <div className="sm:hidden text-xs text-muted-foreground mt-1">
                     {user.displayName || "No name"}
@@ -1080,16 +1104,19 @@ function UserTable({
                   )}
                 </TableCell>
                 <TableCell>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onResetPassword(user.id, user.email)}
-                    className="h-8 text-xs"
-                  >
-                    <KeyRound className="h-3 w-3 mr-1" />
-                    <span className="hidden sm:inline">Reset Password</span>
-                    <span className="sm:hidden">Reset</span>
-                  </Button>
+                  <div className="flex flex-col sm:flex-row gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onResetPassword(user.id, user.email)}
+                      className="h-8 text-xs"
+                    >
+                      <KeyRound className="h-3 w-3 mr-1" />
+                      <span className="hidden sm:inline">Reset Password</span>
+                      <span className="sm:hidden">Reset</span>
+                    </Button>
+                    {user.totpEnabled && <Reset2faButton userId={user.id} />}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -1097,6 +1124,32 @@ function UserTable({
         </Table>
       </div>
     </div>
+  )
+}
+
+function Reset2faButton({ userId }: { userId: string }) {
+  const [loading, setLoading] = useState(false)
+  const [done, setDone] = useState(false)
+
+  const handleReset = async () => {
+    setLoading(true)
+    try {
+      await disableMfa(userId)
+      setDone(true)
+      toast({ title: "2FA reset", description: "The player can set up two-factor again on next login." })
+    } catch (e: any) {
+      toast({ title: "Could not reset 2FA", description: e.message, variant: "destructive" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Button variant="outline" size="sm" onClick={handleReset} disabled={loading || done} className="h-8 text-xs">
+      {loading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ShieldCheck className="h-3 w-3 mr-1" />}
+      <span className="hidden sm:inline">{done ? "2FA reset" : "Reset 2FA"}</span>
+      <span className="sm:hidden">2FA</span>
+    </Button>
   )
 }
 

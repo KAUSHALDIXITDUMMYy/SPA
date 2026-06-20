@@ -26,6 +26,7 @@ yarn-error.log*
 # local scripts output (passwords / service accounts)
 scripts/subscriber-admin-credentials.txt
 scripts/service-account.json
+service-account.json
 
 # vercel
 .vercel

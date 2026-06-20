@@ -4,6 +4,7 @@ import type React from "react"
 
 import { useAuth } from "@/hooks/use-auth"
 import type { UserRole } from "@/lib/auth"
+import { isMfaVerifiedThisSession } from "@/lib/mfa-client"
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 
@@ -22,6 +23,21 @@ export function ProtectedRoute({ children, allowedRoles = [], redirectTo = "/" }
       if (!user) {
         router.push(redirectTo)
         return
+      }
+
+      // Mandatory 2FA for subscribers.
+      if (userProfile && userProfile.role === "subscriber" && user) {
+        const currentPath = typeof window !== "undefined" ? window.location.pathname : ""
+        // Not enrolled yet → force setup (but allow the security page itself).
+        if (!userProfile.totpEnabled && currentPath !== "/security") {
+          router.push("/security?setup=required")
+          return
+        }
+        // Enrolled but this browser session hasn't passed the code challenge.
+        if (userProfile.totpEnabled && !isMfaVerifiedThisSession(user.uid)) {
+          router.push("/")
+          return
+        }
       }
 
       // Require Terms/EULA acceptance (app store compliance)
@@ -49,7 +65,18 @@ export function ProtectedRoute({ children, allowedRoles = [], redirectTo = "/" }
     )
   }
 
-  if (!user || (allowedRoles.length > 0 && userProfile && !allowedRoles.includes(userProfile.role)) || (userProfile && !userProfile.termsAcceptedAt)) {
+  const isSubscriber = !!userProfile && userProfile.role === "subscriber" && !!user
+  const currentPath = typeof window !== "undefined" ? window.location.pathname : ""
+  const needsSetup = isSubscriber && !userProfile!.totpEnabled && currentPath !== "/security"
+  const needsMfa = isSubscriber && !!userProfile!.totpEnabled && !isMfaVerifiedThisSession(user!.uid)
+
+  if (
+    !user ||
+    (allowedRoles.length > 0 && userProfile && !allowedRoles.includes(userProfile.role)) ||
+    (userProfile && !userProfile.termsAcceptedAt) ||
+    needsSetup ||
+    needsMfa
+  ) {
     return null
   }
 
