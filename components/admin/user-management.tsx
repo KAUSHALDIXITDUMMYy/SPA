@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
-import { createUser, getAllUsers, updateUserStatus, updateUserChatPermission, resetUserPassword } from "@/lib/admin"
+import { createUser, getAllUsers, updateUserStatus, updateUserChatPermission, resetUserPassword, deleteUserAccount } from "@/lib/admin"
 import type { UserProfile, UserRole } from "@/lib/auth"
 import {
   Plus,
@@ -34,6 +34,7 @@ import {
   RefreshCw,
   Loader2,
   ShieldCheck,
+  Trash2,
 } from "lucide-react"
 import { disableMfa } from "@/lib/mfa-client"
 import { Textarea } from "@/components/ui/textarea"
@@ -415,6 +416,21 @@ export function UserManagement() {
     setResetPasswordEmail(userEmail)
     setNewPassword("")
     setConfirmPassword("")
+  }
+
+  const handleDeleteUser = async (userId: string, userEmail: string) => {
+    if (!user?.uid) {
+      toast({ title: "Not signed in", description: "Please sign in again.", variant: "destructive" })
+      return
+    }
+    const result = await deleteUserAccount(userId, user.uid)
+    if (result.success) {
+      toast({ title: "User deleted", description: result.message || `${userEmail} has been removed.` })
+      setUsers((prev) => prev.filter((u) => u.id !== userId))
+      void loadUsers(true)
+    } else {
+      toast({ title: "Could not delete user", description: result.error, variant: "destructive" })
+    }
   }
 
   const getRoleBadgeVariant = (role: UserRole) => {
@@ -817,6 +833,7 @@ export function UserManagement() {
                 onToggleChat={handleToggleChat}
                 getRoleBadgeVariant={getRoleBadgeVariant}
                 onResetPassword={openResetPasswordDialog}
+                onDelete={handleDeleteUser}
               />
             )
           ) : (
@@ -869,6 +886,7 @@ export function UserManagement() {
                   onToggleChat={handleToggleChat}
                   getRoleBadgeVariant={getRoleBadgeVariant}
                   onResetPassword={openResetPasswordDialog}
+                  onDelete={handleDeleteUser}
                 />
               )}
             </TabsContent>
@@ -883,6 +901,7 @@ export function UserManagement() {
                   onToggleChat={handleToggleChat}
                   getRoleBadgeVariant={getRoleBadgeVariant}
                   onResetPassword={openResetPasswordDialog}
+                  onDelete={handleDeleteUser}
                 />
               )}
             </TabsContent>
@@ -897,6 +916,7 @@ export function UserManagement() {
                   onToggleChat={handleToggleChat}
                   getRoleBadgeVariant={getRoleBadgeVariant}
                   onResetPassword={openResetPasswordDialog}
+                  onDelete={handleDeleteUser}
                 />
               )}
             </TabsContent>
@@ -911,6 +931,7 @@ export function UserManagement() {
                   onToggleChat={handleToggleChat}
                   getRoleBadgeVariant={getRoleBadgeVariant}
                   onResetPassword={openResetPasswordDialog}
+                  onDelete={handleDeleteUser}
                 />
               )}
             </TabsContent>
@@ -990,12 +1011,14 @@ function UserTable({
   onToggleChat,
   getRoleBadgeVariant,
   onResetPassword,
+  onDelete,
 }: {
   users: (UserProfile & { id: string })[]
   onToggleStatus: (userId: string, currentStatus: boolean) => void
   onToggleChat: (userId: string, currentValue: boolean) => void
   getRoleBadgeVariant: (role: UserRole) => any
   onResetPassword: (userId: string, userEmail: string) => void
+  onDelete: (userId: string, userEmail: string) => void | Promise<void>
 }) {
   return (
     <div className="overflow-x-auto -mx-4 sm:mx-0">
@@ -1116,6 +1139,7 @@ function UserTable({
                       <span className="sm:hidden">Reset</span>
                     </Button>
                     {user.totpEnabled && <Reset2faButton userId={user.id} />}
+                    <DeleteUserButton userId={user.id} userEmail={user.email} onDelete={onDelete} />
                   </div>
                 </TableCell>
               </TableRow>
@@ -1124,6 +1148,60 @@ function UserTable({
         </Table>
       </div>
     </div>
+  )
+}
+
+function DeleteUserButton({
+  userId,
+  userEmail,
+  onDelete,
+}: {
+  userId: string
+  userEmail: string
+  onDelete: (userId: string, userEmail: string) => void | Promise<void>
+}) {
+  const [loading, setLoading] = useState(false)
+
+  const handleConfirm = async () => {
+    setLoading(true)
+    try {
+      await onDelete(userId, userEmail)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8 text-xs text-destructive hover:text-destructive" disabled={loading}>
+          {loading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Trash2 className="h-3 w-3 mr-1" />}
+          <span className="hidden sm:inline">Delete</span>
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this user?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This permanently deletes <span className="font-medium">{userEmail}</span>, including their sign-in account
+            and assignments. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => {
+              e.preventDefault()
+              void handleConfirm()
+            }}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={loading}
+          >
+            {loading ? "Deleting..." : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 

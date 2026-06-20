@@ -255,6 +255,23 @@ export const logoutAllUsers = async (adminViewer?: UserProfile | null) => {
   }
 }
 
+export const deleteUserAccount = async (userId: string, adminId: string) => {
+  try {
+    const response = await fetch("/api/admin/delete-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, adminId }),
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      return { success: false, error: data.error || "Failed to delete user" }
+    }
+    return { success: true, message: data.message }
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to delete user" }
+  }
+}
+
 export const resetUserPassword = async (userId: string, newPassword: string, adminId: string) => {
   try {
     const response = await fetch("/api/admin/reset-password", {
