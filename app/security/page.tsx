@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { ProtectedRoute } from "@/components/auth/protected-route"
 import { MfaSetup } from "@/components/auth/mfa-setup"
 import { useAuth } from "@/hooks/use-auth"
+import { ENFORCE_PLAYER_2FA } from "@/lib/config"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
 
@@ -13,12 +14,21 @@ export default function SecurityPage() {
   const { userProfile } = useAuth()
   const [setupRequired, setSetupRequired] = useState(false)
 
+  // 2FA is on hold — don't show the security/2FA page at all.
+  useEffect(() => {
+    if (!ENFORCE_PLAYER_2FA) {
+      router.replace("/subscriber")
+    }
+  }, [router])
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search)
       setSetupRequired(params.get("setup") === "required")
     }
   }, [])
+
+  if (!ENFORCE_PLAYER_2FA) return null
 
   // Only allow leaving the page once 2FA is enabled (mandatory enrollment).
   const canGoBack = !setupRequired || userProfile?.totpEnabled === true

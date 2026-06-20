@@ -30,6 +30,7 @@ export interface UserProfile {
   termsAcceptedAt?: Date // EULA/Terms acceptance (required for app store compliance)
   blockedUserIds?: string[] // Users this person has blocked
   totpEnabled?: boolean // Subscribers: TOTP (Google Authenticator) 2FA is enabled
+  mustChangePassword?: boolean // Subscribers: force a password change on next login
 }
 
 export const signIn = async (email: string, password: string) => {
@@ -160,6 +161,9 @@ export const signIn = async (email: string, password: string) => {
           createdAt: pendingUserData.createdAt,
           isActive: pendingUserData.isActive,
           allowChat: pendingUserData.allowChat ?? false,
+          // Force subscribers to set their own password on first login (admin set a temp one).
+          mustChangePassword:
+            pendingUserData.mustChangePassword ?? (pendingUserData.role === "subscriber"),
           // Remove pending fields
           isPending: false,
           pendingPassword: null,

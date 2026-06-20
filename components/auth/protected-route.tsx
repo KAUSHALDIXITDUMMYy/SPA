@@ -5,6 +5,8 @@ import type React from "react"
 import { useAuth } from "@/hooks/use-auth"
 import type { UserRole } from "@/lib/auth"
 import { isMfaVerifiedThisSession } from "@/lib/mfa-client"
+import { subscriberMustChangePassword } from "@/lib/account"
+import { ENFORCE_PLAYER_2FA } from "@/lib/config"
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 
@@ -26,7 +28,7 @@ export function ProtectedRoute({ children, allowedRoles = [], redirectTo = "/" }
       }
 
       // Mandatory 2FA for subscribers.
-      if (userProfile && userProfile.role === "subscriber" && user) {
+      if (ENFORCE_PLAYER_2FA && userProfile && userProfile.role === "subscriber" && user) {
         const currentPath = typeof window !== "undefined" ? window.location.pathname : ""
         // Not enrolled yet → force setup (but allow the security page itself).
         if (!userProfile.totpEnabled && currentPath !== "/security") {
@@ -36,6 +38,15 @@ export function ProtectedRoute({ children, allowedRoles = [], redirectTo = "/" }
         // Enrolled but this browser session hasn't passed the code challenge.
         if (userProfile.totpEnabled && !isMfaVerifiedThisSession(user.uid)) {
           router.push("/")
+          return
+        }
+      }
+
+      // Force subscribers to set their own password before using the app.
+      if (user && subscriberMustChangePassword(userProfile, user.uid)) {
+        const currentPath = typeof window !== "undefined" ? window.location.pathname : ""
+        if (currentPath !== "/change-password") {
+          router.push("/change-password")
           return
         }
       }
@@ -65,17 +76,20 @@ export function ProtectedRoute({ children, allowedRoles = [], redirectTo = "/" }
     )
   }
 
-  const isSubscriber = !!userProfile && userProfile.role === "subscriber" && !!user
   const currentPath = typeof window !== "undefined" ? window.location.pathname : ""
-  const needsSetup = isSubscriber && !userProfile!.totpEnabled && currentPath !== "/security"
-  const needsMfa = isSubscriber && !!userProfile!.totpEnabled && !isMfaVerifiedThisSession(user!.uid)
+  const isSubscriber2fa = ENFORCE_PLAYER_2FA && !!userProfile && userProfile.role === "subscriber" && !!user
+  const needsSetup = isSubscriber2fa && !userProfile!.totpEnabled && currentPath !== "/security"
+  const needsMfa = isSubscriber2fa && !!userProfile!.totpEnabled && !isMfaVerifiedThisSession(user!.uid)
+  const needsPasswordChange =
+    !!user && subscriberMustChangePassword(userProfile, user.uid) && currentPath !== "/change-password"
 
   if (
     !user ||
     (allowedRoles.length > 0 && userProfile && !allowedRoles.includes(userProfile.role)) ||
     (userProfile && !userProfile.termsAcceptedAt) ||
     needsSetup ||
-    needsMfa
+    needsMfa ||
+    needsPasswordChange
   ) {
     return null
   }

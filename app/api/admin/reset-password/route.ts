@@ -111,6 +111,11 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Force the user to set their own password the next time they sign in.
+    if (userData.role === "subscriber") {
+      await updateDoc(userRef, { mustChangePassword: true })
+    }
+
     // Check if user is pending (not yet created in Firebase Auth)
     if (userData.isPending) {
       // For pending users, just update the pendingPassword in Firestore

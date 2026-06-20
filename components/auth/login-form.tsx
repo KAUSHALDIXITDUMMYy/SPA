@@ -13,6 +13,8 @@ import { signIn, signOut, getUserProfile, type UserProfile } from "@/lib/auth"
 import { useAuth } from "@/hooks/use-auth"
 import { MfaChallenge } from "@/components/auth/mfa-challenge"
 import { isMfaVerifiedThisSession } from "@/lib/mfa-client"
+import { subscriberMustChangePassword } from "@/lib/account"
+import { ENFORCE_PLAYER_2FA } from "@/lib/config"
 
 export function LoginForm() {
   const { user, userProfile, loading: authLoading } = useAuth()
@@ -26,7 +28,7 @@ export function LoginForm() {
   // Decide where to go after credentials are accepted. Subscribers with 2FA
   // enabled must pass the TOTP challenge before leaving the login screen.
   const proceedAfterAuth = (uid: string, profile: UserProfile) => {
-    if (profile.role === "subscriber") {
+    if (ENFORCE_PLAYER_2FA && profile.role === "subscriber") {
       // Mandatory 2FA: a player who hasn't enrolled must set it up first.
       if (!profile.totpEnabled) {
         router.replace("/security?setup=required")
@@ -37,6 +39,11 @@ export function LoginForm() {
         setMfaUid(uid)
         return
       }
+    }
+    // Force players to set their own password (all existing + new players, until changed once).
+    if (subscriberMustChangePassword(profile, uid)) {
+      router.replace("/change-password")
+      return
     }
     if (!profile.termsAcceptedAt) {
       router.replace(`/terms?redirect=${encodeURIComponent("/dashboard")}`)
