@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { db } from "@/lib/firebase"
+import { FS } from "@/lib/firestore-paths"
 import { collection, onSnapshot, query, where } from "firebase/firestore"
 import {
   compareSubscriberPermissionsByStreamStart,
@@ -97,7 +98,7 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
   }, [loadScheduledStreams])
 
   useEffect(() => {
-    const q = query(collection(db, "streamSessions"), where("isActive", "==", true))
+    const q = query(collection(db, FS.streams.live), where("isActive", "==", true))
     return onSnapshot(q, (snap) => {
       setActiveSessions(
         snap.docs.map((d) => {

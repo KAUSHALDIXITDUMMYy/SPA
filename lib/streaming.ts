@@ -1,4 +1,5 @@
 import { db } from "./firebase"
+import { FS, channelFromStreamData, streamWritePayload } from "./firestore-paths"
 import {
   collection,
   addDoc,
@@ -53,7 +54,7 @@ export async function deactivatePublisherBroadcastSessions(
   publisherId: string,
   exceptSessionId?: string,
 ): Promise<void> {
-  const streamsRef = collection(db, "streamSessions")
+  const streamsRef = collection(db, FS.streams.live)
   const activeForPublisherQuery = query(streamsRef, where("publisherId", "==", publisherId), where("isActive", "==", true))
   const activeSnapshot = await getDocs(activeForPublisherQuery)
   await Promise.all(
@@ -62,7 +63,7 @@ export async function deactivatePublisherBroadcastSessions(
       const data = activeDoc.data() as Record<string, unknown>
       if (data.scheduledCallId && data.awaitingBroadcast === true) return
       try {
-        await updateDoc(doc(db, "streamSessions", activeDoc.id), {
+        await updateDoc(doc(db, FS.streams.live, activeDoc.id), {
           isActive: false,
           endedAt: new Date(),
         })
@@ -84,18 +85,21 @@ export async function createScheduledPlaceholderSession(input: {
   sport?: string
 }): Promise<{ success: boolean; error?: string }> {
   try {
-    await addDoc(collection(db, "streamSessions"), {
-      publisherId: input.publisherId,
-      publisherName: input.publisherName,
-      roomId: input.roomId,
-      isActive: true,
-      awaitingBroadcast: true,
-      scheduledCallId: input.scheduledCallId,
-      title: input.title,
-      description: input.description?.trim() || "",
-      sport: input.sport?.trim() || "",
-      createdAt: new Date(),
-    })
+    await addDoc(
+      collection(db, FS.streams.live),
+      streamWritePayload({
+        publisherId: input.publisherId,
+        publisherName: input.publisherName,
+        roomId: input.roomId,
+        isActive: true,
+        awaitingBroadcast: true,
+        scheduledCallId: input.scheduledCallId,
+        title: input.title,
+        description: input.description?.trim() || "",
+        sport: input.sport?.trim() || "",
+        createdAt: new Date(),
+      }),
+    )
     return { success: true }
   } catch (e: unknown) {
     return { success: false, error: e instanceof Error ? e.message : "Failed to create room session" }
@@ -104,7 +108,7 @@ export async function createScheduledPlaceholderSession(input: {
 
 /** Mark linked stream sessions inactive when a scheduled call is deleted. */
 export async function removeStreamSessionsForScheduledCall(scheduledCallId: string): Promise<void> {
-  const q = query(collection(db, "streamSessions"), where("scheduledCallId", "==", scheduledCallId))
+  const q = query(collection(db, FS.streams.live), where("scheduledCallId", "==", scheduledCallId))
   const snap = await getDocs(q)
   await Promise.all(
     snap.docs.map((d) =>
@@ -123,7 +127,7 @@ export async function removeStreamSessionsForScheduledCall(scheduledCallId: stri
  */
 export async function resetScheduledSessionAfterBroadcast(sessionId: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const sessionRef = doc(db, "streamSessions", sessionId)
+    const sessionRef = doc(db, FS.streams.live, sessionId)
     const snap = await getDoc(sessionRef)
     if (!snap.exists()) return { success: false, error: "Session not found" }
     const data = snap.data() as Record<string, unknown>
@@ -149,7 +153,7 @@ export async function activateScheduledBroadcastSession(
   session: Omit<StreamSession, "id" | "createdAt"> & { scheduledCallId: string },
 ): Promise<{ success: boolean; id?: string; session?: StreamSession; error?: string }> {
   try {
-    const streamsRef = collection(db, "streamSessions")
+    const streamsRef = collection(db, FS.streams.live)
     const q = query(
       streamsRef,
       where("scheduledCallId", "==", session.scheduledCallId),
@@ -160,18 +164,21 @@ export async function activateScheduledBroadcastSession(
 
     if (existing) {
       await deactivatePublisherBroadcastSessions(session.publisherId, existing.id)
-      await updateDoc(doc(db, "streamSessions", existing.id), {
-        publisherId: session.publisherId,
-        publisherName: session.publisherName,
-        roomId: session.roomId,
-        isActive: true,
-        awaitingBroadcast: false,
-        title: session.title,
-        description: session.description || "",
-        sport: session.sport || "",
-        scheduledCallId: session.scheduledCallId,
-      })
-      const refreshed = await getDoc(doc(db, "streamSessions", existing.id))
+      await updateDoc(
+        doc(db, FS.streams.live, existing.id),
+        streamWritePayload({
+          publisherId: session.publisherId,
+          publisherName: session.publisherName,
+          roomId: session.roomId,
+          isActive: true,
+          awaitingBroadcast: false,
+          title: session.title,
+          description: session.description || "",
+          sport: session.sport || "",
+          scheduledCallId: session.scheduledCallId,
+        }),
+      )
+      const refreshed = await getDoc(doc(db, FS.streams.live, existing.id))
       const raw = refreshed.data() as Record<string, unknown>
       const normalized = normalizeStreamSession(existing.id, raw)
       return { success: true, id: existing.id, session: normalized }
@@ -198,7 +205,14 @@ export const createStreamSession = async (session: Omit<StreamSession, "id" | "c
       createdAt: new Date(),
     }
 
-    const docRef = await addDoc(collection(db, "streamSessions"), sessionData)
+    const docRef = await addDoc(
+      collection(db, FS.streams.live),
+      streamWritePayload({
+        ...session,
+        awaitingBroadcast: session.awaitingBroadcast ?? false,
+        createdAt: new Date(),
+      }),
+    )
     return { success: true, id: docRef.id, session: { ...sessionData, id: docRef.id } as StreamSession }
   } catch (error: any) {
     return { success: false, error: error.message }
@@ -207,7 +221,7 @@ export const createStreamSession = async (session: Omit<StreamSession, "id" | "c
 
 export const endStreamSession = async (sessionId: string) => {
   try {
-    const sessionRef = doc(db, "streamSessions", sessionId)
+    const sessionRef = doc(db, FS.streams.live, sessionId)
     await updateDoc(sessionRef, {
       isActive: false,
       endedAt: new Date(),
@@ -225,7 +239,7 @@ export async function updateStreamSessionPublisher(
   publisherName: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const sessionRef = doc(db, "streamSessions", sessionId)
+    const sessionRef = doc(db, FS.streams.live, sessionId)
     const snap = await getDoc(sessionRef)
     const scheduledCallId = snap.exists()
       ? (snap.data() as { scheduledCallId?: string }).scheduledCallId
@@ -238,7 +252,7 @@ export async function updateStreamSessionPublisher(
 
     if (scheduledCallId) {
       try {
-        await updateDoc(doc(db, "scheduledCalls", String(scheduledCallId)), {
+        await updateDoc(doc(db, FS.scheduledCalls.live, String(scheduledCallId)), {
           publisherId,
           publisherName,
           updatedAt: new Date(),
@@ -264,7 +278,7 @@ function normalizeStreamSession(id: string, data: Record<string, unknown>): Stre
     id,
     publisherId: String(data.publisherId ?? ""),
     publisherName: String(data.publisherName ?? ""),
-    roomId: String(data.roomId ?? ""),
+    roomId: channelFromStreamData(data),
     isActive: Boolean(data.isActive),
     createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
     endedAt: endedAt && !Number.isNaN(endedAt.getTime()) ? endedAt : undefined,
@@ -283,7 +297,7 @@ function normalizeStreamSession(id: string, data: Record<string, unknown>): Stre
 export function subscribeToActiveStreams(
   callback: (streams: StreamSession[]) => void,
 ): () => void {
-  const streamsRef = collection(db, "streamSessions")
+  const streamsRef = collection(db, FS.streams.live)
   const q = query(streamsRef, where("isActive", "==", true))
   return onSnapshot(q, (snapshot) => {
     const streams = snapshot.docs.map((d) => normalizeStreamSession(d.id, d.data() as Record<string, unknown>))
@@ -294,7 +308,7 @@ export function subscribeToActiveStreams(
 
 export const getActiveStreams = async (): Promise<StreamSession[]> => {
   try {
-    const streamsRef = collection(db, "streamSessions")
+    const streamsRef = collection(db, FS.streams.live)
     const q = query(streamsRef, where("isActive", "==", true))
     const querySnapshot = await getDocs(q)
 
@@ -310,7 +324,7 @@ export const getActiveStreams = async (): Promise<StreamSession[]> => {
 
 export const getPublisherStreams = async (publisherId: string) => {
   try {
-    const streamsRef = collection(db, "streamSessions")
+    const streamsRef = collection(db, FS.streams.live)
     // Use simpler query to avoid index requirements
     const q = query(streamsRef, where("publisherId", "==", publisherId))
     const querySnapshot = await getDocs(q)
@@ -342,7 +356,7 @@ export function subscribeToPublisherActiveStream(
   publisherId: string,
   onActiveStream: (session: StreamSession | null) => void,
 ): () => void {
-  const streamsRef = collection(db, "streamSessions")
+  const streamsRef = collection(db, FS.streams.live)
   const q = query(streamsRef, where("publisherId", "==", publisherId))
   return onSnapshot(q, (snapshot) => {
     const sessions = snapshot.docs.map((d) => normalizeStreamSession(d.id, d.data() as Record<string, unknown>))
@@ -352,7 +366,7 @@ export function subscribeToPublisherActiveStream(
 
 export const getAllStreams = async () => {
   try {
-    const streamsRef = collection(db, "streamSessions")
+    const streamsRef = collection(db, FS.streams.live)
     const querySnapshot = await getDocs(streamsRef)
 
     const streams = querySnapshot.docs.map((doc) => ({

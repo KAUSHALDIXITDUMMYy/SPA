@@ -2,6 +2,7 @@ import { db } from "./firebase"
 import { collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, where, orderBy, setDoc, arrayUnion, onSnapshot, type Unsubscribe } from "firebase/firestore"
 import { type UserProfile, type UserRole } from "./auth"
 import { resolveUserTenant, validateNewUserForCreator, type UserTenant } from "./tenant"
+import { FS } from "./firestore-paths"
 
 export interface StreamPermission {
   id?: string
@@ -182,7 +183,7 @@ export const createStreamPermission = async (permission: Omit<StreamPermission, 
       createdAt: new Date(),
     }
 
-    const docRef = await addDoc(collection(db, "streamPermissions"), permissionData)
+    const docRef = await addDoc(collection(db, FS.streamPermissions.live), permissionData)
     return { success: true, id: docRef.id }
   } catch (error: any) {
     return { success: false, error: error.message }
@@ -191,7 +192,7 @@ export const createStreamPermission = async (permission: Omit<StreamPermission, 
 
 export const getStreamPermissions = async () => {
   try {
-    const permissionsRef = collection(db, "streamPermissions")
+    const permissionsRef = collection(db, FS.streamPermissions.live)
     const q = query(permissionsRef)
     const querySnapshot = await getDocs(q)
 
@@ -210,7 +211,7 @@ export const getStreamPermissions = async () => {
 
 export const updateStreamPermission = async (permissionId: string, updates: Partial<StreamPermission>) => {
   try {
-    const permissionRef = doc(db, "streamPermissions", permissionId)
+    const permissionRef = doc(db, FS.streamPermissions.live, permissionId)
     await updateDoc(permissionRef, updates)
     return { success: true }
   } catch (error: any) {
@@ -220,7 +221,7 @@ export const updateStreamPermission = async (permissionId: string, updates: Part
 
 export const deleteStreamPermission = async (permissionId: string) => {
   try {
-    await deleteDoc(doc(db, "streamPermissions", permissionId))
+    await deleteDoc(doc(db, FS.streamPermissions.live, permissionId))
     return { success: true }
   } catch (error: any) {
     return { success: false, error: error.message }
@@ -304,7 +305,7 @@ export const createStreamAssignment = async (assignment: Omit<StreamAssignment, 
       createdAt: new Date(),
     }
 
-    const docRef = await addDoc(collection(db, "streamAssignments"), assignmentData)
+    const docRef = await addDoc(collection(db, FS.streamAssignments.live), assignmentData)
     return { success: true, id: docRef.id }
   } catch (error: any) {
     return { success: false, error: error.message }
@@ -313,7 +314,7 @@ export const createStreamAssignment = async (assignment: Omit<StreamAssignment, 
 
 export const getStreamAssignments = async () => {
   try {
-    const assignmentsRef = collection(db, "streamAssignments")
+    const assignmentsRef = collection(db, FS.streamAssignments.live)
     const q = query(assignmentsRef)
     const querySnapshot = await getDocs(q)
 
@@ -331,7 +332,7 @@ export const getStreamAssignments = async () => {
 
 export const deleteStreamAssignment = async (assignmentId: string) => {
   try {
-    await deleteDoc(doc(db, "streamAssignments", assignmentId))
+    await deleteDoc(doc(db, FS.streamAssignments.live, assignmentId))
     return { success: true }
   } catch (error: any) {
     return { success: false, error: error.message }
@@ -340,7 +341,7 @@ export const deleteStreamAssignment = async (assignmentId: string) => {
 
 export const updateStreamAssignment = async (assignmentId: string, updates: Partial<StreamAssignment>) => {
   try {
-    const assignmentRef = doc(db, "streamAssignments", assignmentId)
+    const assignmentRef = doc(db, FS.streamAssignments.live, assignmentId)
     await updateDoc(assignmentRef, updates)
     return { success: true }
   } catch (error: any) {

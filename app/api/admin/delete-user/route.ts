@@ -4,6 +4,7 @@ import { doc, getDoc, deleteDoc, collection, query, where, getDocs } from "fireb
 import { adminCanManageTargetUser } from "@/lib/tenant"
 import { getAdminAuth } from "@/lib/firebase-admin"
 import { requireAdmin } from "@/lib/server/api-auth"
+import { FS } from "@/lib/firestore-paths"
 
 /** Delete all docs in a collection matching field == value. */
 async function deleteWhere(collectionName: string, field: string, value: string) {
@@ -85,9 +86,9 @@ export async function POST(req: NextRequest) {
 
     // Remove related data, then the profile document.
     await Promise.all([
-      deleteWhere("streamPermissions", "subscriberId", userId),
-      deleteWhere("streamPermissions", "publisherId", userId),
-      deleteWhere("streamAssignments", "subscriberId", userId),
+      deleteWhere(FS.streamPermissions.live, "subscriberId", userId),
+      deleteWhere(FS.streamPermissions.live, "publisherId", userId),
+      deleteWhere(FS.streamAssignments.live, "subscriberId", userId),
       deleteWhere("zoomPublisherAssignments", "subscriberId", userId),
       deleteWhere("zoomCallAssignments", "subscriberId", userId),
     ])

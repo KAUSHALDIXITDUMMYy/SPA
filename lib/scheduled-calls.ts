@@ -1,4 +1,5 @@
 import { db } from "./firebase"
+import { FS } from "./firestore-paths"
 import { createScheduledPlaceholderSession, removeStreamSessionsForScheduledCall } from "./streaming"
 import {
   addDoc,
@@ -74,7 +75,7 @@ export async function createScheduledCall(input: {
       return { success: false, error: "End time must be after start time." }
     }
     const roomId = generateScheduledRoomId(input.dateKey)
-    const ref = await addDoc(collection(db, "scheduledCalls"), {
+    const ref = await addDoc(collection(db, FS.scheduledCalls.live), {
       dateKey: input.dateKey,
       title: input.title.trim(),
       description: input.description?.trim() || "",
@@ -109,7 +110,7 @@ export async function createScheduledCall(input: {
 export async function deleteScheduledCall(callId: string): Promise<{ success: boolean; error?: string }> {
   try {
     await removeStreamSessionsForScheduledCall(callId)
-    await deleteDoc(doc(db, "scheduledCalls", callId))
+    await deleteDoc(doc(db, FS.scheduledCalls.live, callId))
     return { success: true }
   } catch (e: unknown) {
     return { success: false, error: e instanceof Error ? e.message : "Delete failed" }
@@ -129,7 +130,7 @@ export async function updateScheduledCall(
   }>,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    await updateDoc(doc(db, "scheduledCalls", callId), {
+    await updateDoc(doc(db, FS.scheduledCalls.live, callId), {
       ...patch,
       updatedAt: new Date(),
     })
@@ -141,7 +142,7 @@ export async function updateScheduledCall(
 
 export async function getScheduledCallById(callId: string): Promise<ScheduledCall | null> {
   try {
-    const snap = await getDoc(doc(db, "scheduledCalls", callId))
+    const snap = await getDoc(doc(db, FS.scheduledCalls.live, callId))
     if (!snap.exists()) return null
     return parseDoc(snap.id, snap.data() as Record<string, unknown>)
   } catch {
@@ -150,7 +151,7 @@ export async function getScheduledCallById(callId: string): Promise<ScheduledCal
 }
 
 export async function getScheduledCallsForDate(dateKey: string): Promise<ScheduledCall[]> {
-  const q = query(collection(db, "scheduledCalls"), where("dateKey", "==", dateKey))
+  const q = query(collection(db, FS.scheduledCalls.live), where("dateKey", "==", dateKey))
   const snap = await getDocs(q)
   const list = snap.docs.map((d) => parseDoc(d.id, d.data() as Record<string, unknown>))
   return list.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
@@ -160,7 +161,7 @@ export function subscribeScheduledCallsForDate(
   dateKey: string,
   callback: (calls: ScheduledCall[]) => void,
 ): Unsubscribe {
-  const q = query(collection(db, "scheduledCalls"), where("dateKey", "==", dateKey))
+  const q = query(collection(db, FS.scheduledCalls.live), where("dateKey", "==", dateKey))
   return onSnapshot(q, (snapshot) => {
     const list = snapshot.docs.map((d) => parseDoc(d.id, d.data() as Record<string, unknown>))
     list.sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())

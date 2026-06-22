@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/hooks/use-auth"
 import { db } from "@/lib/firebase"
+import { FS } from "@/lib/firestore-paths"
 import { collection, onSnapshot, query, where } from "firebase/firestore"
 import {
   getLocalDateKey,
@@ -47,7 +48,7 @@ export function ScheduledCallsPublisherSection({
   useEffect(() => {
     if (!uid) return
     let fetchGen = 0
-    const q = query(collection(db, "streamSessions"), where("publisherId", "==", uid))
+    const q = query(collection(db, FS.streams.live), where("publisherId", "==", uid))
     return onSnapshot(q, (snap) => {
       const gen = ++fetchGen
       const rows = snap.docs

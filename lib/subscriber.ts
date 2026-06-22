@@ -1,4 +1,5 @@
 import { db } from "./firebase"
+import { FS } from "./firestore-paths"
 import {
   collection,
   query,
@@ -43,7 +44,7 @@ export const getSubscriberPermissions = async (subscriberId: string): Promise<Su
     console.log("[v0] Fetching permissions for subscriber:", subscriberId)
 
     // Get permissions for this subscriber (publisher-based)
-    const permissionsRef = collection(db, "streamPermissions")
+    const permissionsRef = collection(db, FS.streamPermissions.live)
     const permissionsQuery = query(
       permissionsRef,
       where("subscriberId", "==", subscriberId),
@@ -56,7 +57,7 @@ export const getSubscriberPermissions = async (subscriberId: string): Promise<Su
     })) as StreamPermission[]
 
     // Get stream assignments for this subscriber (stream-based)
-    const assignmentsRef = collection(db, "streamAssignments")
+    const assignmentsRef = collection(db, FS.streamAssignments.live)
     const assignmentsQuery = query(
       assignmentsRef,
       where("subscriberId", "==", subscriberId),
@@ -73,7 +74,7 @@ export const getSubscriberPermissions = async (subscriberId: string): Promise<Su
     // Publisher display names only — never fetch entire users collection (breaks security rules).
     const usersRef = collection(db, "users")
     const usersQuery = query(usersRef, where("role", "in", ["publisher", "admin"]))
-    const streamsRef = collection(db, "streamSessions")
+    const streamsRef = collection(db, FS.streams.live)
 
     const [usersSnapshot, streamsSnapshot] = await Promise.all([
       getDocs(usersQuery),
@@ -196,12 +197,12 @@ export async function getAccessiblePublisherIdsForSubscriber(subscriberId: strin
   const ids = new Set<string>()
   try {
     const permsQ = query(
-      collection(db, "streamPermissions"),
+      collection(db, FS.streamPermissions.live),
       where("subscriberId", "==", subscriberId),
       where("isActive", "==", true),
     )
     const assignQ = query(
-      collection(db, "streamAssignments"),
+      collection(db, FS.streamAssignments.live),
       where("subscriberId", "==", subscriberId),
       where("isActive", "==", true),
     )
@@ -213,7 +214,7 @@ export async function getAccessiblePublisherIdsForSubscriber(subscriberId: strin
     const sessionReads = assignSnap.docs
       .map((d) => d.data().streamSessionId as string | undefined)
       .filter((sid): sid is string => Boolean(sid))
-      .map((sid) => getDoc(doc(db, "streamSessions", sid)))
+      .map((sid) => getDoc(doc(db, FS.streams.live, sid)))
     const sessionSnaps = await Promise.all(sessionReads)
     sessionSnaps.forEach((snap) => {
       if (snap.exists()) {
@@ -231,13 +232,13 @@ export async function getAccessiblePublisherIdsForSubscriber(subscriberId: strin
 export const subscriberHasAnyAssignment = async (subscriberId: string): Promise<boolean> => {
   try {
     const permsQ = query(
-      collection(db, "streamPermissions"),
+      collection(db, FS.streamPermissions.live),
       where("subscriberId", "==", subscriberId),
       where("isActive", "==", true),
       limit(1)
     )
     const assignQ = query(
-      collection(db, "streamAssignments"),
+      collection(db, FS.streamAssignments.live),
       where("subscriberId", "==", subscriberId),
       where("isActive", "==", true),
       limit(1)
@@ -259,13 +260,13 @@ export const subscribeSubscriberAssignmentEligibility = (
   onEligible: (eligible: boolean) => void
 ): Unsubscribe => {
   const permsQ = query(
-    collection(db, "streamPermissions"),
+    collection(db, FS.streamPermissions.live),
     where("subscriberId", "==", subscriberId),
     where("isActive", "==", true),
     limit(1)
   )
   const assignQ = query(
-    collection(db, "streamAssignments"),
+    collection(db, FS.streamAssignments.live),
     where("subscriberId", "==", subscriberId),
     where("isActive", "==", true),
     limit(1)
