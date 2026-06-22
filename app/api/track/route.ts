@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminDb } from "@/lib/firebase-admin"
+import { isBlockedApiCaller } from "@/lib/server/api-origin"
 
 // 1x1 transparent GIF for the <img>-based fallback tracker.
 const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64")
@@ -46,16 +47,22 @@ async function record(req: NextRequest, payload: Record<string, any>) {
 }
 
 export async function POST(req: NextRequest) {
+  if (isBlockedApiCaller(req)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
   try {
     const payload = await req.json().catch(() => ({}))
     await record(req, payload)
   } catch {
     // never block the page on tracking
   }
-  return NextResponse.json({ ok: true }, { headers: { "Access-Control-Allow-Origin": "*" } })
+  return NextResponse.json({ ok: true })
 }
 
 export async function GET(req: NextRequest) {
+  if (isBlockedApiCaller(req)) {
+    return new NextResponse(null, { status: 403 })
+  }
   // Image-pixel fallback: <img src="https://YOURDOMAIN/api/track?host=..."> works even if a
   // clone strips your JavaScript. The `host` query is whatever the embedding page passes.
   const url = new URL(req.url)
@@ -68,7 +75,6 @@ export async function GET(req: NextRequest) {
     headers: {
       "Content-Type": "image/gif",
       "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-      "Access-Control-Allow-Origin": "*",
     },
   })
 }
