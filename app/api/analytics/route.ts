@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/firebase"
-import { FS } from "@/lib/firestore-paths"
 import { collection, query, where, getDocs, addDoc, updateDoc, doc, orderBy, limit } from "firebase/firestore"
 import { requireUserProfile } from "@/lib/server/api-auth"
 
@@ -97,7 +96,7 @@ export async function GET(request: NextRequest) {
       }))
 
       // Get stream sessions for context
-      const streamsRef = collection(db, FS.streams.live)
+      const streamsRef = collection(db, "streamSessions")
       const streamsSnapshot = await getDocs(query(streamsRef, where("isActive", "==", true)))
       const activeStreams = streamsSnapshot.docs.map(doc => ({
         id: doc.id,
@@ -141,7 +140,7 @@ export async function GET(request: NextRequest) {
       }))
 
       // Get this publisher's stream sessions
-      const streamsRef = collection(db, FS.streams.live)
+      const streamsRef = collection(db, "streamSessions")
       const streamsSnapshot = await getDocs(query(streamsRef, where("publisherId", "==", publisherId)))
       const streamSessions = streamsSnapshot.docs.map(doc => ({
         id: doc.id,

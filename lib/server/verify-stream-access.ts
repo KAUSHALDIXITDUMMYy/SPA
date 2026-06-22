@@ -1,6 +1,5 @@
 import type { UserRole } from "@/lib/auth"
 import { getAdminDb } from "@/lib/firebase-admin"
-import { FS, STREAM_CHANNEL_FIELD } from "@/lib/firestore-paths"
 
 type AgoraJoinRole = "publisher" | "audience"
 
@@ -25,8 +24,8 @@ async function getActiveStreamByRoomId(roomId: string): Promise<ActiveStreamSess
 
   const db = await getAdminDb()
   const snapshot = await db
-    .collection(FS.streams.live)
-    .where(STREAM_CHANNEL_FIELD, "==", roomId)
+    .collection("streamSessions")
+    .where("roomId", "==", roomId)
     .where("isActive", "==", true)
     .limit(1)
     .get()
@@ -41,7 +40,7 @@ async function getActiveStreamByRoomId(roomId: string): Promise<ActiveStreamSess
   const stream: ActiveStreamSession = {
     id: doc.id,
     publisherId: String(data.publisherId || ""),
-    roomId: String(data[STREAM_CHANNEL_FIELD] || data.roomId || ""),
+    roomId: String(data.roomId || ""),
     isActive: data.isActive === true,
   }
   cacheStream(cacheKey, stream)
@@ -60,14 +59,14 @@ async function getActiveStreamById(
   }
 
   const db = await getAdminDb()
-  const doc = await db.collection(FS.streams.live).doc(streamSessionId).get()
+  const doc = await db.collection("streamSessions").doc(streamSessionId).get()
   if (!doc.exists) {
     cacheStream(cacheKey, null)
     return null
   }
 
   const data = doc.data()!
-  if (data.isActive !== true || String(data[STREAM_CHANNEL_FIELD] || data.roomId || "") !== expectedRoomId) {
+  if (data.isActive !== true || String(data.roomId || "") !== expectedRoomId) {
     cacheStream(cacheKey, null)
     return null
   }
@@ -75,7 +74,7 @@ async function getActiveStreamById(
   const stream: ActiveStreamSession = {
     id: doc.id,
     publisherId: String(data.publisherId || ""),
-    roomId: String(data[STREAM_CHANNEL_FIELD] || data.roomId || ""),
+    roomId: String(data.roomId || ""),
     isActive: true,
   }
   cacheStream(cacheKey, stream)
@@ -102,14 +101,14 @@ async function subscriberHasStreamAccess(
 
   const [permissionSnap, assignmentSnap] = await Promise.all([
     db
-      .collection(FS.streamPermissions.live)
+      .collection("streamPermissions")
       .where("subscriberId", "==", subscriberId)
       .where("publisherId", "==", publisherId)
       .where("isActive", "==", true)
       .limit(1)
       .get(),
     db
-      .collection(FS.streamAssignments.live)
+      .collection("streamAssignments")
       .where("subscriberId", "==", subscriberId)
       .where("streamSessionId", "==", streamSessionId)
       .where("isActive", "==", true)

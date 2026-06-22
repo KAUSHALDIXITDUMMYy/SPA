@@ -33,7 +33,6 @@ import { formatViewerLocationLabel, normalizeViewerLocation } from "@/lib/viewer
 import { resolveUserTenant, type UserTenant } from "@/lib/tenant"
 import type { UserProfile } from "@/lib/auth"
 import { db } from "@/lib/firebase"
-import { FS } from "@/lib/firestore-paths"
 import { collection, query, where, orderBy, limit, getDocs } from "firebase/firestore"
 import { getUsersByRole } from "@/lib/admin"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -145,7 +144,7 @@ export function AdminAnalytics() {
       )
 
       const activeViewersQuery = query(collection(db, "activeViewers"), where("isActive", "==", true))
-      const activeStreamsQuery = query(collection(db, FS.streams.live), where("isActive", "==", true))
+      const activeStreamsQuery = query(collection(db, "streamSessions"), where("isActive", "==", true))
       const analyticsQuery = query(
         collection(db, "streamAnalytics"),
         orderBy("timestamp", "desc"),

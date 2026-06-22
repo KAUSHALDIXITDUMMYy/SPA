@@ -1,5 +1,4 @@
 import { db } from "./firebase"
-import { FS } from "./firestore-paths"
 import { collection, query, where, getDocs, addDoc, updateDoc, doc, orderBy, limit, onSnapshot, Timestamp } from "firebase/firestore"
 import type { ViewerLocation } from "./viewer-location"
 import type { UserTenant } from "./tenant"
@@ -197,7 +196,7 @@ export const getAdminAnalytics = async (limitCount: number = 100) => {
     const activeViewers = activeSnapshot.docs.map((viewerDoc) => mapActiveViewerDoc(viewerDoc))
 
     // Get stream sessions for context
-    const streamsRef = collection(db, FS.streams.live)
+    const streamsRef = collection(db, "streamSessions")
     const streamsSnapshot = await getDocs(query(streamsRef, where("isActive", "==", true)))
     const activeStreams = streamsSnapshot.docs.map(doc => ({
       id: doc.id,
@@ -255,7 +254,7 @@ export const getPublisherAnalytics = async (publisherId: string, limitCount: num
     const currentViewers = activeSnapshot.docs.map((viewerDoc) => mapActiveViewerDoc(viewerDoc))
 
     // Get this publisher's stream sessions
-    const streamsRef = collection(db, FS.streams.live)
+    const streamsRef = collection(db, "streamSessions")
     const streamsSnapshot = await getDocs(query(streamsRef, where("publisherId", "==", publisherId)))
     const streamSessions = streamsSnapshot.docs.map(doc => ({
       id: doc.id,

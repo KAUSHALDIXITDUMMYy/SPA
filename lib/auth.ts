@@ -8,7 +8,6 @@ import {
 } from "firebase/auth"
 import { doc, setDoc, getDoc, updateDoc, collection, query, where, getDocs, deleteDoc } from "firebase/firestore"
 import { resolveUserTenant, type UserTenant } from "./tenant"
-import { FS } from "./firestore-paths"
 
 export type UserRole = "admin" | "publisher" | "subscriber"
 
@@ -59,7 +58,7 @@ export const signIn = async (email: string, password: string) => {
         const newAuthUid = authResult.user.uid
         
         // Migrate all stream permissions from pending ID to real UID
-        const permissionsRef = collection(db, FS.streamPermissions.live)
+        const permissionsRef = collection(db, "streamPermissions")
         const permissionsQuery = query(permissionsRef, where("subscriberId", "==", oldPendingId))
         const permissionsSnapshot = await getDocs(permissionsQuery)
         
@@ -67,7 +66,7 @@ export const signIn = async (email: string, password: string) => {
         const permissionUpdates: Promise<void>[] = []
         permissionsSnapshot.docs.forEach((permDoc) => {
           permissionUpdates.push(
-            updateDoc(doc(db, FS.streamPermissions.live, permDoc.id), {
+            updateDoc(doc(db, "streamPermissions", permDoc.id), {
               subscriberId: newAuthUid,
             })
           )
@@ -88,11 +87,11 @@ export const signIn = async (email: string, password: string) => {
 
         // Per-stream assignments (admin "Stream Assignments" matrix) — same subscriberId as pending doc
         const streamAssignmentsSnap = await getDocs(
-          query(collection(db, FS.streamAssignments.live), where("subscriberId", "==", oldPendingId)),
+          query(collection(db, "streamAssignments"), where("subscriberId", "==", oldPendingId)),
         )
         streamAssignmentsSnap.docs.forEach((d) => {
           permissionUpdates.push(
-            updateDoc(doc(db, FS.streamAssignments.live, d.id), { subscriberId: newAuthUid }),
+            updateDoc(doc(db, "streamAssignments", d.id), { subscriberId: newAuthUid }),
           )
         })
 
@@ -111,20 +110,20 @@ export const signIn = async (email: string, password: string) => {
           pendingUserData.displayName || pendingUserData.email?.split("@")[0] || "User"
 
         const permsAsPublisher = await getDocs(
-          query(collection(db, FS.streamPermissions.live), where("publisherId", "==", oldPendingId)),
+          query(collection(db, "streamPermissions"), where("publisherId", "==", oldPendingId)),
         )
         permsAsPublisher.docs.forEach((d) => {
           permissionUpdates.push(
-            updateDoc(doc(db, FS.streamPermissions.live, d.id), { publisherId: newAuthUid }),
+            updateDoc(doc(db, "streamPermissions", d.id), { publisherId: newAuthUid }),
           )
         })
 
         const scheduledForPub = await getDocs(
-          query(collection(db, FS.scheduledCalls.live), where("publisherId", "==", oldPendingId)),
+          query(collection(db, "scheduledCalls"), where("publisherId", "==", oldPendingId)),
         )
         scheduledForPub.docs.forEach((d) => {
           permissionUpdates.push(
-            updateDoc(doc(db, FS.scheduledCalls.live, d.id), {
+            updateDoc(doc(db, "scheduledCalls", d.id), {
               publisherId: newAuthUid,
               publisherName: pubDisplayName,
               updatedAt: new Date(),
@@ -133,11 +132,11 @@ export const signIn = async (email: string, password: string) => {
         })
 
         const sessionsForPub = await getDocs(
-          query(collection(db, FS.streams.live), where("publisherId", "==", oldPendingId)),
+          query(collection(db, "streamSessions"), where("publisherId", "==", oldPendingId)),
         )
         sessionsForPub.docs.forEach((d) => {
           permissionUpdates.push(
-            updateDoc(doc(db, FS.streams.live, d.id), {
+            updateDoc(doc(db, "streamSessions", d.id), {
               publisherId: newAuthUid,
               publisherName: pubDisplayName,
             }),

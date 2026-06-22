@@ -1,5 +1,4 @@
 import { db } from "./firebase"
-import { FS } from "./firestore-paths"
 import { onSnapshot, collection, query, where } from "firebase/firestore"
 import type { StreamPermission } from "./admin"
 
@@ -22,7 +21,7 @@ export class PermissionsManager {
   }
 
   subscribeToUserPermissions(subscriberId: string, callback: (permissions: StreamPermission[]) => void): () => void {
-    const permissionsRef = collection(db, FS.streamPermissions.live)
+    const permissionsRef = collection(db, "streamPermissions")
     const q = query(permissionsRef, where("subscriberId", "==", subscriberId), where("isActive", "==", true))
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -42,7 +41,7 @@ export class PermissionsManager {
   }
 
   subscribeToAllPermissions(callback: (permissions: StreamPermission[]) => void): () => void {
-    const permissionsRef = collection(db, FS.streamPermissions.live)
+    const permissionsRef = collection(db, "streamPermissions")
     const q = query(permissionsRef)
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -67,7 +66,7 @@ export class PermissionsManager {
     publisherId: string,
   ): Promise<{ hasAccess: boolean; permission?: StreamPermission }> {
     try {
-      const permissionsRef = collection(db, FS.streamPermissions.live)
+      const permissionsRef = collection(db, "streamPermissions")
       const q = query(
         permissionsRef,
         where("subscriberId", "==", subscriberId),
