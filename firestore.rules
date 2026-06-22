@@ -1,309 +1,31 @@
 rules_version = '2';
 
-// Publish: Firebase Console → Firestore → Rules → Publish
-// Blocks clone sites (no Firebase login). Logged-in web / Android / iOS keep working.
+// Phase 1 — Publish in Firebase Console → Firestore → Rules → Publish
+//
+// • Blocks clone sites with NO Firebase login (they lose live DB sync).
+// • Any logged-in user (web / Android / iOS) can use the app normally.
+// • Tighter per-role rules can be added later once everything is stable.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ─── Helpers ───────────────────────────────────────────────────────────
-
-    function isSignedIn() {
+    function signedIn() {
       return request.auth != null;
     }
 
-    // Single profile read per request (Firestore caches repeated get/exists on same path).
-    function userProfileDoc() {
-      return isSignedIn()
-        ? get(/databases/$(database)/documents/users/$(request.auth.uid))
-        : null;
-    }
-
-    function hasProfile() {
-      return isSignedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
-    }
-
-    function myUserData() {
-      return hasProfile() ? userProfileDoc().data : null;
-    }
-
-    // JWT claim (web after sync-claims) OR Firestore profile role (Android / iOS / first login).
-    function roleFromAuth() {
-      return request.auth.token.role != null
-        ? request.auth.token.role
-        : (hasProfile() ? myUserData().role : null);
-    }
-
-    function accountNotDeactivated() {
-      return !hasProfile() || myUserData().isActive != false;
-    }
-
-    function isAdmin() {
-      return isSignedIn()
-        && roleFromAuth() == 'admin'
-        && accountNotDeactivated();
-    }
-
-    function isPublisher() {
-      return isSignedIn()
-        && roleFromAuth() == 'publisher'
-        && accountNotDeactivated();
-    }
-
-    function isSubscriber() {
-      return isSignedIn()
-        && roleFromAuth() == 'subscriber'
-        && accountNotDeactivated();
-    }
-
-    function isStaff() {
-      return isAdmin() || isPublisher();
-    }
-
-    function isAnyActiveUser() {
-      return isAdmin() || isPublisher() || isSubscriber();
-    }
-
-    function authEmailLower() {
-      return request.auth.token.email != null
-        ? request.auth.token.email.lower()
-        : '';
-    }
-
-    function isPendingDocId(id) {
-      return id is string && id.matches('^pending_.*');
-    }
-
-    // First-login migration reads: signed-in user queries docs still keyed by pending_* id.
-    function hasPendingSubscriberId() {
-      return isSignedIn()
-        && resource.data.keys().hasAny(['subscriberId'])
-        && isPendingDocId(resource.data.subscriberId);
-    }
-
-    function hasPendingPublisherId() {
-      return isSignedIn()
-        && resource.data.keys().hasAny(['publisherId'])
-        && isPendingDocId(resource.data.publisherId);
-    }
-
-    // First-login migration writes: repoint pending_* → real Auth UID.
-    function migratingSubscriberId() {
-      return isSignedIn()
-        && request.resource.data.subscriberId == request.auth.uid
-        && isPendingDocId(resource.data.subscriberId);
-    }
-
-    function migratingPublisherId() {
-      return isSignedIn()
-        && request.resource.data.publisherId == request.auth.uid
-        && isPendingDocId(resource.data.publisherId);
-    }
-
-    function ownsZoomCall(callId) {
-      return callId is string
-        && exists(/databases/$(database)/documents/zoomCalls/$(callId))
-        && get(/databases/$(database)/documents/zoomCalls/$(callId)).data.publisherId
-          == request.auth.uid;
-    }
-
-    // ─── users ─────────────────────────────────────────────────────────────
-
+    // First login: app reads pending user before Auth account exists.
     match /users/{userId} {
-      allow read: if isAdmin()
-        || (isSignedIn() && request.auth.uid == userId)
-        || (isSignedIn() && resource.data.role in ['publisher', 'admin'])
-        || resource.data.isPending == true;
-
-      allow create: if isAdmin()
-        || (isSignedIn() && request.auth.uid == userId);
-
-      allow update: if isAdmin()
-        || (isSignedIn() && request.auth.uid == userId
-            && !request.resource.data.diff(resource.data).affectedKeys()
-              .hasAny(['role', 'isActive', 'tenant', 'isPending', 'pendingPassword']));
-
-      allow delete: if isAdmin()
-        || (isSignedIn()
-            && resource.data.isPending == true
-            && resource.data.email == authEmailLower());
+      allow read: if signedIn() || resource.data.isPending == true;
+      allow create, update, delete: if signedIn();
     }
 
-    // ─── schedules ─────────────────────────────────────────────────────────
-
-    match /dailySchedule/{docId} {
-      allow read: if isAnyActiveUser();
-      allow write: if isAdmin();
-    }
-
-    match /scheduledCalls/{callId} {
-      allow read: if isAnyActiveUser()
-        || hasPendingPublisherId();
-
-      allow create, delete: if isAdmin();
-
-      allow update: if isAdmin()
-        || (isPublisher() && resource.data.publisherId == request.auth.uid)
-        || migratingPublisherId();
-    }
-
-    // ─── streams & assignments ─────────────────────────────────────────────
-
-    match /streamSessions/{sessionId} {
-      allow read: if isAdmin()
-        || (isPublisher() && resource.data.publisherId == request.auth.uid)
-        || (isSubscriber() && resource.data.isActive == true)
-        || hasPendingPublisherId();
-
-      allow create: if isAdmin()
-        || (isPublisher() && request.resource.data.publisherId == request.auth.uid);
-
-      allow update: if isAdmin()
-        || (isPublisher() && resource.data.publisherId == request.auth.uid)
-        || migratingPublisherId();
-
-      allow delete: if isAdmin();
-    }
-
-    match /streamPermissions/{permId} {
-      allow read: if isAdmin()
-        || (isSignedIn() && resource.data.subscriberId == request.auth.uid)
-        || (isSignedIn() && resource.data.publisherId == request.auth.uid)
-        || hasPendingSubscriberId()
-        || hasPendingPublisherId();
-
-      allow create: if isAdmin();
-
-      allow update: if isAdmin()
-        || migratingSubscriberId()
-        || migratingPublisherId();
-
-      allow delete: if isAdmin();
-    }
-
-    match /streamAssignments/{assignmentId} {
-      allow read: if isAdmin()
-        || (isSignedIn() && resource.data.subscriberId == request.auth.uid)
-        || hasPendingSubscriberId();
-
-      allow create: if isAdmin();
-
-      allow update: if isAdmin()
-        || migratingSubscriberId();
-
-      allow delete: if isAdmin();
-    }
-
-    // ─── analytics & live viewers ──────────────────────────────────────────
-
-    match /streamAnalytics/{docId} {
-      allow read: if isAdmin()
-        || (isPublisher() && resource.data.publisherId == request.auth.uid);
-
-      allow create: if isSignedIn()
-        && request.resource.data.subscriberId == request.auth.uid;
-
-      allow update: if isSignedIn()
-        && resource.data.subscriberId == request.auth.uid;
-
-      allow delete: if isAdmin();
-    }
-
-    match /activeViewers/{docId} {
-      allow read: if isAdmin() || isPublisher();
-
-      allow create: if isSignedIn()
-        && request.resource.data.subscriberId == request.auth.uid;
-
-      allow update: if isSignedIn()
-        && resource.data.subscriberId == request.auth.uid;
-
-      allow delete: if isAdmin();
-    }
-
-    // ─── chat ──────────────────────────────────────────────────────────────
-
-    match /streamChatMessages/{messageId} {
-      allow read: if isAnyActiveUser();
-
-      allow create: if isAnyActiveUser()
-        && request.resource.data.senderId == request.auth.uid;
-
-      allow update, delete: if isAdmin();
-    }
-
-    // ─── Zoom ──────────────────────────────────────────────────────────────
-
-    match /zoomCalls/{callId} {
-      allow read: if isAnyActiveUser()
-        || hasPendingPublisherId();
-
-      allow create: if isStaff();
-
-      allow update, delete: if isAdmin()
-        || (isPublisher() && resource.data.publisherId == request.auth.uid)
-        || migratingPublisherId();
-    }
-
-    match /zoomPublisherAssignments/{docId} {
-      allow read: if isAdmin()
-        || (isSignedIn() && resource.data.subscriberId == request.auth.uid)
-        || (isSignedIn() && resource.data.publisherId == request.auth.uid)
-        || hasPendingSubscriberId()
-        || hasPendingPublisherId();
-
-      allow create: if isAdmin();
-
-      allow update: if isAdmin()
-        || migratingSubscriberId()
-        || migratingPublisherId();
-
-      allow delete: if isAdmin();
-    }
-
-    match /zoomCallAssignments/{docId} {
-      allow read: if isAdmin()
-        || (isSignedIn() && resource.data.subscriberId == request.auth.uid)
-        || (isPublisher() && ownsZoomCall(resource.data.zoomCallId))
-        || hasPendingSubscriberId();
-
-      allow create: if isAdmin();
-
-      allow update: if isAdmin()
-        || migratingSubscriberId();
-
-      allow delete: if isAdmin();
-    }
-
-    // ─── admin tools ───────────────────────────────────────────────────────
-
+    // Contact form — no login required to submit.
     match /contactMessages/{messageId} {
       allow create: if request.resource.data.keys().hasAll(['name', 'email', 'subject', 'message']);
-      allow read, update, delete: if isAdmin();
+      allow read, update, delete: if signedIn();
     }
 
-    match /adminBroadcasts/{docId} {
-      allow read: if isAnyActiveUser();
-      allow write: if isAdmin();
-    }
-
-    match /reports/{docId} {
-      allow create: if isAnyActiveUser();
-      allow read, update, delete: if isAdmin();
-    }
-
-    match /blockEvents/{docId} {
-      allow create: if isAnyActiveUser();
-      allow read: if isAdmin();
-      allow update, delete: if false;
-    }
-
-    match /accessLogs/{docId} {
-      allow read: if isAdmin();
-      allow write: if false;
-    }
-
+    // Server-only (Admin SDK). Never allow client access.
     match /mfaSecrets/{docId} {
       allow read, write: if false;
     }
@@ -312,8 +34,10 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // All other collections: must be signed in.
+    // Clone sites that only embed your public Firebase config are blocked here.
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if signedIn();
     }
   }
 }
