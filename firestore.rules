@@ -12,6 +12,10 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function hasProfile() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function userDoc() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
@@ -19,11 +23,11 @@ service cloud.firestore {
     function userRole() {
       return request.auth.token.role != null
         ? request.auth.token.role
-        : userDoc().role;
+        : (hasProfile() ? userDoc().role : null);
     }
 
     function isActiveAccount() {
-      return isSignedIn() && userDoc().isActive != false;
+      return isSignedIn() && hasProfile() && userDoc().isActive != false;
     }
 
     function isAdmin() {
@@ -49,7 +53,7 @@ service cloud.firestore {
     // ─── users ─────────────────────────────────────────────────────────────
 
     match /users/{userId} {
-      // Pending docs: first-login flow. Publishers/admins: display names. Self + admin: full profile.
+      // Admin: full user list. Self: own profile. Others: publisher/admin names only (for subscribers).
       allow read: if isAdmin()
         || (isSignedIn() && request.auth.uid == userId)
         || (isSignedIn() && resource.data.role in ['publisher', 'admin'])
@@ -123,7 +127,10 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && request.resource.data.subscriberId == request.auth.uid;
 
-      allow update, delete: if isAdmin();
+      allow update: if isSignedIn()
+        && resource.data.subscriberId == request.auth.uid;
+
+      allow delete: if isAdmin();
     }
 
     match /activeViewers/{docId} {
