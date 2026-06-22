@@ -7,7 +7,8 @@ const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBR
 /** The hostnames that are legitimately YOUR deployment. Anything else = a clone. */
 const OWN_HOSTS = [
   "localhost",
-  "sportsmagicianaudio.vercel.app", // adjust to your real production domain(s)
+  "sportsmagicianaudio.vercel.app",
+  "spa-gules-ten.vercel.app", // legacy Vercel URL (keep until fully retired)
 ]
 
 function clientIp(req: NextRequest): string {
