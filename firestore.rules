@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // Paste into Firebase Console → Firestore Database → Rules → Publish
-// Blocks unauthenticated clone sites. Requires users to sign in.
+// Requires sign-in for app data; blocks anonymous clone-site scraping.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -13,13 +13,15 @@ service cloud.firestore {
     }
 
     function hasProfile() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
     function userDoc() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    // JWT custom claim (fast path) OR Firestore profile role (Android / first login).
     function roleFromAuth() {
       return request.auth.token.role != null
         ? request.auth.token.role
@@ -50,10 +52,34 @@ service cloud.firestore {
       return isAdmin() || isPublisher() || isSubscriber();
     }
 
+    function isPendingDocId(id) {
+      return id.matches('^pending_.*');
+    }
+
+    // First-login migration: repoint pending_* IDs to the real Auth UID.
+    function migratingSubscriberId() {
+      return isSignedIn()
+        && request.resource.data.subscriberId == request.auth.uid
+        && isPendingDocId(resource.data.subscriberId);
+    }
+
+    function migratingPublisherId() {
+      return isSignedIn()
+        && request.resource.data.publisherId == request.auth.uid
+        && isPendingDocId(resource.data.publisherId);
+    }
+
+    function ownsZoomCall(callId) {
+      return exists(/databases/$(database)/documents/zoomCalls/$(callId))
+        && get(/databases/$(database)/documents/zoomCalls/$(callId)).data.publisherId
+          == request.auth.uid;
+    }
+
     // ─── users ─────────────────────────────────────────────────────────────
 
     match /users/{userId} {
-      // Admin: full user list. Self: own profile. Others: publisher/admin names only (for subscribers).
+      // Admin: full list. Self: own profile. Others: publisher/admin directory only.
+      // Pending docs: readable for first-login flow (email + isPending query).
       allow read: if isAdmin()
         || (isSignedIn() && request.auth.uid == userId)
         || (isSignedIn() && resource.data.role in ['publisher', 'admin'])
@@ -67,13 +93,14 @@ service cloud.firestore {
             && !request.resource.data.diff(resource.data).affectedKeys()
               .hasAny(['role', 'isActive', 'tenant', 'isPending', 'pendingPassword']));
 
+      // Pending user removes their placeholder doc after Auth account is created.
       allow delete: if isAdmin()
         || (isSignedIn()
             && resource.data.isPending == true
             && resource.data.email == request.auth.token.email.lower());
     }
 
-    // ─── schedules (what the clone was syncing) ────────────────────────────
+    // ─── schedules ─────────────────────────────────────────────────────────
 
     match /dailySchedule/{docId} {
       allow read: if isAnyActiveUser();
@@ -84,7 +111,8 @@ service cloud.firestore {
       allow read: if isAnyActiveUser();
       allow create, delete: if isAdmin();
       allow update: if isAdmin()
-        || (isPublisher() && resource.data.publisherId == request.auth.uid);
+        || (isPublisher() && resource.data.publisherId == request.auth.uid)
+        || migratingPublisherId();
     }
 
     // ─── streams & assignments ─────────────────────────────────────────────
@@ -98,7 +126,8 @@ service cloud.firestore {
         || (isPublisher() && request.resource.data.publisherId == request.auth.uid);
 
       allow update: if isAdmin()
-        || (isPublisher() && resource.data.publisherId == request.auth.uid);
+        || (isPublisher() && resource.data.publisherId == request.auth.uid)
+        || migratingPublisherId();
 
       allow delete: if isAdmin();
     }
@@ -108,14 +137,25 @@ service cloud.firestore {
         || (isSignedIn() && resource.data.subscriberId == request.auth.uid)
         || (isSignedIn() && resource.data.publisherId == request.auth.uid);
 
-      allow write: if isAdmin();
+      allow create: if isAdmin();
+
+      allow update: if isAdmin()
+        || migratingSubscriberId()
+        || migratingPublisherId();
+
+      allow delete: if isAdmin();
     }
 
     match /streamAssignments/{assignmentId} {
       allow read: if isAdmin()
         || (isSignedIn() && resource.data.subscriberId == request.auth.uid);
 
-      allow write: if isAdmin();
+      allow create: if isAdmin();
+
+      allow update: if isAdmin()
+        || migratingSubscriberId();
+
+      allow delete: if isAdmin();
     }
 
     // ─── analytics & live viewers ──────────────────────────────────────────
@@ -162,19 +202,35 @@ service cloud.firestore {
       allow read: if isAnyActiveUser();
       allow create: if isStaff();
       allow update, delete: if isAdmin()
-        || (isPublisher() && resource.data.publisherId == request.auth.uid);
+        || (isPublisher() && resource.data.publisherId == request.auth.uid)
+        || migratingPublisherId();
     }
 
     match /zoomPublisherAssignments/{docId} {
       allow read: if isAdmin()
-        || (isSignedIn() && resource.data.subscriberId == request.auth.uid);
-      allow write: if isAdmin();
+        || (isSignedIn() && resource.data.subscriberId == request.auth.uid)
+        || (isSignedIn() && resource.data.publisherId == request.auth.uid);
+
+      allow create: if isAdmin();
+
+      allow update: if isAdmin()
+        || migratingSubscriberId()
+        || migratingPublisherId();
+
+      allow delete: if isAdmin();
     }
 
     match /zoomCallAssignments/{docId} {
       allow read: if isAdmin()
-        || (isSignedIn() && resource.data.subscriberId == request.auth.uid);
-      allow write: if isAdmin();
+        || (isSignedIn() && resource.data.subscriberId == request.auth.uid)
+        || (isPublisher() && ownsZoomCall(resource.data.zoomCallId));
+
+      allow create: if isAdmin();
+
+      allow update: if isAdmin()
+        || migratingSubscriberId();
+
+      allow delete: if isAdmin();
     }
 
     // ─── admin tools ───────────────────────────────────────────────────────
@@ -198,6 +254,11 @@ service cloud.firestore {
       allow create: if isAnyActiveUser();
       allow read: if isAdmin();
       allow update, delete: if false;
+    }
+
+    match /accessLogs/{docId} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     // Server-only (Admin SDK). Client must never access.

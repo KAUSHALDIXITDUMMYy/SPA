@@ -70,8 +70,8 @@ export const getSubscriberPermissions = async (subscriberId: string): Promise<Su
 
     console.log("[v0] Found permissions:", permissions.length, "Found stream assignments:", assignments.length)
 
-    // Get all users and active streams in parallel
     // Publisher display names only — never fetch entire users collection (breaks security rules).
+    const usersRef = collection(db, "users")
     const usersQuery = query(usersRef, where("role", "in", ["publisher", "admin"]))
     const streamsRef = collection(db, "streamSessions")
 

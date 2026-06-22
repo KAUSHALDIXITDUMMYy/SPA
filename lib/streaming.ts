@@ -150,9 +150,13 @@ export async function activateScheduledBroadcastSession(
 ): Promise<{ success: boolean; id?: string; session?: StreamSession; error?: string }> {
   try {
     const streamsRef = collection(db, "streamSessions")
-    const q = query(streamsRef, where("scheduledCallId", "==", session.scheduledCallId))
+    const q = query(
+      streamsRef,
+      where("scheduledCallId", "==", session.scheduledCallId),
+      where("publisherId", "==", session.publisherId),
+    )
     const snap = await getDocs(q)
-    const existing = snap.docs.find((d) => (d.data() as { publisherId?: string }).publisherId === session.publisherId)
+    const existing = snap.docs[0]
 
     if (existing) {
       await deactivatePublisherBroadcastSessions(session.publisherId, existing.id)
