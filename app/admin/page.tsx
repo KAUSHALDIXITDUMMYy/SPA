@@ -23,6 +23,7 @@ import {
   Bell,
   Radio,
   Menu,
+  ShieldAlert,
   type LucideIcon,
 } from "lucide-react"
 import { SubscriberAssignments } from "@/components/admin/subscriber-assignments"
@@ -211,6 +212,10 @@ export default function AdminDashboard() {
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
+                <Button variant="outline" onClick={() => router.push("/admin/access-logs")} className="w-full sm:w-auto">
+                  <ShieldAlert className="h-4 w-4 mr-2" />
+                  Access Logs
+                </Button>
                 <Button variant="outline" onClick={handleSignOut} className="w-full sm:w-auto">
                   <LogOut className="h-4 w-4 mr-2" />
                   Sign Out
