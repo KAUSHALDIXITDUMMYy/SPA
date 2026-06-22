@@ -20,26 +20,26 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    function userRole() {
+    function roleFromAuth() {
       return request.auth.token.role != null
         ? request.auth.token.role
         : (hasProfile() ? userDoc().role : null);
     }
 
-    function isActiveAccount() {
-      return isSignedIn() && hasProfile() && userDoc().isActive != false;
+    function accountNotDeactivated() {
+      return !hasProfile() || userDoc().isActive != false;
     }
 
     function isAdmin() {
-      return isActiveAccount() && userRole() == 'admin';
+      return isSignedIn() && roleFromAuth() == 'admin' && accountNotDeactivated();
     }
 
     function isPublisher() {
-      return isActiveAccount() && userRole() == 'publisher';
+      return isSignedIn() && roleFromAuth() == 'publisher' && accountNotDeactivated();
     }
 
     function isSubscriber() {
-      return isActiveAccount() && userRole() == 'subscriber';
+      return isSignedIn() && roleFromAuth() == 'subscriber' && accountNotDeactivated();
     }
 
     function isStaff() {
