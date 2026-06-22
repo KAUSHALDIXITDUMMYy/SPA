@@ -1,8 +1,12 @@
 import { NextRequest } from "next/server"
 import { SignJWT } from "jose"
+import { requireUserProfile } from "@/lib/server/api-auth"
 
 export async function POST(req: NextRequest) {
   try {
+    const profile = await requireUserProfile(req)
+    if (profile instanceof Response) return profile
+
     const body = await req.json()
     const meetingNumber: string | undefined = body?.meetingNumber
     const role: 0 | 1 = body?.role === 1 ? 1 : 0
@@ -11,10 +15,7 @@ export async function POST(req: NextRequest) {
     const sdkSecret = process.env.ZOOM_MEETING_SDK_SECRET
 
     if (!sdkKey || !sdkSecret) {
-      return new Response(
-        JSON.stringify({ error: "Zoom SDK credentials are not configured" }),
-        { status: 500 },
-      )
+      return new Response(JSON.stringify({ error: "Zoom SDK credentials are not configured" }), { status: 500 })
     }
 
     if (!meetingNumber) {
@@ -34,20 +35,15 @@ export async function POST(req: NextRequest) {
       tokenExp,
     }
 
-    const signature = await new SignJWT(payload as any)
+    const signature = await new SignJWT(payload as Record<string, unknown>)
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .sign(new TextEncoder().encode(sdkSecret))
 
-    return new Response(
-      JSON.stringify({ signature, sdkKey }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    )
+    return new Response(JSON.stringify({ signature, sdkKey }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })
   } catch (err: any) {
-    return new Response(
-      JSON.stringify({ error: err?.message || "Failed to generate signature" }),
-      { status: 500 },
-    )
+    return new Response(JSON.stringify({ error: err?.message || "Failed to generate signature" }), { status: 500 })
   }
 }
-
-

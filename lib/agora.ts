@@ -14,6 +14,8 @@ export type PublisherAudioSource = "microphone" | "system"
 
 export interface AgoraJoinConfig {
   channelName: string
+  /** Firestore stream session id — enables a fast server-side access check. */
+  streamSessionId?: string
   role: AgoraJoinRole
   uid?: number
   appId?: string
@@ -143,11 +145,16 @@ export class AgoraManager {
     return AgoraRTC as any
   }
 
-  private async fetchToken(channelName: string, role: AgoraJoinRole, uid?: number) {
-    const res = await fetch("/api/agora/token", {
+  private async fetchToken(
+    channelName: string,
+    role: AgoraJoinRole,
+    uid?: number,
+    streamSessionId?: string,
+  ) {
+    const { fetchWithAuth } = await import("@/lib/client/authenticated-fetch")
+    const res = await fetchWithAuth("/api/agora/token", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ channelName, role, uid }),
+      body: JSON.stringify({ channelName, role, uid, streamSessionId }),
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data?.error || "Failed to fetch Agora token")
@@ -174,14 +181,14 @@ export class AgoraManager {
     if (!config?.channelName) {
       throw new Error("Agora join requires a valid channelName")
     }
-    const { channelName, role, uid, container } = config
+    const { channelName, role, uid, container, streamSessionId } = config
     this.lastJoinConfig = config
 
     if (this.client) {
       await this.leaveInternal()
     }
 
-    const tokenInfo = await this.fetchToken(channelName, role, uid)
+    const tokenInfo = await this.fetchToken(channelName, role, uid, streamSessionId)
     const appId = tokenInfo.appId
     const token = tokenInfo.token
     const agoraUid = tokenInfo.uid

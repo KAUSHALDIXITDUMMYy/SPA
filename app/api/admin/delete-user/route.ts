@@ -3,6 +3,7 @@ import { db } from "@/lib/firebase"
 import { doc, getDoc, deleteDoc, collection, query, where, getDocs } from "firebase/firestore"
 import { adminCanManageTargetUser } from "@/lib/tenant"
 import { getAdminAuth } from "@/lib/firebase-admin"
+import { requireAdmin } from "@/lib/server/api-auth"
 
 /** Delete all docs in a collection matching field == value. */
 async function deleteWhere(collectionName: string, field: string, value: string) {
@@ -16,17 +17,19 @@ async function deleteWhere(collectionName: string, field: string, value: string)
 
 export async function POST(req: NextRequest) {
   try {
+    const profile = await requireAdmin(req)
+    if (profile instanceof NextResponse) return profile
+
     const { userId, adminId } = await req.json()
 
     if (!userId) {
       return NextResponse.json({ success: false, error: "User ID is required" }, { status: 400 })
     }
-    if (!adminId) {
-      return NextResponse.json({ success: false, error: "Admin authentication required" }, { status: 401 })
+    if (adminId && adminId !== profile.uid) {
+      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 })
     }
 
-    // Verify the requester is an admin.
-    const adminSnap = await getDoc(doc(db, "users", adminId))
+    const adminSnap = await getDoc(doc(db, "users", profile.uid))
     if (!adminSnap.exists() || adminSnap.data().role !== "admin") {
       return NextResponse.json({ success: false, error: "Unauthorized: Admin access required" }, { status: 403 })
     }
@@ -39,7 +42,7 @@ export async function POST(req: NextRequest) {
     }
     const userData = userSnap.data()
 
-    if (adminId === userId) {
+    if (profile.uid === userId) {
       return NextResponse.json({ success: false, error: "You cannot delete your own account." }, { status: 400 })
     }
 

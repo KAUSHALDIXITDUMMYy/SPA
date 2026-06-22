@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server"
+import { requirePublisherOrAdmin } from "@/lib/server/api-auth"
 
 async function getS2SAccessToken() {
   const accountId = process.env.ZOOM_ACCOUNT_ID
@@ -21,6 +22,9 @@ async function getS2SAccessToken() {
 
 export async function POST(req: NextRequest) {
   try {
+    const profile = await requirePublisherOrAdmin(req)
+    if (profile instanceof Response) return profile
+
     const body = await req.json()
     const userId: string | undefined = body?.userId || body?.hostId || "me"
     const token = await getS2SAccessToken()
@@ -31,10 +35,11 @@ export async function POST(req: NextRequest) {
     if (!zakRes.ok) {
       return new Response(JSON.stringify({ error: json?.message || "Failed to get ZAK" }), { status: 500 })
     }
-    return new Response(JSON.stringify({ zak: json?.token }), { status: 200, headers: { "Content-Type": "application/json" } })
+    return new Response(JSON.stringify({ zak: json?.token }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })
   } catch (e: any) {
     return new Response(JSON.stringify({ error: e?.message || "Failed to get ZAK" }), { status: 500 })
   }
 }
-
-

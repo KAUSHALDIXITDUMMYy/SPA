@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/firebase"
 import { collection, query, where, getDocs, addDoc, updateDoc, doc, orderBy, limit } from "firebase/firestore"
+import { requireUserProfile } from "@/lib/server/api-auth"
 
 export interface StreamAnalytics {
   id?: string
@@ -25,11 +26,18 @@ export interface StreamViewer {
 // Track subscriber activity
 export async function POST(request: NextRequest) {
   try {
+    const profile = await requireUserProfile(request)
+    if (profile instanceof NextResponse) return profile
+
     const body = await request.json()
     const { streamSessionId, subscriberId, subscriberName, publisherId, publisherName, action, duration } = body
 
     if (!streamSessionId || !subscriberId || !action) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    }
+
+    if (profile.uid !== subscriberId && profile.role !== "admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     const analyticsData: Omit<StreamAnalytics, "id"> = {
@@ -59,6 +67,9 @@ export async function POST(request: NextRequest) {
 // Get analytics data
 export async function GET(request: NextRequest) {
   try {
+    const profile = await requireUserProfile(request)
+    if (profile instanceof NextResponse) return profile
+
     const { searchParams } = new URL(request.url)
     const type = searchParams.get("type")
     const publisherId = searchParams.get("publisherId")

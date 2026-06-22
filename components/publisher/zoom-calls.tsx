@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/use-auth"
 import { db } from "@/lib/firebase"
 import { collection, onSnapshot, query, where, orderBy, updateDoc, doc, deleteDoc } from "firebase/firestore"
 import { createZoomCall, type ZoomCall } from "@/lib/zoom"
+import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
 import { ExternalLink } from "lucide-react"
 
 export function PublisherZoomCalls() {
@@ -48,9 +49,8 @@ export function PublisherZoomCalls() {
     setLoading(true)
     setError("")
     try {
-      const res = await fetch("/api/zoom/create", {
+      const res = await fetchWithAuth("/api/zoom/create", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           publisherId: user.uid,
           title: title.trim(),
@@ -72,9 +72,8 @@ export function PublisherZoomCalls() {
     setEndingOthers(true)
     setError("")
     try {
-      await fetch("/api/zoom/end-live", {
+      await fetchWithAuth("/api/zoom/end-live", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: "me" }),
       })
     } catch (e: any) {

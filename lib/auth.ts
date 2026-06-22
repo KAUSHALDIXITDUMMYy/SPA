@@ -37,7 +37,11 @@ export const signIn = async (email: string, password: string) => {
   try {
     // First, check if user exists in Firestore as a pending user
     const usersRef = collection(db, "users")
-    const q = query(usersRef, where("email", "==", email.toLowerCase()))
+    const q = query(
+      usersRef,
+      where("email", "==", email.toLowerCase()),
+      where("isPending", "==", true),
+    )
     const querySnapshot = await getDocs(q)
     
     // Check for pending user

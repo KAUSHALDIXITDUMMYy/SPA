@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "email", "order": "ASCENDING" },
+        { "fieldPath": "isPending", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "streamChatMessages",
       "queryScope": "COLLECTION",
       "fields": [

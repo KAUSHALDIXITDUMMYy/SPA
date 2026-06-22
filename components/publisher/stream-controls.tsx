@@ -246,6 +246,7 @@ export function StreamControls({
       // Join as publisher (mic first), then switch to system capture if chosen below
       await agoraManager.join({
         channelName: roomId,
+        streamSessionId: sessionResult.session?.id,
         role: "publisher",
         container: document.body, // Container not needed for audio-only, but required by API
         width: "100%",
@@ -308,6 +309,7 @@ export function StreamControls({
 
       await agoraManager.join({
         channelName: roomId,
+        streamSessionId: sessionResult.session?.id,
         role: "publisher",
         container: document.body,
         width: "100%",
@@ -354,6 +356,7 @@ export function StreamControls({
       // Rejoin Agora with existing roomId (session already exists in DB)
       await agoraManager.join({
         channelName: activeStreamToRejoin.roomId,
+        streamSessionId: activeStreamToRejoin.id,
         role: "publisher",
         container: document.body,
         width: "100%",

@@ -1,0 +1,210 @@
+rules_version = '2';
+
+// Paste into Firebase Console → Firestore Database → Rules → Publish
+// Blocks unauthenticated clone sites. Requires users to sign in.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helpers ───────────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function userRole() {
+      return request.auth.token.role != null
+        ? request.auth.token.role
+        : userDoc().role;
+    }
+
+    function isActiveAccount() {
+      return isSignedIn() && userDoc().isActive != false;
+    }
+
+    function isAdmin() {
+      return isActiveAccount() && userRole() == 'admin';
+    }
+
+    function isPublisher() {
+      return isActiveAccount() && userRole() == 'publisher';
+    }
+
+    function isSubscriber() {
+      return isActiveAccount() && userRole() == 'subscriber';
+    }
+
+    function isStaff() {
+      return isAdmin() || isPublisher();
+    }
+
+    function isAnyActiveUser() {
+      return isAdmin() || isPublisher() || isSubscriber();
+    }
+
+    // ─── users ─────────────────────────────────────────────────────────────
+
+    match /users/{userId} {
+      // Pending docs: first-login flow. Publishers/admins: display names. Self + admin: full profile.
+      allow read: if isAdmin()
+        || (isSignedIn() && request.auth.uid == userId)
+        || (isSignedIn() && resource.data.role in ['publisher', 'admin'])
+        || resource.data.isPending == true;
+
+      allow create: if isAdmin()
+        || (isSignedIn() && request.auth.uid == userId);
+
+      allow update: if isAdmin()
+        || (isSignedIn() && request.auth.uid == userId
+            && !request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['role', 'isActive', 'tenant', 'isPending', 'pendingPassword']));
+
+      allow delete: if isAdmin()
+        || (isSignedIn()
+            && resource.data.isPending == true
+            && resource.data.email == request.auth.token.email.lower());
+    }
+
+    // ─── schedules (what the clone was syncing) ────────────────────────────
+
+    match /dailySchedule/{docId} {
+      allow read: if isAnyActiveUser();
+      allow write: if isAdmin();
+    }
+
+    match /scheduledCalls/{callId} {
+      allow read: if isAnyActiveUser();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (isPublisher() && resource.data.publisherId == request.auth.uid);
+    }
+
+    // ─── streams & assignments ─────────────────────────────────────────────
+
+    match /streamSessions/{sessionId} {
+      allow read: if isAdmin()
+        || (isPublisher() && resource.data.publisherId == request.auth.uid)
+        || (isSubscriber() && resource.data.isActive == true);
+
+      allow create: if isAdmin()
+        || (isPublisher() && request.resource.data.publisherId == request.auth.uid);
+
+      allow update: if isAdmin()
+        || (isPublisher() && resource.data.publisherId == request.auth.uid);
+
+      allow delete: if isAdmin();
+    }
+
+    match /streamPermissions/{permId} {
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.subscriberId == request.auth.uid)
+        || (isSignedIn() && resource.data.publisherId == request.auth.uid);
+
+      allow write: if isAdmin();
+    }
+
+    match /streamAssignments/{assignmentId} {
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.subscriberId == request.auth.uid);
+
+      allow write: if isAdmin();
+    }
+
+    // ─── analytics & live viewers ──────────────────────────────────────────
+
+    match /streamAnalytics/{docId} {
+      allow read: if isAdmin()
+        || (isPublisher() && resource.data.publisherId == request.auth.uid);
+
+      allow create: if isSignedIn()
+        && request.resource.data.subscriberId == request.auth.uid;
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /activeViewers/{docId} {
+      allow read: if isAdmin() || isPublisher();
+
+      allow create: if isSignedIn()
+        && request.resource.data.subscriberId == request.auth.uid;
+
+      allow update: if isSignedIn()
+        && resource.data.subscriberId == request.auth.uid;
+
+      allow delete: if isAdmin();
+    }
+
+    // ─── chat ──────────────────────────────────────────────────────────────
+
+    match /streamChatMessages/{messageId} {
+      allow read: if isAnyActiveUser();
+
+      allow create: if isAnyActiveUser()
+        && request.resource.data.senderId == request.auth.uid;
+
+      allow update, delete: if isAdmin();
+    }
+
+    // ─── Zoom ──────────────────────────────────────────────────────────────
+
+    match /zoomCalls/{callId} {
+      allow read: if isAnyActiveUser();
+      allow create: if isStaff();
+      allow update, delete: if isAdmin()
+        || (isPublisher() && resource.data.publisherId == request.auth.uid);
+    }
+
+    match /zoomPublisherAssignments/{docId} {
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.subscriberId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /zoomCallAssignments/{docId} {
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.subscriberId == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    // ─── admin tools ───────────────────────────────────────────────────────
+
+    match /contactMessages/{messageId} {
+      allow create: if request.resource.data.keys().hasAll(['name', 'email', 'subject', 'message']);
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /adminBroadcasts/{docId} {
+      allow read: if isAnyActiveUser();
+      allow write: if isAdmin();
+    }
+
+    match /reports/{docId} {
+      allow create: if isAnyActiveUser();
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /blockEvents/{docId} {
+      allow create: if isAnyActiveUser();
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    // Server-only (Admin SDK). Client must never access.
+    match /mfaSecrets/{docId} {
+      allow read, write: if false;
+    }
+
+    match /cleanupLogs/{docId} {
+      allow read, write: if false;
+    }
+
+    // Deny anything not listed above.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

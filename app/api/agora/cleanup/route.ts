@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireAdmin } from "@/lib/server/api-auth"
 
 // Use Node runtime for server-side operations
 export const runtime = "nodejs"
@@ -22,6 +23,9 @@ interface AgoraUser {
 
 export async function GET(req: NextRequest) {
   try {
+    const admin = await requireAdmin(req)
+    if (admin instanceof NextResponse) return admin
+
     console.log("🔍 Starting Agora direct API cleanup check...")
     
     if (!AGORA_APP_ID || !AGORA_APP_CERTIFICATE) {
@@ -168,6 +172,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const admin = await requireAdmin(req)
+    if (admin instanceof NextResponse) return admin
+
     const { action } = await req.json()
     
     if (action === "force-cleanup-all") {

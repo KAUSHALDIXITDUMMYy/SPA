@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { db } from "@/lib/firebase"
 import { doc, getDoc } from "firebase/firestore"
 import { useAuth } from "@/hooks/use-auth"
+import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
 
 function parseZoomUrl(url: string): { meetingNumber: string | null; password: string | null } {
   try {
@@ -106,10 +107,12 @@ export default function ZoomMeetingPage() {
     const join = async () => {
       if (!containerRef.current || !meetingNumber) return
       try {
-        const res = await fetch("/api/zoom/signature", {
+        const res = await fetchWithAuth("/api/zoom/signature", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ meetingNumber, role: (userProfile?.role === "publisher" || userProfile?.role === "admin") ? 1 : 0 }),
+          body: JSON.stringify({
+            meetingNumber,
+            role: userProfile?.role === "publisher" || userProfile?.role === "admin" ? 1 : 0,
+          }),
         })
         const json = await res.json()
         if (!res.ok) throw new Error(json?.error || "Failed to get signature")
@@ -133,7 +136,10 @@ export default function ZoomMeetingPage() {
         }
         if (userProfile?.role === "publisher" || userProfile?.role === "admin") {
           try {
-            const zakRes = await fetch("/api/zoom/zak", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: hostId || "me" }) })
+            const zakRes = await fetchWithAuth("/api/zoom/zak", {
+              method: "POST",
+              body: JSON.stringify({ userId: hostId || "me" }),
+            })
             const zakJson = await zakRes.json()
             if (zakRes.ok && zakJson?.zak) joinOptions.zak = zakJson.zak
           } catch {}
@@ -146,7 +152,10 @@ export default function ZoomMeetingPage() {
         // Handle 'other meetings in progress' by ending and retrying once for hosts
         if ((userProfile?.role === "publisher" || userProfile?.role === "admin") && /other meetings in progress/i.test(message)) {
           try {
-            await fetch("/api/zoom/end-live", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: hostId || "me" }) })
+            await fetchWithAuth("/api/zoom/end-live", {
+              method: "POST",
+              body: JSON.stringify({ userId: hostId || "me" }),
+            })
             // brief delay then retry once
             await new Promise((r) => setTimeout(r, 1200))
             return await join()

@@ -1,11 +1,14 @@
 {
-    "headers": [
-      {
-        "source": "/(.*)",
-        "headers": [
-          { "key": "X-Frame-Options", "value": "ALLOWALL" }
-        ]
-      }
-    ]
-  }
-  
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "http://217.216.87.128/api/:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [{ "key": "X-Frame-Options", "value": "ALLOWALL" }]
+    }
+  ]
+}

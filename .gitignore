@@ -22,10 +22,13 @@ yarn-error.log*
 
 # env files
 .env*
+!.env.example
 
 # local scripts output (passwords / service accounts)
 scripts/subscriber-admin-credentials.txt
+scripts/publisher-ids-and-passwords.txt
 scripts/service-account.json
+scripts/*firebase-adminsdk*.json
 service-account.json
 
 # vercel

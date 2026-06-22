@@ -53,7 +53,7 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
   const [error, setError] = useState("")
   const [audioEnabled, setAudioEnabled] = useState(true) // Audio enabled by default for audio-only streams
   const [joinTime, setJoinTime] = useState<Date | null>(null)
-  const jitsiContainerRef = useRef<HTMLDivElement>(null)
+  const audioContainerRef = useRef<HTMLDivElement>(null)
   const currentStreamIdRef = useRef<string | null>(null)
   /** Permission for the stream we're currently in (for correct leave analytics when switching) */
   const currentPermissionRef = useRef<SubscriberPermission | null>(null)
@@ -80,8 +80,9 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
       const [, approxLocation] = await Promise.all([
         agoraManager.join({
           channelName: permission.streamSession.roomId,
+          streamSessionId: permission.streamSession.id,
           role: "audience",
-          container: jitsiContainerRef.current || document.body, // Container not needed for audio-only
+          container: audioContainerRef.current || document.body, // Container not needed for audio-only
           width: "100%",
           height: 500,
         }),
@@ -201,7 +202,7 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
     // Wait for container to be ready (clear timeouts on cleanup so "back" then reopen never fires stale joins)
     const attemptJoin = () => {
       if (cancelled) return
-      if (!jitsiContainerRef.current) {
+      if (!audioContainerRef.current) {
         retryTimeout = setTimeout(attemptJoin, 100)
         return
       }
@@ -373,7 +374,7 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
           </div>
         </CardHeader>
         <CardContent className="relative space-y-3 px-4 pb-4 pt-0">
-          <div ref={jitsiContainerRef} className="sr-only" aria-hidden />
+          <div ref={audioContainerRef} className="sr-only" aria-hidden />
           {error && (
             <Alert variant="destructive">
               <AlertDescription className="text-sm">{error}</AlertDescription>
@@ -467,7 +468,7 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
 
         <div className="relative">
           <div
-            ref={jitsiContainerRef}
+            ref={audioContainerRef}
             className="flex h-[250px] w-full items-center justify-center rounded-lg bg-muted p-4 sm:h-[300px]"
           >
             {playerStates}
