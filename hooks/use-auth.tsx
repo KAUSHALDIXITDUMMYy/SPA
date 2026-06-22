@@ -41,6 +41,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setUser(user)
 
       if (user) {
+        // Sync role into JWT custom claims so Firestore rules recognize admin/publisher/subscriber.
+        try {
+          const { fetchWithAuth } = await import("@/lib/client/authenticated-fetch")
+          const res = await fetchWithAuth("/api/auth/sync-claims", { method: "POST" })
+          if (res.ok) {
+            await user.getIdToken(true)
+          }
+        } catch {
+          // Non-fatal — rules fall back to Firestore profile role.
+        }
+
         const profile = await getUserProfile(user.uid)
         setUserProfile(profile)
       } else {

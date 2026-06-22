@@ -1,7 +1,6 @@
 rules_version = '2';
 
-// Paste into Firebase Console → Firestore Database → Rules → Publish
-// Requires sign-in for app data; blocks anonymous clone-site scraping.
+// Publish: Firebase Console → Firestore → Rules, or `firebase deploy --only firestore:rules`
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -12,36 +11,43 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function hasProfile() {
+    // Single profile read (cached per request — repeated get on same path counts once).
+    function myUserData() {
       return isSignedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : null;
     }
 
-    function userDoc() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    function hasProfile() {
+      return myUserData() != null;
     }
 
-    // JWT custom claim (fast path) OR Firestore profile role (Android / first login).
     function roleFromAuth() {
       return request.auth.token.role != null
         ? request.auth.token.role
-        : (hasProfile() ? userDoc().role : null);
+        : (hasProfile() ? myUserData().role : null);
     }
 
     function accountNotDeactivated() {
-      return !hasProfile() || userDoc().isActive != false;
+      return !hasProfile() || myUserData().isActive != false;
     }
 
     function isAdmin() {
-      return isSignedIn() && roleFromAuth() == 'admin' && accountNotDeactivated();
+      return isSignedIn()
+        && roleFromAuth() == 'admin'
+        && accountNotDeactivated();
     }
 
     function isPublisher() {
-      return isSignedIn() && roleFromAuth() == 'publisher' && accountNotDeactivated();
+      return isSignedIn()
+        && roleFromAuth() == 'publisher'
+        && accountNotDeactivated();
     }
 
     function isSubscriber() {
-      return isSignedIn() && roleFromAuth() == 'subscriber' && accountNotDeactivated();
+      return isSignedIn()
+        && roleFromAuth() == 'subscriber'
+        && accountNotDeactivated();
     }
 
     function isStaff() {
@@ -52,11 +58,30 @@ service cloud.firestore {
       return isAdmin() || isPublisher() || isSubscriber();
     }
 
-    function isPendingDocId(id) {
-      return id.matches('^pending_.*');
+    function authEmailLower() {
+      return request.auth.token.email != null
+        ? request.auth.token.email.lower()
+        : '';
     }
 
-    // First-login migration: repoint pending_* IDs to the real Auth UID.
+    function isPendingDocId(id) {
+      return id is string && id.matches('^pending_.*');
+    }
+
+    // First-login migration reads: signed-in user queries docs still keyed by pending_* id.
+    function hasPendingSubscriberId() {
+      return isSignedIn()
+        && resource.data.keys().hasAny(['subscriberId'])
+        && isPendingDocId(resource.data.subscriberId);
+    }
+
+    function hasPendingPublisherId() {
+      return isSignedIn()
+        && resource.data.keys().hasAny(['publisherId'])
+        && isPendingDocId(resource.data.publisherId);
+    }
+
+    // First-login migration writes: repoint pending_* → real Auth UID.
     function migratingSubscriberId() {
       return isSignedIn()
         && request.resource.data.subscriberId == request.auth.uid
@@ -70,7 +95,8 @@ service cloud.firestore {
     }
 
     function ownsZoomCall(callId) {
-      return exists(/databases/$(database)/documents/zoomCalls/$(callId))
+      return callId is string
+        && exists(/databases/$(database)/documents/zoomCalls/$(callId))
         && get(/databases/$(database)/documents/zoomCalls/$(callId)).data.publisherId
           == request.auth.uid;
     }
@@ -78,8 +104,6 @@ service cloud.firestore {
     // ─── users ─────────────────────────────────────────────────────────────
 
     match /users/{userId} {
-      // Admin: full list. Self: own profile. Others: publisher/admin directory only.
-      // Pending docs: readable for first-login flow (email + isPending query).
       allow read: if isAdmin()
         || (isSignedIn() && request.auth.uid == userId)
         || (isSignedIn() && resource.data.role in ['publisher', 'admin'])
@@ -93,11 +117,10 @@ service cloud.firestore {
             && !request.resource.data.diff(resource.data).affectedKeys()
               .hasAny(['role', 'isActive', 'tenant', 'isPending', 'pendingPassword']));
 
-      // Pending user removes their placeholder doc after Auth account is created.
       allow delete: if isAdmin()
         || (isSignedIn()
             && resource.data.isPending == true
-            && resource.data.email == request.auth.token.email.lower());
+            && resource.data.email == authEmailLower());
     }
 
     // ─── schedules ─────────────────────────────────────────────────────────
@@ -108,8 +131,11 @@ service cloud.firestore {
     }
 
     match /scheduledCalls/{callId} {
-      allow read: if isAnyActiveUser();
+      allow read: if isAnyActiveUser()
+        || hasPendingPublisherId();
+
       allow create, delete: if isAdmin();
+
       allow update: if isAdmin()
         || (isPublisher() && resource.data.publisherId == request.auth.uid)
         || migratingPublisherId();
@@ -120,7 +146,8 @@ service cloud.firestore {
     match /streamSessions/{sessionId} {
       allow read: if isAdmin()
         || (isPublisher() && resource.data.publisherId == request.auth.uid)
-        || (isSubscriber() && resource.data.isActive == true);
+        || (isSubscriber() && resource.data.isActive == true)
+        || hasPendingPublisherId();
 
       allow create: if isAdmin()
         || (isPublisher() && request.resource.data.publisherId == request.auth.uid);
@@ -135,7 +162,9 @@ service cloud.firestore {
     match /streamPermissions/{permId} {
       allow read: if isAdmin()
         || (isSignedIn() && resource.data.subscriberId == request.auth.uid)
-        || (isSignedIn() && resource.data.publisherId == request.auth.uid);
+        || (isSignedIn() && resource.data.publisherId == request.auth.uid)
+        || hasPendingSubscriberId()
+        || hasPendingPublisherId();
 
       allow create: if isAdmin();
 
@@ -148,7 +177,8 @@ service cloud.firestore {
 
     match /streamAssignments/{assignmentId} {
       allow read: if isAdmin()
-        || (isSignedIn() && resource.data.subscriberId == request.auth.uid);
+        || (isSignedIn() && resource.data.subscriberId == request.auth.uid)
+        || hasPendingSubscriberId();
 
       allow create: if isAdmin();
 
@@ -199,8 +229,11 @@ service cloud.firestore {
     // ─── Zoom ──────────────────────────────────────────────────────────────
 
     match /zoomCalls/{callId} {
-      allow read: if isAnyActiveUser();
+      allow read: if isAnyActiveUser()
+        || hasPendingPublisherId();
+
       allow create: if isStaff();
+
       allow update, delete: if isAdmin()
         || (isPublisher() && resource.data.publisherId == request.auth.uid)
         || migratingPublisherId();
@@ -209,7 +242,9 @@ service cloud.firestore {
     match /zoomPublisherAssignments/{docId} {
       allow read: if isAdmin()
         || (isSignedIn() && resource.data.subscriberId == request.auth.uid)
-        || (isSignedIn() && resource.data.publisherId == request.auth.uid);
+        || (isSignedIn() && resource.data.publisherId == request.auth.uid)
+        || hasPendingSubscriberId()
+        || hasPendingPublisherId();
 
       allow create: if isAdmin();
 
@@ -223,7 +258,8 @@ service cloud.firestore {
     match /zoomCallAssignments/{docId} {
       allow read: if isAdmin()
         || (isSignedIn() && resource.data.subscriberId == request.auth.uid)
-        || (isPublisher() && ownsZoomCall(resource.data.zoomCallId));
+        || (isPublisher() && ownsZoomCall(resource.data.zoomCallId))
+        || hasPendingSubscriberId();
 
       allow create: if isAdmin();
 
@@ -261,7 +297,6 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Server-only (Admin SDK). Client must never access.
     match /mfaSecrets/{docId} {
       allow read, write: if false;
     }
@@ -270,7 +305,6 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Deny anything not listed above.
     match /{document=**} {
       allow read, write: if false;
     }
