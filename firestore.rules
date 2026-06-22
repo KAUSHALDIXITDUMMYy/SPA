@@ -1,6 +1,7 @@
 rules_version = '2';
 
-// Publish: Firebase Console → Firestore → Rules, or `firebase deploy --only firestore:rules`
+// Publish: Firebase Console → Firestore → Rules → Publish
+// Blocks clone sites (no Firebase login). Logged-in web / Android / iOS keep working.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -11,17 +12,23 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Single profile read (cached per request — repeated get on same path counts once).
-    function myUserData() {
+    // Single profile read per request (Firestore caches repeated get/exists on same path).
+    function userProfileDoc() {
       return isSignedIn()
-        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid))
         : null;
     }
 
     function hasProfile() {
-      return myUserData() != null;
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
+    function myUserData() {
+      return hasProfile() ? userProfileDoc().data : null;
+    }
+
+    // JWT claim (web after sync-claims) OR Firestore profile role (Android / iOS / first login).
     function roleFromAuth() {
       return request.auth.token.role != null
         ? request.auth.token.role
