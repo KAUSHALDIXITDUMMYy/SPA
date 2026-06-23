@@ -1,6 +1,7 @@
-import { db } from "./firebase"
-import { onSnapshot, collection, query, where } from "firebase/firestore"
+import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
 import type { StreamPermission } from "./admin"
+
+const ENDPOINT = "/api/subscriber"
 
 export interface PermissionWithDetails extends StreamPermission {
   publisherName: string
@@ -9,6 +10,23 @@ export interface PermissionWithDetails extends StreamPermission {
   subscriberEmail: string
 }
 
+async function getPermissions(params: Record<string, string>): Promise<StreamPermission[]> {
+  try {
+    const qs = new URLSearchParams(params).toString()
+    const res = await fetchWithAuth(`${ENDPOINT}?${qs}`, { method: "GET" })
+    if (!res.ok) return []
+    const json = await res.json()
+    return (json.permissions || []) as StreamPermission[]
+  } catch (error) {
+    console.error("Error fetching permissions:", error)
+    return []
+  }
+}
+
+/**
+ * Backend-backed permissions access. The old Firestore realtime listeners are replaced
+ * with short polling; the public API (subscribe*, checkStreamAccess, cleanup) is preserved.
+ */
 export class PermissionsManager {
   private static instance: PermissionsManager
   private listeners: Map<string, () => void> = new Map()
@@ -20,88 +38,61 @@ export class PermissionsManager {
     return PermissionsManager.instance
   }
 
-  subscribeToUserPermissions(subscriberId: string, callback: (permissions: StreamPermission[]) => void): () => void {
-    const permissionsRef = collection(db, "streamPermissions")
-    const q = query(permissionsRef, where("subscriberId", "==", subscriberId), where("isActive", "==", true))
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const permissions = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as StreamPermission[]
-
-      // Sort by createdAt in memory to avoid composite index
-      permissions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      callback(permissions)
-    })
-
-    const listenerId = `user-${subscriberId}`
-    this.listeners.set(listenerId, unsubscribe)
+  subscribeToUserPermissions(
+    subscriberId: string,
+    callback: (permissions: StreamPermission[]) => void,
+  ): () => void {
+    let active = true
+    const poll = async () => {
+      const permissions = await getPermissions({ type: "userPermissions", subscriberId })
+      if (active) callback(permissions)
+    }
+    void poll()
+    const interval = setInterval(poll, 8000)
+    const unsubscribe = () => {
+      active = false
+      clearInterval(interval)
+    }
+    this.listeners.set(`user-${subscriberId}`, unsubscribe)
     return unsubscribe
   }
 
   subscribeToAllPermissions(callback: (permissions: StreamPermission[]) => void): () => void {
-    const permissionsRef = collection(db, "streamPermissions")
-    const q = query(permissionsRef)
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const permissions = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as StreamPermission[]
-
-      // Sort by createdAt in memory to avoid composite index
-      permissions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      callback(permissions)
-    })
-
-    const listenerId = "admin-all"
-    this.listeners.set(listenerId, unsubscribe)
+    let active = true
+    const poll = async () => {
+      const permissions = await getPermissions({ type: "allPermissions" })
+      if (active) callback(permissions)
+    }
+    void poll()
+    const interval = setInterval(poll, 8000)
+    const unsubscribe = () => {
+      active = false
+      clearInterval(interval)
+    }
+    this.listeners.set("admin-all", unsubscribe)
     return unsubscribe
   }
 
-  // Check if user has permission to access a specific stream
   async checkStreamAccess(
     subscriberId: string,
     publisherId: string,
   ): Promise<{ hasAccess: boolean; permission?: StreamPermission }> {
     try {
-      const permissionsRef = collection(db, "streamPermissions")
-      const q = query(
-        permissionsRef,
-        where("subscriberId", "==", subscriberId),
-        where("publisherId", "==", publisherId),
-        where("isActive", "==", true),
-      )
-
-      return new Promise((resolve) => {
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-          const permissions = snapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          })) as StreamPermission[]
-
-          if (permissions.length > 0) {
-            resolve({ hasAccess: true, permission: permissions[0] })
-          } else {
-            resolve({ hasAccess: false })
-          }
-          unsubscribe()
-        })
-      })
+      const qs = new URLSearchParams({ type: "checkAccess", subscriberId, publisherId }).toString()
+      const res = await fetchWithAuth(`${ENDPOINT}?${qs}`, { method: "GET" })
+      if (!res.ok) return { hasAccess: false }
+      return (await res.json()) as { hasAccess: boolean; permission?: StreamPermission }
     } catch (error) {
       console.error("Error checking stream access:", error)
       return { hasAccess: false }
     }
   }
 
-  // Cleanup all listeners
   cleanup(): void {
     this.listeners.forEach((unsubscribe) => unsubscribe())
     this.listeners.clear()
   }
 
-  // Remove specific listener
   removeListener(listenerId: string): void {
     const unsubscribe = this.listeners.get(listenerId)
     if (unsubscribe) {
@@ -113,10 +104,8 @@ export class PermissionsManager {
 
 export const permissionsManager = PermissionsManager.getInstance()
 
-// Permission validation utilities
 export const validateStreamPermission = (permission: StreamPermission, action: "video" | "audio"): boolean => {
   if (!permission.isActive) return false
-
   switch (action) {
     case "video":
       return permission.allowVideo
@@ -131,7 +120,6 @@ export const getPermissionSummary = (permission: StreamPermission): string => {
   const permissions = []
   if (permission.allowVideo) permissions.push("Video")
   if (permission.allowAudio) permissions.push("Audio")
-
   if (permissions.length === 0) return "No access"
   if (permissions.length === 2) return "Full access"
   return permissions.join(", ") + " only"
