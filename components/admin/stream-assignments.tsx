@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, useCallback, memo } from "react"
+import { useEffect, useMemo, useState, useCallback, memo, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -53,15 +53,18 @@ import { useAuth } from "@/hooks/use-auth"
 // Memoized matrix cell to prevent unnecessary re-renders
 const MatrixCell = memo(({ 
   assigned, 
-  onToggle 
+  disabled,
+  onToggle,
 }: { 
   assigned: boolean
-  onToggle: () => void 
+  disabled?: boolean
+  onToggle: (nextAssigned: boolean) => void
 }) => (
   <td className="border p-1 text-center">
     <Checkbox
       checked={assigned}
-      onCheckedChange={onToggle}
+      disabled={disabled}
+      onCheckedChange={(checked) => onToggle(checked === true)}
       className="h-4 w-4"
     />
   </td>
@@ -72,8 +75,19 @@ MatrixCell.displayName = "MatrixCell"
 /** Matrix virtual window: load 100 rows/columns at a time; scroll loads more. */
 const MATRIX_PAGE_SIZE = 100
 
+function assignmentsToMap(assignments: StreamAssignment[]): Map<string, StreamAssignment[]> {
+  const assignmentsMap = new Map<string, StreamAssignment[]>()
+  assignments.forEach((assignment) => {
+    const existing = assignmentsMap.get(assignment.subscriberId) || []
+    assignmentsMap.set(assignment.subscriberId, [...existing, assignment])
+  })
+  return assignmentsMap
+}
+
 export function StreamAssignments({ active = true }: { active?: boolean }) {
   const { userProfile, loading: authLoading } = useAuth()
+  const adminUid = userProfile?.role === "admin" ? userProfile.uid : null
+  const hasLoadedOnce = useRef(false)
   const [subscribers, setSubscribers] = useState<(UserProfile & { id: string })[]>([])
   const [streams, setStreams] = useState<StreamSession[]>([])
   const [selectedSubscribers, setSelectedSubscribers] = useState<Set<string>>(new Set())
@@ -82,6 +96,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
   const [searchStreams, setSearchStreams] = useState("")
   const [dataLoading, setDataLoading] = useState(false)
   const [bulkLoading, setBulkLoading] = useState(false)
+  const [togglingCells, setTogglingCells] = useState<Set<string>>(new Set())
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [allAssignments, setAllAssignments] = useState<Map<string, StreamAssignment[]>>(new Map())
@@ -93,13 +108,14 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
   const [matrixColsVisible, setMatrixColsVisible] = useState(MATRIX_PAGE_SIZE)
 
   useEffect(() => {
-    if (!active || authLoading || !userProfile || userProfile.role !== "admin") {
+    if (!active || authLoading || !adminUid) {
       return
     }
 
     let cancelled = false
     const load = async () => {
-      setDataLoading(true)
+      const showSpinner = !hasLoadedOnce.current
+      if (showSpinner) setDataLoading(true)
       setError("")
       try {
         const { subscribers: subs, streams: activeStreams, assignments } =
@@ -108,17 +124,12 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
 
         setSubscribers(subs as (UserProfile & { id: string })[])
         setStreams(activeStreams)
-
-        const assignmentsMap = new Map<string, StreamAssignment[]>()
-        assignments.forEach((assignment) => {
-          const existing = assignmentsMap.get(assignment.subscriberId) || []
-          assignmentsMap.set(assignment.subscriberId, [...existing, assignment])
-        })
-        setAllAssignments(assignmentsMap)
+        setAllAssignments(assignmentsToMap(assignments))
+        hasLoadedOnce.current = true
       } catch (err: any) {
         if (!cancelled) setError(err.message || "Failed to load data")
       } finally {
-        if (!cancelled) setDataLoading(false)
+        if (!cancelled && showSpinner) setDataLoading(false)
       }
     }
     void load()
@@ -126,19 +137,47 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
     return () => {
       cancelled = true
     }
-  }, [active, authLoading, userProfile])
+  }, [active, authLoading, adminUid])
 
-  // Only refresh assignments when needed (not every 5 seconds)
+  const setAssignmentsFromList = useCallback((assignments: StreamAssignment[]) => {
+    setAllAssignments(assignmentsToMap(assignments))
+  }, [])
+
+  const patchAssignmentLocal = useCallback(
+    (
+      subscriberId: string,
+      streamId: string,
+      patch: { add?: StreamAssignment; remove?: boolean; updates?: Partial<StreamAssignment> },
+    ) => {
+      setAllAssignments((prev) => {
+        const next = new Map(prev)
+        const list = [...(next.get(subscriberId) || [])]
+        const idx = list.findIndex((a) => a.streamSessionId === streamId)
+
+        if (patch.remove) {
+          if (idx >= 0) list.splice(idx, 1)
+        } else if (patch.add) {
+          if (idx >= 0) {
+            list[idx] = { ...list[idx], ...patch.add, isActive: true }
+          } else {
+            list.push(patch.add)
+          }
+        } else if (patch.updates && idx >= 0) {
+          list[idx] = { ...list[idx], ...patch.updates }
+        }
+
+        next.set(subscriberId, list)
+        return next
+      })
+    },
+    [],
+  )
+
   const refreshAssignments = useCallback(async () => {
     const assignments = await getStreamAssignments()
-    const assignmentsMap = new Map<string, StreamAssignment[]>()
-    assignments.forEach((assignment) => {
-      const existing = assignmentsMap.get(assignment.subscriberId) || []
-      assignmentsMap.set(assignment.subscriberId, [...existing, assignment])
-    })
-    setAllAssignments(assignmentsMap)
+    setAssignmentsFromList(assignments)
     invalidateStreamAssignmentsBootstrap()
-  }, [])
+  }, [setAssignmentsFromList])
 
   const filteredSubscribers = useMemo(() => {
     const q = searchSubs.trim().toLowerCase()
@@ -233,37 +272,83 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
     return assignments.find((a) => a.streamSessionId === streamId)
   }, [allAssignments])
 
-  // Toggle single assignment
+  const cellKey = useCallback((subscriberId: string, streamId: string) => `${subscriberId}:${streamId}`, [])
+
+  // Toggle single assignment (optimistic UI — no full-page reload flash)
   const toggleAssignment = useCallback(async (subscriberId: string, streamId: string, nextAssigned: boolean) => {
+    const key = cellKey(subscriberId, streamId)
+    if (togglingCells.has(key)) return
+
+    setTogglingCells((prev) => new Set(prev).add(key))
     setError("")
     setSuccess("")
 
     const assignment = getAssignment(subscriberId, streamId)
+    const previousList = [...(allAssignments.get(subscriberId) || [])]
+
+    if (nextAssigned) {
+      if (!assignment) {
+        patchAssignmentLocal(subscriberId, streamId, {
+          add: {
+            subscriberId,
+            streamSessionId: streamId,
+            isActive: true,
+            createdAt: new Date(),
+          },
+        })
+      } else if (!assignment.isActive) {
+        patchAssignmentLocal(subscriberId, streamId, { updates: { isActive: true } })
+      }
+    } else if (assignment) {
+      patchAssignmentLocal(subscriberId, streamId, { remove: true })
+    }
+
     try {
       if (nextAssigned) {
         if (!assignment) {
-          await createStreamAssignment({
+          const result = await createStreamAssignment({
             subscriberId,
             streamSessionId: streamId,
             isActive: true,
           })
+          if (!result.success) {
+            throw new Error(result.error || "Failed to create assignment")
+          }
+          if (result.id) {
+            patchAssignmentLocal(subscriberId, streamId, { updates: { id: result.id } })
+          }
           setSuccess("Assignment created successfully")
         } else if (!assignment.isActive) {
-          await updateStreamAssignment(assignment.id!, { isActive: true })
+          const result = await updateStreamAssignment(assignment.id!, { isActive: true })
+          if (!result.success) {
+            throw new Error(result.error || "Failed to reactivate assignment")
+          }
           setSuccess("Assignment reactivated")
         }
-      } else {
-        if (assignment) {
-          await deleteStreamAssignment(assignment.id!)
-          setSuccess("Assignment removed")
+      } else if (assignment) {
+        const result = await deleteStreamAssignment(assignment.id!)
+        if (!result.success) {
+          throw new Error(result.error || "Failed to remove assignment")
         }
+        setSuccess("Assignment removed")
       }
-      
-      await refreshAssignments()
+
+      invalidateStreamAssignmentsBootstrap()
     } catch (e: any) {
+      setAllAssignments((prev) => {
+        const next = new Map(prev)
+        next.set(subscriberId, previousList)
+        return next
+      })
       setError(e?.message || "Operation failed")
+    } finally {
+      setTogglingCells((prev) => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
     }
-  }, [getAssignment, refreshAssignments])
+  }, [allAssignments, cellKey, getAssignment, patchAssignmentLocal, togglingCells])
 
   // Parse bulk emails from textarea
   const parseBulkEmails = useCallback((text: string): string[] => {
@@ -914,7 +999,8 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                                 <MatrixCell
                                   key={stream.id}
                                   assigned={isAssigned(sub.id, stream.id!)}
-                                  onToggle={() => toggleAssignment(sub.id, stream.id!, !isAssigned(sub.id, stream.id!))}
+                                  disabled={togglingCells.has(cellKey(sub.id, stream.id!))}
+                                  onToggle={(next) => toggleAssignment(sub.id, stream.id!, next)}
                                 />
                               ))}
                             </tr>
