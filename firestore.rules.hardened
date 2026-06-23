@@ -1,0 +1,82 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HARDENED rules — DRAFT for the NEW project. REVIEW + TEST before publishing.
+//
+// Why this exists: the current firestore.rules allow ANY signed-in account to
+// read/write the ENTIRE database. That is how an attacker with a single login
+// (or a leaked plaintext password from the users collection) can do anything.
+//
+// These rules instead grant access by ROLE (admin / publisher / subscriber),
+// read from the Firebase Auth custom claim `role` (your server already sets it
+// in verifyRequestUserProfile). There is NO catch-all allow-all anymore.
+//
+// IMPORTANT: adjust the collection names below to match YOUR app, then test each
+// screen in the Firestore Rules Playground / a staging login before going live.
+// ─────────────────────────────────────────────────────────────────────────────
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Role comes from the custom claim set on the ID token at login.
+    function role() {
+      return request.auth.token.role;
+    }
+
+    function isAdmin() {
+      return signedIn() && role() == 'admin';
+    }
+
+    function isPublisher() {
+      return signedIn() && role() == 'publisher';
+    }
+
+    function isStaff() {
+      return isAdmin() || isPublisher();
+    }
+
+    // ── users ──────────────────────────────────────────────────────────────
+    // A user may read/update only their OWN profile; admins manage everyone.
+    // First-login flow still allows reading a pending record before the Auth
+    // account exists.  NOTE: do NOT store plaintext passwords in this collection
+    // anymore — that field is what makes a leak catastrophic.
+    match /users/{userId} {
+      allow read: if isAdmin()
+                  || (signedIn() && request.auth.uid == userId)
+                  || resource.data.isPending == true;
+      allow create: if isAdmin();
+      allow update: if isAdmin()
+                    || (signedIn() && request.auth.uid == userId);
+      allow delete: if isAdmin();
+    }
+
+    // ── contact form ─────────────────────────────────────────────────────────
+    match /contactMessages/{messageId} {
+      allow create: if request.resource.data.keys().hasAll(['name', 'email', 'subject', 'message']);
+      allow read, update, delete: if isAdmin();
+    }
+
+    // ── server-only collections (Admin SDK bypasses rules) ────────────────────
+    match /mfaSecrets/{docId}   { allow read, write: if false; }
+    match /cleanupLogs/{docId}  { allow read, write: if false; }
+
+    // ── streams / content created by publishers, viewable by any signed-in user ─
+    // Rename these matches to your real collections (e.g. streams, sessions, posts).
+    match /streams/{docId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isStaff();
+    }
+
+    // ── default DENY ───────────────────────────────────────────────────────────
+    // Anything not explicitly matched above is denied. This removes the
+    // "any logged-in user can do anything" hole. Add explicit match blocks for
+    // every collection your app actually uses.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,7 +1,6 @@
-import { db } from "./firebase"
-import { doc, getDoc, setDoc } from "firebase/firestore"
+import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
 
-const SCHEDULE_DOC_ID = "current"
+const SCHEDULE_ENDPOINT = "/api/schedule"
 
 export interface DailySchedule {
   content: string
@@ -10,13 +9,13 @@ export interface DailySchedule {
 
 export const getTodaysSchedule = async (): Promise<DailySchedule | null> => {
   try {
-    const scheduleRef = doc(db, "dailySchedule", SCHEDULE_DOC_ID)
-    const snapshot = await getDoc(scheduleRef)
-    if (!snapshot.exists()) return null
-    const data = snapshot.data()
+    const res = await fetchWithAuth(SCHEDULE_ENDPOINT, { method: "GET" })
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`)
+    const json = await res.json()
+    if (!json.schedule) return null
     return {
-      content: data.content || "",
-      updatedAt: data.updatedAt?.toDate?.() ?? new Date(data.updatedAt),
+      content: json.schedule.content || "",
+      updatedAt: new Date(json.schedule.updatedAt),
     }
   } catch (error) {
     console.error("Error fetching daily schedule:", error)
@@ -24,13 +23,18 @@ export const getTodaysSchedule = async (): Promise<DailySchedule | null> => {
   }
 }
 
-export const setTodaysSchedule = async (content: string): Promise<{ success: boolean; error?: string }> => {
+export const setTodaysSchedule = async (
+  content: string,
+): Promise<{ success: boolean; error?: string }> => {
   try {
-    const scheduleRef = doc(db, "dailySchedule", SCHEDULE_DOC_ID)
-    await setDoc(scheduleRef, {
-      content,
-      updatedAt: new Date(),
+    const res = await fetchWithAuth(SCHEDULE_ENDPOINT, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
     })
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}))
+      return { success: false, error: json.error || `Failed to save schedule (${res.status})` }
+    }
     return { success: true }
   } catch (error: any) {
     console.error("Error saving daily schedule:", error)
@@ -41,5 +45,5 @@ export const setTodaysSchedule = async (content: string): Promise<{ success: boo
 /** Alias for setTodaysSchedule (updatedBy optional, for audit) */
 export const updateTodaysSchedule = async (
   content: string,
-  _updatedBy?: string
+  _updatedBy?: string,
 ): Promise<{ success: boolean; error?: string }> => setTodaysSchedule(content)

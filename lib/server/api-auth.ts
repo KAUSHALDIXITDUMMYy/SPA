@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { verifyRequestUserProfile, type VerifiedUserProfile } from "@/lib/firebase-admin"
+import { verifyAppCheck, verifyRequestUserProfile, type VerifiedUserProfile } from "@/lib/firebase-admin"
 
 export function unauthorized(message = "Authentication required") {
   return NextResponse.json({ error: message }, { status: 401 })
@@ -12,6 +12,7 @@ export function forbidden(message = "Forbidden") {
 export async function requireUserProfile(
   req: Request,
 ): Promise<VerifiedUserProfile | NextResponse> {
+  if (!(await verifyAppCheck(req))) return forbidden("App Check failed")
   const profile = await verifyRequestUserProfile(req)
   if (!profile) return unauthorized()
   return profile

@@ -28,6 +28,9 @@ yarn-error.log*
 scripts/subscriber-admin-credentials.txt
 scripts/publisher-ids-and-passwords.txt
 scripts/service-account.json
+scripts/source-service-account.json
+scripts/dest-service-account.json
+scripts/new-project-credentials.txt
 scripts/*firebase-adminsdk*.json
 service-account.json
 

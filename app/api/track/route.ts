@@ -1,16 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getAdminDb } from "@/lib/firebase-admin"
-import { isBlockedApiCaller } from "@/lib/server/api-origin"
+import { isBlockedApiCaller, isOwnHost } from "@/lib/server/api-origin"
 
 // 1x1 transparent GIF for the <img>-based fallback tracker.
 const PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64")
-
-/** The hostnames that are legitimately YOUR deployment. Anything else = a clone. */
-const OWN_HOSTS = [
-  "localhost",
-  "sportsmagicianaudio.vercel.app",
-  "spa-gules-ten.vercel.app", // legacy Vercel URL (keep until fully retired)
-]
 
 function clientIp(req: NextRequest): string {
   const xff = req.headers.get("x-forwarded-for") || ""
@@ -19,7 +12,7 @@ function clientIp(req: NextRequest): string {
 
 async function record(req: NextRequest, payload: Record<string, any>) {
   const host = String(payload.host || "").toLowerCase()
-  const isOwn = OWN_HOSTS.some((h) => host === h || host.endsWith(`.${h}`) || host.includes(h))
+  const isOwn = isOwnHost(host)
 
   const entry = {
     ip: clientIp(req),

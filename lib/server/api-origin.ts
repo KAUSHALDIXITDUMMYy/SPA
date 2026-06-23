@@ -1,18 +1,51 @@
+/**
+ * Origin / clone-site filtering for the API.
+ *
+ * All host lists are configurable via env (comma-separated) so new domains can be added
+ * without code changes. The defaults preserve the previous hardcoded behavior.
+ */
+
+function fromEnv(name: string, fallback: string[]): string[] {
+  const raw = process.env[name]
+  if (!raw) return fallback
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
 /** Domains that must never call our API (clone / retransmit sites). */
-export const BLOCKED_API_HOSTS = ["intelsnipers.com", "www.intelsnipers.com"]
+export const BLOCKED_API_HOSTS = fromEnv("BLOCKED_API_HOSTS", [
+  "intelsnipers.com",
+  "www.intelsnipers.com",
+])
 
 /** Browser origins allowed to call /api/* on our backend. */
-export const ALLOWED_API_ORIGINS = [
+export const ALLOWED_API_ORIGINS = fromEnv("ALLOWED_API_ORIGINS", [
   "https://sportsmagicianaudio.vercel.app",
   "https://spa-gules-ten.vercel.app",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
-]
+])
+
+/** Hostnames that are legitimately OUR deployment (anything else = a clone). */
+export const OWN_HOSTS = fromEnv("OWN_HOSTS", [
+  "localhost",
+  "sportsmagicianaudio.vercel.app",
+  "spa-gules-ten.vercel.app",
+])
 
 function headerContainsBlockedHost(value: string | null): boolean {
   if (!value) return false
   const lower = value.toLowerCase()
   return BLOCKED_API_HOSTS.some((host) => lower.includes(host))
+}
+
+/** True when the given host is one of our own deployments. */
+export function isOwnHost(host: string | null | undefined): boolean {
+  const h = String(host || "").toLowerCase()
+  if (!h) return false
+  return OWN_HOSTS.some((own) => h === own || h.endsWith(`.${own}`) || h.includes(own))
 }
 
 /** True when Origin/Referer match a known clone domain. */

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { RtcRole, RtcTokenBuilder } from "agora-access-token"
-import { verifyRequestUserProfile } from "@/lib/firebase-admin"
+import { verifyAppCheck, verifyRequestUserProfile } from "@/lib/firebase-admin"
 import { verifyAgoraChannelAccess } from "@/lib/server/verify-stream-access"
 
 export const runtime = "nodejs"
@@ -22,6 +22,10 @@ export async function POST(req: NextRequest) {
 
     if (!APP_ID || !APP_CERTIFICATE) {
       return NextResponse.json({ error: "Server is missing AGORA_APP_ID/AGORA_APP_CERTIFICATE" }, { status: 500 })
+    }
+
+    if (!(await verifyAppCheck(req))) {
+      return NextResponse.json({ error: "App Check failed" }, { status: 403 })
     }
 
     const verifiedUser = await verifyRequestUserProfile(req)
