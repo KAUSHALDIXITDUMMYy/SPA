@@ -31,7 +31,7 @@ import {
   getStreamAssignments,
   type StreamAssignment,
 } from "@/lib/admin"
-import { getAllStreams as getAllStreamSessions, type StreamSession } from "@/lib/streaming"
+import { getActiveStreams, type StreamSession } from "@/lib/streaming"
 import type { UserProfile } from "@/lib/auth"
 import {
   Radio,
@@ -80,6 +80,7 @@ export function StreamAssignments() {
   const [searchSubs, setSearchSubs] = useState("")
   const [searchStreams, setSearchStreams] = useState("")
   const [loading, setLoading] = useState(true)
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false)
   const [bulkLoading, setBulkLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
@@ -98,14 +99,22 @@ export function StreamAssignments() {
     }
     const load = async () => {
       setLoading(true)
+      setError("")
       try {
-        const [subs, allStreams] = await Promise.all([
+        const [subs, activeStreams] = await Promise.all([
           getUsersByRole("subscriber", userProfile),
-          getAllStreamSessions(),
+          getActiveStreams(),
         ])
         setSubscribers(subs as any)
-        setStreams(allStreams)
+        setStreams(activeStreams)
+      } catch (err: any) {
+        setError(err.message || "Failed to load data")
+      } finally {
+        setLoading(false)
+      }
 
+      setAssignmentsLoading(true)
+      try {
         const assignments = await getStreamAssignments()
         const assignmentsMap = new Map<string, StreamAssignment[]>()
         assignments.forEach((assignment) => {
@@ -114,9 +123,9 @@ export function StreamAssignments() {
         })
         setAllAssignments(assignmentsMap)
       } catch (err: any) {
-        setError(err.message || "Failed to load data")
+        setError(err.message || "Failed to load assignments")
       } finally {
-        setLoading(false)
+        setAssignmentsLoading(false)
       }
     }
     void load()
@@ -146,12 +155,10 @@ export function StreamAssignments() {
   }, [searchSubs, subscribers])
 
   const filteredStreams = useMemo(() => {
-    // Only show active/live streams
-    const activeStreams = streams.filter((s) => s.isActive === true)
     const q = searchStreams.trim().toLowerCase()
-    const filtered = q ? activeStreams.filter((s) => 
+    const filtered = q ? streams.filter((s) =>
       (s.title || s.publisherName || s.roomId).toLowerCase().includes(q)
-    ) : activeStreams
+    ) : streams
     return filtered.sort((a, b) => {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     })
@@ -530,6 +537,12 @@ export function StreamAssignments() {
           <CardTitle>Stream Assignments</CardTitle>
           <CardDescription>
             Assign subscribers directly to streams. Subscribers will have access to the assigned streams.
+            {assignmentsLoading && (
+              <span className="ml-2 inline-flex items-center gap-1 text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Syncing assignments…
+              </span>
+            )}
           </CardDescription>
         </CardHeader>
       </Card>
