@@ -1,43 +1,23 @@
 rules_version = '2';
 
-// Phase 1 — Publish in Firebase Console → Firestore → Rules → Publish
+// LOCKED DOWN — deny all direct client access.
 //
-// • Blocks clone sites with NO Firebase login (they lose live DB sync).
-// • Any logged-in user (web / Android / iOS) can use the app normally.
-// • Tighter per-role rules can be added later once everything is stable.
+// Every read/write now goes through our backend API routes, which use the Firebase
+// Admin SDK. The Admin SDK bypasses these rules entirely, so the app keeps working
+// while NO client (browser, mobile, or a clone site embedding our public config) can
+// touch Firestore directly. This removes the previous vulnerability where any
+// signed-in user could read/write the whole database.
+//
+// Publish in Firebase Console → Firestore → Rules → Publish (and via firebase deploy).
+//
+// If you ever add a feature that must read Firestore directly from the client, add a
+// narrowly-scoped match block here for that specific collection/path only — never a
+// broad `if signedIn()` rule.
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    // First login: app reads pending user before Auth account exists.
-    match /users/{userId} {
-      allow read: if signedIn() || resource.data.isPending == true;
-      allow create, update, delete: if signedIn();
-    }
-
-    // Contact form — no login required to submit.
-    match /contactMessages/{messageId} {
-      allow create: if request.resource.data.keys().hasAll(['name', 'email', 'subject', 'message']);
-      allow read, update, delete: if signedIn();
-    }
-
-    // Server-only (Admin SDK). Never allow client access.
-    match /mfaSecrets/{docId} {
-      allow read, write: if false;
-    }
-
-    match /cleanupLogs/{docId} {
-      allow read, write: if false;
-    }
-
-    // All other collections: must be signed in.
-    // Clone sites that only embed your public Firebase config are blocked here.
     match /{document=**} {
-      allow read, write: if signedIn();
+      allow read, write: if false;
     }
   }
 }
