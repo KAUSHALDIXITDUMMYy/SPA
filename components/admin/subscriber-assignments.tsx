@@ -49,18 +49,24 @@ export function SubscriberAssignments() {
     void load()
   }, [authLoading, userProfile])
 
-  // Load all permissions for all subscribers
+  // Single admin poll for all permissions (avoids N concurrent requests per subscriber)
   useEffect(() => {
-    const unsubscribes: (() => void)[] = []
-    
-    subscribers.forEach((sub) => {
-      const unsubscribe = permissionsManager.subscribeToUserPermissions(sub.id, (perms) => {
-        setAllPermissions((prev) => new Map(prev).set(sub.id, perms))
-      })
-      unsubscribes.push(unsubscribe)
+    if (subscribers.length === 0) return
+
+    const subIds = new Set(subscribers.map((s) => s.id))
+    const unsubscribe = permissionsManager.subscribeToAllPermissions((allPerms) => {
+      const bySubscriber = new Map<string, StreamPermission[]>()
+      for (const sub of subscribers) {
+        bySubscriber.set(sub.id, [])
+      }
+      for (const perm of allPerms) {
+        if (!subIds.has(perm.subscriberId)) continue
+        bySubscriber.get(perm.subscriberId)!.push(perm)
+      }
+      setAllPermissions(bySubscriber)
     })
 
-    return () => unsubscribes.forEach((u) => u())
+    return unsubscribe
   }, [subscribers])
 
   const filteredSubscribers = useMemo(() => {
