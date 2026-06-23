@@ -28,12 +28,10 @@ import {
   MessageSquare,
   Headphones,
 } from "lucide-react"
-import { type StreamAnalytics, type StreamViewer, type AnalyticsSummary } from "@/lib/analytics"
+import { getAdminAnalytics, type StreamAnalytics, type StreamViewer, type AnalyticsSummary } from "@/lib/analytics"
 import { formatViewerLocationLabel, normalizeViewerLocation } from "@/lib/viewer-location"
 import { resolveUserTenant, type UserTenant } from "@/lib/tenant"
 import type { UserProfile } from "@/lib/auth"
-import { db } from "@/lib/firebase"
-import { collection, query, where, orderBy, limit, getDocs } from "firebase/firestore"
 import { getUsersByRole } from "@/lib/admin"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -143,68 +141,24 @@ export function AdminAnalytics() {
         ),
       )
 
-      const activeViewersQuery = query(collection(db, "activeViewers"), where("isActive", "==", true))
-      const activeStreamsQuery = query(collection(db, "streamSessions"), where("isActive", "==", true))
-      const analyticsQuery = query(
-        collection(db, "streamAnalytics"),
-        orderBy("timestamp", "desc"),
-        limit(100),
-      )
-
-      const [viewersSnap, streamsSnap, analyticsSnap] = await Promise.all([
-        getDocs(activeViewersQuery),
-        getDocs(activeStreamsQuery),
-        getDocs(analyticsQuery),
-      ])
+      const dashboard = await getAdminAnalytics(100)
 
       if (dashboardUnmountRef.current) return
 
-      const viewers = viewersSnap.docs
-        .map((doc) => {
-          const data = doc.data()
-          return {
-            id: doc.id,
-            streamSessionId: data.streamSessionId,
-            subscriberId: data.subscriberId,
-            subscriberName: data.subscriberName,
-            publisherId: data.publisherId,
-            publisherName: data.publisherName,
-            joinedAt: data.joinedAt?.toDate?.() || new Date(data.joinedAt),
-            lastSeen: data.lastSeen?.toDate?.() || new Date(data.lastSeen),
-            isActive: data.isActive,
-            subscriberTenant: data.subscriberTenant,
-            location: normalizeViewerLocation(data.location),
-          }
-        })
-        .filter((v) =>
+      const viewers = dashboard.activeViewers
+        .map((v: StreamViewer) => ({ ...v, location: normalizeViewerLocation(v.location) }))
+        .filter((v: StreamViewer) =>
           subscriberVisibleToAdmin(v.subscriberId, v.subscriberTenant, userProfile, allowedSubscriberIds),
         ) as StreamViewer[]
 
-      const streams = streamsSnap.docs.map((doc) => {
-        const data = doc.data()
-        return {
-          id: doc.id,
-          ...data,
-          createdAt: data.createdAt?.toDate?.() || new Date(data.createdAt),
-        }
-      })
+      const streams = dashboard.activeStreams.map((s: any) => ({
+        ...s,
+        createdAt: s.createdAt ? new Date(s.createdAt) : new Date(),
+      }))
 
-      const analyticsData = analyticsSnap.docs
-        .map((doc) => {
-          const data = doc.data()
-          return {
-            id: doc.id,
-            streamSessionId: data.streamSessionId,
-            subscriberId: data.subscriberId,
-            subscriberName: data.subscriberName,
-            publisherId: data.publisherId,
-            publisherName: data.publisherName,
-            action: data.action,
-            timestamp: data.timestamp?.toDate?.() || new Date(data.timestamp),
-            duration: data.duration,
-          }
-        })
-        .filter((a) => allowedSubscriberIds.has(a.subscriberId)) as StreamAnalytics[]
+      const analyticsData = dashboard.analytics.filter((a: StreamAnalytics) =>
+        allowedSubscriberIds.has(a.subscriberId),
+      ) as StreamAnalytics[]
 
       setActiveViewers(viewers)
       setActiveStreams(streams)

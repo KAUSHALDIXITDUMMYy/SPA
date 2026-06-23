@@ -1,181 +1,85 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/firebase"
-import { collection, query, where, getDocs, addDoc, updateDoc, doc, orderBy, limit } from "firebase/firestore"
-import { requireUserProfile } from "@/lib/server/api-auth"
+import { requireUserProfile, forbidden } from "@/lib/server/api-auth"
+import * as analytics from "@/lib/server/analytics-data"
 
-export interface StreamAnalytics {
-  id?: string
-  streamSessionId: string
-  subscriberId: string
-  subscriberName: string
-  publisherId: string
-  publisherName: string
-  action: 'join' | 'leave' | 'viewing'
-  timestamp: Date
-  duration?: number // in seconds
-}
-
-export interface StreamViewer {
-  subscriberId: string
-  subscriberName: string
-  joinedAt: Date
-  lastSeen: Date
-  isActive: boolean
-}
-
-// Track subscriber activity
+/**
+ * POST — track subscriber activity (a subscriber can only track itself; admins any).
+ *        action: "cleanup" (admin only) prunes old analytics.
+ */
 export async function POST(request: NextRequest) {
+  const profile = await requireUserProfile(request)
+  if (profile instanceof NextResponse) return profile
+
+  let body: any
   try {
-    const profile = await requireUserProfile(request)
-    if (profile instanceof NextResponse) return profile
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
 
-    const body = await request.json()
-    const { streamSessionId, subscriberId, subscriberName, publisherId, publisherName, action, duration } = body
-
-    if (!streamSessionId || !subscriberId || !action) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+  if (body?.action === "cleanup") {
+    if (profile.role !== "admin") return forbidden()
+    try {
+      return NextResponse.json(await analytics.cleanupOldAnalytics(body.daysToKeep || 30))
+    } catch (error: any) {
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 })
     }
+  }
 
-    if (profile.uid !== subscriberId && profile.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
-    }
+  const { streamSessionId, subscriberId, action } = body || {}
+  if (!streamSessionId || !subscriberId || !action) {
+    return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+  }
+  if (profile.uid !== subscriberId && profile.role !== "admin") {
+    return forbidden()
+  }
 
-    const analyticsData: Omit<StreamAnalytics, "id"> = {
+  try {
+    const result = await analytics.trackSubscriberActivity({
       streamSessionId,
       subscriberId,
-      subscriberName: subscriberName || "Unknown",
-      publisherId,
-      publisherName: publisherName || "Unknown",
+      subscriberName: body.subscriberName,
+      publisherId: body.publisherId,
+      publisherName: body.publisherName,
       action,
-      timestamp: new Date(),
-      duration: duration || undefined,
-    }
-
-    const docRef = await addDoc(collection(db, "streamAnalytics"), analyticsData)
-
-    return NextResponse.json({ 
-      success: true, 
-      id: docRef.id,
-      analytics: { ...analyticsData, id: docRef.id }
+      duration: body.duration,
+      subscriberTenant: body.subscriberTenant,
+      location: body.location,
     })
+    return NextResponse.json(result)
   } catch (error: any) {
     console.error("Error tracking analytics:", error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 }
 
-// Get analytics data
+/** GET — admin/publisher/stream analytics with role-scoped access. */
 export async function GET(request: NextRequest) {
+  const profile = await requireUserProfile(request)
+  if (profile instanceof NextResponse) return profile
+
+  const { searchParams } = new URL(request.url)
+  const type = searchParams.get("type")
+  const publisherId = searchParams.get("publisherId")
+  const streamSessionId = searchParams.get("streamSessionId")
+  const limitCount = parseInt(searchParams.get("limit") || "100")
+
   try {
-    const profile = await requireUserProfile(request)
-    if (profile instanceof NextResponse) return profile
-
-    const { searchParams } = new URL(request.url)
-    const type = searchParams.get("type")
-    const publisherId = searchParams.get("publisherId")
-    const streamSessionId = searchParams.get("streamSessionId")
-    const limitCount = parseInt(searchParams.get("limit") || "100")
-
     if (type === "admin") {
-      // Admin analytics - overview of all activity
-      const analyticsRef = collection(db, "streamAnalytics")
-      let q = query(analyticsRef, orderBy("timestamp", "desc"), limit(limitCount))
-      
-      const snapshot = await getDocs(q)
-      const analytics = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-
-      // Get current active viewers
-      const activeViewersRef = collection(db, "activeViewers")
-      const activeSnapshot = await getDocs(activeViewersRef)
-      const activeViewers = activeSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-
-      // Get stream sessions for context
-      const streamsRef = collection(db, "streamSessions")
-      const streamsSnapshot = await getDocs(query(streamsRef, where("isActive", "==", true)))
-      const activeStreams = streamsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-
-      return NextResponse.json({
-        analytics,
-        activeViewers,
-        activeStreams,
-        summary: {
-          totalAnalytics: analytics.length,
-          activeViewersCount: activeViewers.length,
-          activeStreamsCount: activeStreams.length
-        }
-      })
+      if (profile.role !== "admin") return forbidden()
+      return NextResponse.json(await analytics.getAdminAnalytics(limitCount))
     }
 
     if (type === "publisher" && publisherId) {
-      // Publisher analytics - who is watching their streams
-      const analyticsRef = collection(db, "streamAnalytics")
-      let q = query(
-        analyticsRef, 
-        where("publisherId", "==", publisherId),
-        orderBy("timestamp", "desc"),
-        limit(limitCount)
-      )
-      
-      const snapshot = await getDocs(q)
-      const analytics = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-
-      // Get current viewers for this publisher's active streams
-      const activeViewersRef = collection(db, "activeViewers")
-      const activeSnapshot = await getDocs(query(activeViewersRef, where("publisherId", "==", publisherId)))
-      const currentViewers = activeSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-
-      // Get this publisher's stream sessions
-      const streamsRef = collection(db, "streamSessions")
-      const streamsSnapshot = await getDocs(query(streamsRef, where("publisherId", "==", publisherId)))
-      const streamSessions = streamsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-
-      return NextResponse.json({
-        analytics,
-        currentViewers,
-        streamSessions,
-        summary: {
-          totalAnalytics: analytics.length,
-          currentViewersCount: currentViewers.length,
-          totalStreams: streamSessions.length,
-          activeStreams: streamSessions.filter((s: any) => s.isActive).length
-        }
-      })
+      // A publisher may only read their own analytics; admins read anyone's.
+      if (profile.role !== "admin" && !(profile.role === "publisher" && profile.uid === publisherId)) {
+        return forbidden()
+      }
+      return NextResponse.json(await analytics.getPublisherAnalytics(publisherId, limitCount))
     }
 
     if (type === "stream" && streamSessionId) {
-      // Stream-specific analytics
-      const analyticsRef = collection(db, "streamAnalytics")
-      const q = query(
-        analyticsRef,
-        where("streamSessionId", "==", streamSessionId),
-        orderBy("timestamp", "desc")
-      )
-      
-      const snapshot = await getDocs(q)
-      const analytics = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-
-      return NextResponse.json({ analytics })
+      return NextResponse.json(await analytics.getStreamAnalytics(streamSessionId))
     }
 
     return NextResponse.json({ error: "Invalid request parameters" }, { status: 400 })

@@ -8,8 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ArrowLeft, RefreshCw } from "lucide-react"
-import { collection, getDocs, query, orderBy, limit } from "firebase/firestore"
-import { db } from "@/lib/firebase"
+import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
 
 interface LogRow {
   id: string
@@ -33,8 +32,13 @@ export default function AccessLogsPage() {
   const load = async () => {
     setLoading(true)
     try {
-      const snap = await getDocs(query(collection(db, "accessLogs"), orderBy("createdAt", "desc"), limit(500)))
-      setRows(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))
+      const res = await fetchWithAuth("/api/access-logs?limit=500", { method: "GET" })
+      if (res.ok) {
+        const json = await res.json()
+        setRows((json.logs || []) as LogRow[])
+      } else {
+        setRows([])
+      }
     } finally {
       setLoading(false)
     }
