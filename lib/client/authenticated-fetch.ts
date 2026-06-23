@@ -11,6 +11,9 @@ export async function fetchWithAuth(url: string, init: RequestInit = {}): Promis
   const idToken = await user.getIdToken()
   const headers = new Headers(init.headers)
   headers.set("Authorization", `Bearer ${idToken}`)
+  // Vercel's external-rewrite proxy strips `Authorization` but forwards custom
+  // headers, so also send the token as `X-Id-Token` (backend accepts either).
+  headers.set("X-Id-Token", idToken)
 
   // Prove the request comes from our registered app/domain (no-op until App Check is configured).
   const appCheckToken = await getAppCheckToken()
