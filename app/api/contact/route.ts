@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/firebase"
-import { collection, addDoc } from "firebase/firestore"
+import { getAdminDb } from "@/lib/firebase-admin"
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,7 +21,8 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    await addDoc(collection(db, "contactMessages"), {
+    const db = await getAdminDb()
+    await db.collection("contactMessages").add({
       name: String(name).trim(),
       email: emailStr,
       subject: String(subject).trim(),

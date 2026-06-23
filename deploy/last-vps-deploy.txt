@@ -1,0 +1,151 @@
+Updating 20888bf..c9d2ac6
+Fast-forward
+ .env.example                   |   1 +
+ app/api/track/route.ts         |  13 +-
+ deploy/env.production.example  |   2 +-
+ deploy/nginx-spa-api.conf      |   8 ++
+ deploy/set-vps-firebase-env.py |  83 ++++++++++++
+ firestore.rules                | 299 +++--------------------------------------
+ lib/server/api-origin.ts       |  43 ++++++
+ middleware.ts                  |  20 +++
+ 8 files changed, 181 insertions(+), 288 deletions(-)
+ create mode 100644 deploy/set-vps-firebase-env.py
+ create mode 100644 lib/server/api-origin.ts
+ create mode 100644 middleware.ts
+
+added 468 packages, and audited 469 packages in 2m
+
+49 packages are looking for funding
+  run `npm fund` for details
+
+22 vulnerabilities (1 low, 11 moderate, 7 high, 3 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+> sportsmagician-audio@0.1.0 build
+> next build
+
+  ▲ Next.js 14.2.16
+  - Environments: .env.production
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Skipping validation of types
+   Skipping linting
+   Collecting page data ...
+   Generating static pages (0/27) ...
+   Generating static pages (6/27) 
+   Generating static pages (13/27) 
+   Generating static pages (20/27) 
+ ✓ Generating static pages (27/27)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ○ /                                    2.69 kB         230 kB
+├ ○ /_not-found                          873 B          88.2 kB
+├ ○ /admin                               46.5 kB         322 kB
+├ ○ /admin/access-logs                   4.78 kB         219 kB
+├ ƒ /api/admin/delete-user               0 B                0 B
+├ ƒ /api/admin/reset-password            0 B                0 B
+├ ƒ /api/agora/cleanup                   0 B                0 B
+├ ƒ /api/agora/token                     0 B                0 B
+├ ƒ /api/analytics                       0 B                0 B
+├ ƒ /api/auth/sync-claims                0 B                0 B
+├ ƒ /api/contact                         0 B                0 B
+├ ƒ /api/mfa/disable                     0 B                0 B
+├ ƒ /api/mfa/enable                      0 B                0 B
+├ ƒ /api/mfa/setup                       0 B                0 B
+├ ƒ /api/mfa/verify                      0 B                0 B
+├ ƒ /api/track                           0 B                0 B
+├ ƒ /api/zoom/create                     0 B                0 B
+├ ƒ /api/zoom/end-live                   0 B                0 B
+├ ƒ /api/zoom/signature                  0 B                0 B
+├ ƒ /api/zoom/zak                        0 B                0 B
+├ ○ /change-password                     6.01 kB         220 kB
+├ ○ /contact-us                          3.68 kB         106 kB
+├ ○ /dashboard                           572 B           207 kB
+├ ○ /publisher                           9.3 kB          279 kB
+├ ○ /security                            3.34 kB         224 kB
+├ ○ /subscriber                          11.7 kB         287 kB
+├ ○ /terms                               3.4 kB          224 kB
+├ ○ /unauthorized                        175 B          94.4 kB
+└ ƒ /zoom/[id]                           3.07 kB         217 kB
++ First Load JS shared by all            87.4 kB
+  ├ chunks/117-b05f3898d3a4231a.js       31.6 kB
+  ├ chunks/fd9d1056-d598df4582f3df8e.js  53.6 kB
+  └ other shared chunks (total)          2.14 kB
+
+
+ƒ Middleware                             25.8 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+[dotenv@17.2.2] injecting env (21) from .env.production -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[PM2] Applying action restartProcessId on app [spa-backend](ids: [ 0 ])
+[PM2] [spa-backend](0) ✓
+┌────┬────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name           │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 0  │ spa-backend    │ default     │ 0.1.0   │ cluster │ 25577    │ 0s     │ 9    │ online    │ 0%       │ 40.1mb   │ root     │ disabled │
+└────┴────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+From https://github.com/KAUSHALDIXITDUMMYy/SPA
+ * branch            main       -> FETCH_HEAD
+   20888bf..c9d2ac6  main       -> origin/main
+npm warn deprecated agora-access-token@2.0.4: The package has been deprecated. Please use 'agora-token' instead, sorry for the inconvenience caused.
+npm warn deprecated node-domexception@1.0.0: Use your platform's native DOMException instead
+ ⚠ Unsupported metadata viewport is configured in metadata export in /dashboard. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /dashboard. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /contact-us. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /contact-us. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /change-password. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /change-password. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /admin/access-logs. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /admin/access-logs. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /publisher. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /publisher. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /unauthorized. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /unauthorized. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /subscriber. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /subscriber. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /terms. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /terms. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /_not-found. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /_not-found. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /security. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /security. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /admin. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport
+ ⚠ Unsupported metadata viewport is configured in metadata export in /admin. Please move it to viewport export instead.
+Read more: https://nextjs.org/docs/app/api-reference/functions/generate-viewport

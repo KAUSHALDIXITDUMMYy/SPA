@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
-import { db } from "@/lib/firebase"
-import { doc, getDoc, deleteDoc, collection, query, where, getDocs } from "firebase/firestore"
 import { adminCanManageTargetUser } from "@/lib/tenant"
-import { getAdminAuth } from "@/lib/firebase-admin"
+import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin"
 import { requireAdmin } from "@/lib/server/api-auth"
 
 /** Delete all docs in a collection matching field == value. */
 async function deleteWhere(collectionName: string, field: string, value: string) {
   try {
-    const snap = await getDocs(query(collection(db, collectionName), where(field, "==", value)))
-    await Promise.all(snap.docs.map((d) => deleteDoc(doc(db, collectionName, d.id)).catch(() => {})))
+    const db = await getAdminDb()
+    const snap = await db.collection(collectionName).where(field, "==", value).get()
+    await Promise.all(snap.docs.map((d: any) => d.ref.delete().catch(() => {})))
   } catch {
-    // ignore cleanup errors for missing collections / rules
+    // ignore cleanup errors for missing collections
   }
 }
 
@@ -29,24 +28,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 })
     }
 
-    const adminSnap = await getDoc(doc(db, "users", profile.uid))
-    if (!adminSnap.exists() || adminSnap.data().role !== "admin") {
+    const db = await getAdminDb()
+    const adminSnap = await db.collection("users").doc(profile.uid).get()
+    if (!adminSnap.exists || (adminSnap.data() as any).role !== "admin") {
       return NextResponse.json({ success: false, error: "Unauthorized: Admin access required" }, { status: 403 })
     }
 
     // Load target user.
-    const userRef = doc(db, "users", userId)
-    const userSnap = await getDoc(userRef)
-    if (!userSnap.exists()) {
+    const userRef = db.collection("users").doc(userId)
+    const userSnap = await userRef.get()
+    if (!userSnap.exists) {
       return NextResponse.json({ success: false, error: "User not found" }, { status: 404 })
     }
-    const userData = userSnap.data()
+    const userData = userSnap.data() as any
 
     if (profile.uid === userId) {
       return NextResponse.json({ success: false, error: "You cannot delete your own account." }, { status: 400 })
     }
 
-    if (!adminCanManageTargetUser(adminSnap.data() as any, userData as any)) {
+    if (!adminCanManageTargetUser(adminSnap.data() as any, userData)) {
       return NextResponse.json(
         { success: false, error: "You do not have permission to delete this user." },
         { status: 403 },
@@ -91,8 +91,8 @@ export async function POST(req: NextRequest) {
       deleteWhere("zoomPublisherAssignments", "subscriberId", userId),
       deleteWhere("zoomCallAssignments", "subscriberId", userId),
     ])
-    await deleteDoc(doc(db, "mfaSecrets", userId)).catch(() => {})
-    await deleteDoc(userRef)
+    await db.collection("mfaSecrets").doc(userId).delete().catch(() => {})
+    await userRef.delete()
 
     return NextResponse.json({
       success: true,
