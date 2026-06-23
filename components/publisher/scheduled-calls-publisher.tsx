@@ -5,8 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/hooks/use-auth"
-import { db } from "@/lib/firebase"
-import { collection, onSnapshot, query, where } from "firebase/firestore"
+import { getPublisherStreams } from "@/lib/streaming"
 import {
   getLocalDateKey,
   subscribeScheduledCallsForDate,
@@ -46,15 +45,13 @@ export function ScheduledCallsPublisherSection({
 
   useEffect(() => {
     if (!uid) return
+    let active = true
     let fetchGen = 0
-    const q = query(collection(db, "streamSessions"), where("publisherId", "==", uid))
-    return onSnapshot(q, (snap) => {
+    const load = async () => {
       const gen = ++fetchGen
-      const rows = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown> & { id: string }))
-        .filter((x) => x.isActive === true && x.scheduledCallId)
-
-      ;(async () => {
+      try {
+        const streams = await getPublisherStreams(uid)
+        const rows = streams.filter((x) => x.isActive === true && x.scheduledCallId)
         const byId = new Map<string, ScheduledCall>()
         for (const row of rows) {
           const cid = String(row.scheduledCallId ?? "")
@@ -62,13 +59,17 @@ export function ScheduledCallsPublisherSection({
           const call = await getScheduledCallById(cid)
           if (call) byId.set(cid, call)
         }
-        if (gen === fetchGen) {
-          setCallsFromSessions(Array.from(byId.values()))
-        }
-      })().catch(() => {
-        if (gen === fetchGen) setCallsFromSessions([])
-      })
-    })
+        if (active && gen === fetchGen) setCallsFromSessions(Array.from(byId.values()))
+      } catch {
+        if (active && gen === fetchGen) setCallsFromSessions([])
+      }
+    }
+    void load()
+    const interval = setInterval(load, 5000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
   }, [uid])
 
   const mine = useMemo(() => {

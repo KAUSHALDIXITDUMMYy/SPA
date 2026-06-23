@@ -5,8 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { db } from "@/lib/firebase"
-import { collection, onSnapshot, query, where } from "firebase/firestore"
 import {
   compareSubscriberPermissionsByStreamStart,
   getAvailableStreamsSplit,
@@ -20,7 +18,7 @@ import {
   isScheduledCallTransmitting,
   type ScheduledCall,
 } from "@/lib/scheduled-calls"
-import { isAwaitingBroadcastSession } from "@/lib/streaming"
+import { isAwaitingBroadcastSession, getActiveStreams } from "@/lib/streaming"
 import { streamSportLabel } from "@/lib/sports"
 import { StreamViewer, type StreamViewerHandle } from "./stream-viewer"
 import { SubscriberFloatingChat } from "@/components/subscriber/subscriber-floating-chat"
@@ -97,22 +95,27 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
   }, [loadScheduledStreams])
 
   useEffect(() => {
-    const q = query(collection(db, "streamSessions"), where("isActive", "==", true))
-    return onSnapshot(q, (snap) => {
+    let active = true
+    const load = async () => {
+      const streams = await getActiveStreams()
+      if (!active) return
       setActiveSessions(
-        snap.docs.map((d) => {
-          const x = d.data()
-          return {
-            id: d.id,
-            roomId: String(x.roomId ?? ""),
-            publisherId: String(x.publisherId ?? ""),
-            isActive: !!x.isActive,
-            awaitingBroadcast: x.awaitingBroadcast === true,
-            scheduledCallId: x.scheduledCallId ? String(x.scheduledCallId) : undefined,
-          }
-        }),
+        streams.map((x) => ({
+          id: x.id || "",
+          roomId: String(x.roomId ?? ""),
+          publisherId: String(x.publisherId ?? ""),
+          isActive: !!x.isActive,
+          awaitingBroadcast: x.awaitingBroadcast === true,
+          scheduledCallId: x.scheduledCallId ? String(x.scheduledCallId) : undefined,
+        })),
       )
-    })
+    }
+    void load()
+    const interval = setInterval(load, 5000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
   }, [])
 
   const dedupedRooms = useMemo(() => {
@@ -228,8 +231,9 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
         const publisherLine = cal?.publisherName || perm.publisherName
         const dateLine = cal?.dateKey
         const created =
-          sess.createdAt && typeof (sess.createdAt as { toDate?: () => Date }).toDate === "function"
-            ? (sess.createdAt as { toDate: () => Date }).toDate()
+          sess.createdAt &&
+          typeof (sess.createdAt as unknown as { toDate?: () => Date }).toDate === "function"
+            ? (sess.createdAt as unknown as { toDate: () => Date }).toDate()
             : sess.createdAt
               ? new Date(sess.createdAt as Date)
               : null
