@@ -1,8 +1,8 @@
 "use client"
 
-import { auth, db } from "./firebase"
+import { auth } from "./firebase"
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from "firebase/auth"
-import { doc, updateDoc } from "firebase/firestore"
+import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
 
 /**
  * Let the signed-in user change their own password. Firebase requires a recent
@@ -25,9 +25,12 @@ export async function changeOwnPassword(
     const credential = EmailAuthProvider.credential(user.email, currentPassword)
     await reauthenticateWithCredential(user, credential)
     await updatePassword(user, newPassword)
-    // Clear the "must change password" requirement, if it was set.
+    // Clear the "must change password" requirement, if it was set (server-side).
     try {
-      await updateDoc(doc(db, "users", user.uid), { mustChangePassword: false })
+      await fetchWithAuth("/api/auth/account", {
+        method: "POST",
+        body: JSON.stringify({ action: "clearMustChangePassword" }),
+      })
     } catch {
       // Non-fatal: the password was still changed successfully.
     }

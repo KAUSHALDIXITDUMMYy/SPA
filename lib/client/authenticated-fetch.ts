@@ -24,3 +24,19 @@ export async function fetchWithAuth(url: string, init: RequestInit = {}): Promis
 
   return fetch(url, { ...init, headers })
 }
+
+/**
+ * Pre-login fetch: attaches the App Check token but no user token. Used by endpoints that
+ * run before a Firebase Auth session exists (e.g. pending-user migration on sign-in).
+ */
+export async function fetchWithAppCheck(url: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers)
+  const appCheckToken = await getAppCheckToken()
+  if (appCheckToken) {
+    headers.set("X-Firebase-AppCheck", appCheckToken)
+  }
+  if (init.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json")
+  }
+  return fetch(url, { ...init, headers })
+}

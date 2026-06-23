@@ -4,9 +4,7 @@ import type React from "react"
 
 import { useState, useEffect, createContext, useContext } from "react"
 import type { User } from "firebase/auth"
-import { onAuthStateChange, getUserProfile, signOut, type UserProfile } from "@/lib/auth"
-import { doc, onSnapshot } from "firebase/firestore"
-import { db } from "@/lib/firebase"
+import { onAuthStateChange, getUserProfile, signOut, heartbeatSession, type UserProfile } from "@/lib/auth"
 import { useRouter } from "next/navigation"
 import { toast } from "@/hooks/use-toast"
 
@@ -64,45 +62,38 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return unsubscribe
   }, [])
 
-  // Real-time listener for user profile changes (isActive status, etc.)
+  // Poll for user profile changes (isActive status, etc.). Replaces the Firestore
+  // realtime listener so the browser never reads the users collection directly.
   useEffect(() => {
     if (!user) {
       return
     }
 
-    const userRef = doc(db, "users", user.uid)
-    const unsubscribe = onSnapshot(userRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data() as UserProfile
-        
-        // Convert Firestore timestamp to Date if needed
-        const profile: UserProfile = {
-          ...data,
-          createdAt: data.createdAt instanceof Date ? data.createdAt : (data.createdAt as any).toDate?.() || new Date(),
-          lastLoginAt: data.lastLoginAt instanceof Date ? data.lastLoginAt : (data.lastLoginAt as any)?.toDate?.() || undefined,
-          allowChat: data.allowChat === true,
-        }
-        
-        // Update profile in real-time
-        setUserProfile(profile)
-        
-        // For subscribers - check if user is still active
-        if (profile.role === "subscriber" && !profile.isActive) {
-          toast({
-            title: "Account Deactivated",
-            description: "Your account has been deactivated by an administrator.",
-            variant: "destructive",
-          })
-          
-          // Force logout
-          signOut().then(() => {
-            router.push("/")
-          })
-        }
-      }
-    })
+    let active = true
+    const refresh = async () => {
+      const profile = await getUserProfile(user.uid)
+      if (!active || !profile) return
 
-    return unsubscribe
+      setUserProfile(profile)
+
+      // For subscribers - check if user is still active
+      if (profile.role === "subscriber" && !profile.isActive) {
+        toast({
+          title: "Account Deactivated",
+          description: "Your account has been deactivated by an administrator.",
+          variant: "destructive",
+        })
+        signOut().then(() => {
+          router.push("/")
+        })
+      }
+    }
+
+    const interval = setInterval(refresh, 15000)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
   }, [user, router])
 
   // Periodically update lastLoginAt to keep session alive for subscribers
@@ -111,22 +102,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return
     }
 
-    const updateActivity = async () => {
-      try {
-        const { doc, updateDoc } = await import("firebase/firestore")
-        const { db } = await import("@/lib/firebase")
-        const userRef = doc(db, "users", user.uid)
-        
-        await updateDoc(userRef, {
-          lastLoginAt: new Date(),
-        })
-      } catch (error) {
-        console.error("Error updating session activity:", error)
-      }
-    }
-
-    // Update periodically to keep session alive (avoid excessive Firestore writes)
-    const interval = setInterval(updateActivity, 3 * 60 * 1000)
+    // Keep the single-session marker alive via the backend (no direct Firestore writes).
+    const interval = setInterval(() => {
+      void heartbeatSession()
+    }, 3 * 60 * 1000)
 
     return () => clearInterval(interval)
   }, [user, userProfile])
@@ -137,54 +116,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return
     }
 
-    const handleBeforeUnload = async (event: BeforeUnloadEvent) => {
-      // Clear session when tab is closed
-      try {
-        const { doc, updateDoc } = await import("firebase/firestore")
-        const { db } = await import("@/lib/firebase")
-        const userRef = doc(db, "users", user.uid)
-        
-        // Use sendBeacon or navigator.sendBeacon for reliable cleanup
-        // Since we can't use async/await in beforeunload, we'll use navigator.sendBeacon
-        // or just clear localStorage which will be checked on next login
-        if (typeof window !== "undefined") {
-          localStorage.removeItem("sessionId")
-        }
-        
-        // Clear sessionId in Firestore (non-blocking)
-        updateDoc(userRef, {
-          sessionId: null,
-        }).catch((error) => {
-          console.error("Error clearing session on tab close:", error)
-        })
-      } catch (error) {
-        console.error("Error in beforeunload handler:", error)
+    // On tab close we can only reliably clear local state. The backend single-session
+    // logic treats a session with no recent heartbeat as expired (~5 min), so another
+    // browser can take over shortly after — matching the existing behavior/message.
+    const handleBeforeUnload = (_event: BeforeUnloadEvent) => {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("sessionId")
       }
     }
 
-    const handlePageHide = async (event: PageTransitionEvent) => {
-      // Also handle pagehide event (more reliable than beforeunload)
+    const handlePageHide = (event: PageTransitionEvent) => {
       if (event.persisted) {
         // Page is being cached (e.g., back/forward navigation)
         return
       }
-      
-      try {
-        const { doc, updateDoc } = await import("firebase/firestore")
-        const { db } = await import("@/lib/firebase")
-        const userRef = doc(db, "users", user.uid)
-        
-        // Clear sessionId in Firestore
-        await updateDoc(userRef, {
-          sessionId: null,
-        })
-        
-        // Clear localStorage
-        if (typeof window !== "undefined") {
-          localStorage.removeItem("sessionId")
-        }
-      } catch (error) {
-        console.error("Error clearing session on page hide:", error)
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("sessionId")
       }
     }
 
