@@ -20,19 +20,20 @@ export const BLOCKED_API_HOSTS = fromEnv("BLOCKED_API_HOSTS", [
   "www.intelsnipers.com",
 ])
 
-/** Browser origins allowed to call /api/* on our backend. */
+/**
+ * Browser origins allowed to call /api/* on our backend. Locked to the two production
+ * frontends only. For local development, set ALLOWED_API_ORIGINS in the environment
+ * (e.g. "http://localhost:3000") so you don't have to touch this list.
+ */
 export const ALLOWED_API_ORIGINS = fromEnv("ALLOWED_API_ORIGINS", [
   "https://sportsmagicianaudio.vercel.app",
-  "https://spa-gules-ten.vercel.app",
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
+  "https://kevionics-audio-three.vercel.app",
 ])
 
 /** Hostnames that are legitimately OUR deployment (anything else = a clone). */
 export const OWN_HOSTS = fromEnv("OWN_HOSTS", [
-  "localhost",
   "sportsmagicianaudio.vercel.app",
-  "spa-gules-ten.vercel.app",
+  "kevionics-audio-three.vercel.app",
 ])
 
 function headerContainsBlockedHost(value: string | null): boolean {
