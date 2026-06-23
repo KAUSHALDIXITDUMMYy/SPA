@@ -44,6 +44,29 @@ const args = process.argv.slice(2)
 const DRY_RUN = args.includes("--dry-run")
 const NO_AUTH = args.includes("--no-auth")
 const NO_FIRESTORE = args.includes("--no-firestore")
+// Subcollection discovery costs one round-trip PER DOCUMENT, which is crippling on
+// large flat collections. This app has no subcollections, so it's skipped by default.
+// Pass --deep to walk subcollections (only needed if your data model nests them).
+const DEEP = args.includes("--deep")
+
+// Resume helpers (Spark plan caps writes at 20k/day; avoid re-writing finished collections).
+//   --collections=a,b,c       only migrate these root collections
+//   --skip-collections=a,b    migrate everything except these
+//   --skip-existing           skip docs that already exist in the destination
+function parseList(prefix) {
+  const flag = args.find((a) => a.startsWith(prefix))
+  if (!flag) return null
+  return new Set(
+    flag
+      .replace(prefix, "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  )
+}
+const ONLY_COLLECTIONS = parseList("--collections=")
+const SKIP_COLLECTIONS = parseList("--skip-collections=")
+const SKIP_EXISTING = args.includes("--skip-existing")
 const EXCLUDE_EMAILS = new Set(
   (args.find((a) => a.startsWith("--exclude=")) || "")
     .replace("--exclude=", "")
@@ -123,20 +146,44 @@ function remapValue(value, destDb) {
   return value
 }
 
+/** Run an async mapper over items with bounded concurrency. */
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = []
+  let index = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const i = index++
+      results[i] = await mapper(items[i], i)
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
+const SUBCOLLECTION_CONCURRENCY = 25
+
 async function copyCollection(sourceColRef, destDb) {
   collectionsSeen++
   const snapshot = await sourceColRef.get()
-  if (snapshot.empty) return
+  if (snapshot.empty) {
+    console.log(`   • ${sourceColRef.path}: 0 docs`)
+    return
+  }
 
-  let batch = destDb.batch()
-  let pending = 0
-
-  for (const docSnap of snapshot.docs) {
-    const destRef = destDb.collection(sourceColRef.path).doc(docSnap.id)
-    const data = remapValue(docSnap.data(), destDb)
-
-    if (!DRY_RUN) {
-      batch.set(destRef, data)
+  // 1. Copy this collection's documents in batches (skipped on dry run).
+  let written = 0
+  let skipped = 0
+  if (!DRY_RUN) {
+    let batch = destDb.batch()
+    let pending = 0
+    for (const docSnap of snapshot.docs) {
+      const destRef = destDb.collection(sourceColRef.path).doc(docSnap.id)
+      if (SKIP_EXISTING && (await destRef.get()).exists) {
+        skipped++
+        continue
+      }
+      batch.set(destRef, remapValue(docSnap.data(), destDb))
+      written++
       pending++
       if (pending >= BATCH_LIMIT) {
         await batch.commit()
@@ -144,25 +191,43 @@ async function copyCollection(sourceColRef, destDb) {
         pending = 0
       }
     }
-    docsCopied++
+    if (pending > 0) await batch.commit()
+  } else {
+    written = snapshot.size
+  }
+  docsCopied += written
+  console.log(
+    `   • ${sourceColRef.path}: ${snapshot.size} docs (${written} written${skipped ? `, ${skipped} already existed` : ""})`,
+  )
 
-    // Recurse into subcollections of this document.
-    const subCollections = await docSnap.ref.listCollections()
+  // 2. (Optional) Discover subcollections concurrently — one round-trip per doc.
+  if (!DEEP) return
+  const subCollectionGroups = await mapWithConcurrency(
+    snapshot.docs,
+    SUBCOLLECTION_CONCURRENCY,
+    (docSnap) => docSnap.ref.listCollections(),
+  )
+  for (const subCollections of subCollectionGroups) {
     for (const sub of subCollections) {
       await copyCollection(sub, destDb)
     }
   }
-
-  if (!DRY_RUN && pending > 0) await batch.commit()
-  console.log(`   • ${sourceColRef.path}: ${snapshot.size} docs`)
 }
 
 async function migrateFirestore(sourceDb, destDb) {
   console.log("\n📦 Migrating Firestore data...")
-  const rootCollections = await sourceDb.listCollections()
+  let rootCollections = await sourceDb.listCollections()
   if (rootCollections.length === 0) {
     console.log("   (no collections found in source)")
     return
+  }
+  if (ONLY_COLLECTIONS) {
+    rootCollections = rootCollections.filter((c) => ONLY_COLLECTIONS.has(c.id))
+    console.log(`   Filter: only [${[...ONLY_COLLECTIONS].join(", ")}]`)
+  }
+  if (SKIP_COLLECTIONS) {
+    rootCollections = rootCollections.filter((c) => !SKIP_COLLECTIONS.has(c.id))
+    console.log(`   Filter: skipping [${[...SKIP_COLLECTIONS].join(", ")}]`)
   }
   for (const col of rootCollections) {
     await copyCollection(col, destDb)
