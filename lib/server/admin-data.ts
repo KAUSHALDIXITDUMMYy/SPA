@@ -11,6 +11,7 @@
 
 import { FieldValue } from "firebase-admin/firestore"
 import { getAdminDb } from "@/lib/firebase-admin"
+import { getActiveStreams } from "@/lib/server/streaming-data"
 import {
   resolveUserTenant,
   validateNewUserForCreator,
@@ -187,6 +188,18 @@ export async function getStreamAssignments() {
   return snap.docs
     .map(docToObject)
     .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+}
+
+/** One round-trip for the Stream Assignments admin tab. */
+export async function getStreamAssignmentsBootstrap(
+  adminViewer?: { role?: Role; email?: string; tenant?: UserTenant },
+) {
+  const [subscribers, streams, assignments] = await Promise.all([
+    getUsersByRole("subscriber", adminViewer),
+    getActiveStreams(),
+    getStreamAssignments(),
+  ])
+  return { subscribers, streams, assignments }
 }
 
 export async function deleteStreamAssignment(assignmentId: string) {

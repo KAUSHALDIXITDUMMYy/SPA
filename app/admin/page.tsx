@@ -292,7 +292,7 @@ export default function AdminDashboard() {
             </TabsContent>
 
             <TabsContent value="stream-assignments">
-              <StreamAssignments />
+              <StreamAssignments active={activeTab === "stream-assignments"} />
             </TabsContent>
 
             <TabsContent value="schedule">

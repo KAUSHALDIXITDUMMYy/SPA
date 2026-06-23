@@ -24,14 +24,15 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import {
-  getUsersByRole,
   createStreamAssignment,
   deleteStreamAssignment,
   updateStreamAssignment,
   getStreamAssignments,
+  getStreamAssignmentsBootstrap,
+  invalidateStreamAssignmentsBootstrap,
   type StreamAssignment,
 } from "@/lib/admin"
-import { getActiveStreams, type StreamSession } from "@/lib/streaming"
+import type { StreamSession } from "@/lib/streaming"
 import type { UserProfile } from "@/lib/auth"
 import {
   Radio,
@@ -71,7 +72,7 @@ MatrixCell.displayName = "MatrixCell"
 /** Matrix virtual window: load 100 rows/columns at a time; scroll loads more. */
 const MATRIX_PAGE_SIZE = 100
 
-export function StreamAssignments() {
+export function StreamAssignments({ active = true }: { active?: boolean }) {
   const { userProfile, loading: authLoading } = useAuth()
   const [subscribers, setSubscribers] = useState<(UserProfile & { id: string })[]>([])
   const [streams, setStreams] = useState<StreamSession[]>([])
@@ -79,8 +80,7 @@ export function StreamAssignments() {
   const [selectedStreams, setSelectedStreams] = useState<Set<string>>(new Set())
   const [searchSubs, setSearchSubs] = useState("")
   const [searchStreams, setSearchStreams] = useState("")
-  const [loading, setLoading] = useState(true)
-  const [assignmentsLoading, setAssignmentsLoading] = useState(false)
+  const [dataLoading, setDataLoading] = useState(false)
   const [bulkLoading, setBulkLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
@@ -93,29 +93,22 @@ export function StreamAssignments() {
   const [matrixColsVisible, setMatrixColsVisible] = useState(MATRIX_PAGE_SIZE)
 
   useEffect(() => {
-    if (authLoading || !userProfile || userProfile.role !== "admin") {
-      if (!authLoading) setLoading(false)
+    if (!active || authLoading || !userProfile || userProfile.role !== "admin") {
       return
     }
+
+    let cancelled = false
     const load = async () => {
-      setLoading(true)
+      setDataLoading(true)
       setError("")
       try {
-        const [subs, activeStreams] = await Promise.all([
-          getUsersByRole("subscriber", userProfile),
-          getActiveStreams(),
-        ])
-        setSubscribers(subs as any)
-        setStreams(activeStreams)
-      } catch (err: any) {
-        setError(err.message || "Failed to load data")
-      } finally {
-        setLoading(false)
-      }
+        const { subscribers: subs, streams: activeStreams, assignments } =
+          await getStreamAssignmentsBootstrap()
+        if (cancelled) return
 
-      setAssignmentsLoading(true)
-      try {
-        const assignments = await getStreamAssignments()
+        setSubscribers(subs as (UserProfile & { id: string })[])
+        setStreams(activeStreams)
+
         const assignmentsMap = new Map<string, StreamAssignment[]>()
         assignments.forEach((assignment) => {
           const existing = assignmentsMap.get(assignment.subscriberId) || []
@@ -123,13 +116,17 @@ export function StreamAssignments() {
         })
         setAllAssignments(assignmentsMap)
       } catch (err: any) {
-        setError(err.message || "Failed to load assignments")
+        if (!cancelled) setError(err.message || "Failed to load data")
       } finally {
-        setAssignmentsLoading(false)
+        if (!cancelled) setDataLoading(false)
       }
     }
     void load()
-  }, [authLoading, userProfile])
+
+    return () => {
+      cancelled = true
+    }
+  }, [active, authLoading, userProfile])
 
   // Only refresh assignments when needed (not every 5 seconds)
   const refreshAssignments = useCallback(async () => {
@@ -140,6 +137,7 @@ export function StreamAssignments() {
       assignmentsMap.set(assignment.subscriberId, [...existing, assignment])
     })
     setAllAssignments(assignmentsMap)
+    invalidateStreamAssignmentsBootstrap()
   }, [])
 
   const filteredSubscribers = useMemo(() => {
@@ -516,17 +514,6 @@ export function StreamAssignments() {
     })
   }, [])
 
-  if (loading) {
-    return (
-      <Card>
-        <CardContent className="p-6 flex items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin mr-2" />
-          <span>Loading streams and subscribers...</span>
-        </CardContent>
-      </Card>
-    )
-  }
-
   const parsedEmails = parseBulkEmails(bulkEmailSearch)
   const foundSubscribers = findSubscribersByEmails(parsedEmails)
 
@@ -537,10 +524,10 @@ export function StreamAssignments() {
           <CardTitle>Stream Assignments</CardTitle>
           <CardDescription>
             Assign subscribers directly to streams. Subscribers will have access to the assigned streams.
-            {assignmentsLoading && (
+            {dataLoading && (
               <span className="ml-2 inline-flex items-center gap-1 text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                Syncing assignments…
+                Loading…
               </span>
             )}
           </CardDescription>

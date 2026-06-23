@@ -1,5 +1,6 @@
 import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
 import { type UserProfile, type UserRole } from "./auth"
+import { parseStreamSessions, type StreamSession as StreamingSession } from "./streaming"
 import { type UserTenant } from "./tenant"
 
 export interface StreamPermission {
@@ -181,6 +182,55 @@ export const getStreamAssignments = async () => {
   const { ok, json } = await postAdmin("getStreamAssignments")
   if (!ok) return []
   return (json.assignments || []).map((a: any) => ({ ...a, createdAt: toDate(a.createdAt) })) as StreamAssignment[]
+}
+
+export type StreamAssignmentsBootstrap = {
+  subscribers: (UserProfile & { id: string })[]
+  streams: StreamingSession[]
+  assignments: StreamAssignment[]
+}
+
+let streamAssignmentsBootstrapCache: StreamAssignmentsBootstrap | null = null
+let streamAssignmentsBootstrapPromise: Promise<StreamAssignmentsBootstrap> | null = null
+
+function mapStreamAssignmentsBootstrap(json: Record<string, unknown>): StreamAssignmentsBootstrap {
+  return {
+    subscribers: (json.subscribers || []) as (UserProfile & { id: string })[],
+    streams: parseStreamSessions((json.streams || []) as unknown[]),
+    assignments: ((json.assignments || []) as any[]).map((a) => ({
+      ...a,
+      createdAt: toDate(a.createdAt),
+    })) as StreamAssignment[],
+  }
+}
+
+export const invalidateStreamAssignmentsBootstrap = () => {
+  streamAssignmentsBootstrapCache = null
+  streamAssignmentsBootstrapPromise = null
+}
+
+export const getStreamAssignmentsBootstrap = async (
+  options?: { force?: boolean },
+): Promise<StreamAssignmentsBootstrap> => {
+  if (!options?.force && streamAssignmentsBootstrapCache) {
+    return streamAssignmentsBootstrapCache
+  }
+  if (!options?.force && streamAssignmentsBootstrapPromise) {
+    return streamAssignmentsBootstrapPromise
+  }
+
+  const load = async (): Promise<StreamAssignmentsBootstrap> => {
+    const { ok, json } = await postAdmin("getStreamAssignmentsBootstrap")
+    const data = ok
+      ? mapStreamAssignmentsBootstrap(json)
+      : { subscribers: [], streams: [], assignments: [] }
+    streamAssignmentsBootstrapCache = data
+    streamAssignmentsBootstrapPromise = null
+    return data
+  }
+
+  streamAssignmentsBootstrapPromise = load()
+  return streamAssignmentsBootstrapPromise
 }
 
 export const deleteStreamAssignment = async (assignmentId: string) => {

@@ -67,6 +67,16 @@ function normalizeStreamSession(id: string, data: Record<string, unknown>): Stre
 const sortByNewest = (streams: StreamSession[]) =>
   streams.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
+/** Parse API/JSON stream rows into client StreamSession objects. */
+export function parseStreamSessions(rows: unknown[]): StreamSession[] {
+  return sortByNewest(
+    rows.map((row) => {
+      const s = row as Record<string, unknown> & { id: string }
+      return normalizeStreamSession(s.id, s)
+    }),
+  )
+}
+
 // ── Backend helpers ───────────────────────────────────────────────────────────
 async function post(action: string, payload: Record<string, any> = {}) {
   try {

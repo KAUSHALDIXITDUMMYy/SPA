@@ -66,6 +66,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(await adminData.createStreamAssignment(payload.assignment))
       case "getStreamAssignments":
         return NextResponse.json({ assignments: await adminData.getStreamAssignments() })
+      case "getStreamAssignmentsBootstrap":
+        return NextResponse.json(await adminData.getStreamAssignmentsBootstrap(viewer))
       case "deleteStreamAssignment":
         return NextResponse.json(await adminData.deleteStreamAssignment(payload.assignmentId))
       case "updateStreamAssignment":
