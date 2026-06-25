@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireUserProfile, forbidden } from "@/lib/server/api-auth"
+import { resolveUserTenant } from "@/lib/tenant"
 import * as analytics from "@/lib/server/analytics-data"
 
 /**
@@ -67,7 +68,13 @@ export async function GET(request: NextRequest) {
   try {
     if (type === "admin") {
       if (profile.role !== "admin") return forbidden()
-      return NextResponse.json(await analytics.getAdminAnalytics(limitCount))
+      return NextResponse.json(
+        await analytics.getAdminAnalytics(limitCount, {
+          role: profile.role,
+          email: profile.email,
+          tenant: resolveUserTenant(profile),
+        }),
+      )
     }
 
     if (type === "publisher" && publisherId) {

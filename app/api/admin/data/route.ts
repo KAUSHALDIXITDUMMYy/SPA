@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
       case "createStreamPermission":
         return NextResponse.json(await adminData.createStreamPermission(payload.permission))
       case "getStreamPermissions":
-        return NextResponse.json({ permissions: await adminData.getStreamPermissions() })
+        return NextResponse.json({ permissions: await adminData.getStreamPermissions(viewer) })
       case "updateStreamPermission":
         return NextResponse.json(
           await adminData.updateStreamPermission(payload.permissionId, payload.updates),
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
       case "createStreamAssignment":
         return NextResponse.json(await adminData.createStreamAssignment(payload.assignment))
       case "getStreamAssignments":
-        return NextResponse.json({ assignments: await adminData.getStreamAssignments() })
+        return NextResponse.json({ assignments: await adminData.getStreamAssignments(viewer) })
       case "getStreamAssignmentsBootstrap":
         return NextResponse.json(await adminData.getStreamAssignmentsBootstrap(viewer))
       case "deleteStreamAssignment":

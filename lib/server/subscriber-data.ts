@@ -4,6 +4,7 @@
  */
 
 import { getAdminDb } from "@/lib/firebase-admin"
+import { resolveUserTenant, type UserTenant } from "@/lib/tenant"
 
 function toIso(value: any): string | null {
   if (!value) return null
@@ -174,12 +175,36 @@ export async function getUserPermissions(subscriberId: string) {
     .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
 }
 
-export async function getAllPermissions() {
+export async function getAllPermissions(adminViewer?: {
+  role?: string
+  email?: string
+  tenant?: UserTenant
+}) {
   const db = await getAdminDb()
   const snap = await db.collection("streamPermissions").get()
-  return snap.docs
+  let rows = snap.docs
     .map((d: any) => serializeRow(d.id, d.data()))
     .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+
+  if (adminViewer?.role === "admin") {
+    const usersSnap = await db.collection("users").get()
+    const tenantByUserId = new Map<string, UserTenant>()
+    usersSnap.docs.forEach((doc) => {
+      const data = doc.data()
+      const tenant = resolveUserTenant(data as { email?: string; tenant?: UserTenant })
+      tenantByUserId.set(doc.id, tenant)
+      if (data.uid) tenantByUserId.set(data.uid, tenant)
+    })
+    const scope = resolveUserTenant(adminViewer)
+    rows = rows.filter((p) => {
+      const st = tenantByUserId.get(p.subscriberId)
+      const pt = tenantByUserId.get(p.publisherId)
+      if (scope === "kevionics") return st === "kevionics"
+      return st !== "kevionics" && pt !== "kevionics"
+    })
+  }
+
+  return rows
 }
 
 export async function checkStreamAccess(subscriberId: string, publisherId: string) {

@@ -26,6 +26,7 @@ yarn-error.log*
 
 # local scripts output (passwords / service accounts)
 scripts/subscriber-admin-credentials.txt
+scripts/2phills-password-reset-result.txt
 scripts/publisher-ids-and-passwords.txt
 scripts/service-account.json
 scripts/source-service-account.json

@@ -14,11 +14,14 @@ import { getAdminDb } from "@/lib/firebase-admin"
 import { getActiveStreams } from "@/lib/server/streaming-data"
 import {
   resolveUserTenant,
+  userVisibleToAdmin,
   validateNewUserForCreator,
   type UserTenant,
 } from "@/lib/tenant"
 
 type Role = "admin" | "publisher" | "subscriber"
+
+type AdminViewer = { role?: Role; email?: string; tenant?: UserTenant }
 
 /** Convert a Firestore Timestamp / Date / string to an ISO string (or null). */
 function toIso(value: any): string | null {
@@ -36,6 +39,63 @@ function docToObject(doc: FirebaseFirestore.DocumentSnapshot) {
     if (key in out) out[key] = toIso(out[key])
   }
   return out
+}
+
+function filterUsersForAdmin<T extends { tenant?: UserTenant; email?: string; role?: string }>(
+  rows: T[],
+  adminViewer?: AdminViewer,
+): T[] {
+  if (adminViewer?.role !== "admin") return rows
+  return rows.filter((u) => userVisibleToAdmin(adminViewer, u))
+}
+
+async function loadUserTenantByIdMap(): Promise<Map<string, UserTenant>> {
+  const db = await getAdminDb()
+  const snap = await db.collection("users").get()
+  const map = new Map<string, UserTenant>()
+  snap.docs.forEach((doc) => {
+    const data = doc.data() as { uid?: string; email?: string; tenant?: UserTenant; role?: string }
+    const tenant = resolveUserTenant(data)
+    map.set(doc.id, tenant)
+    if (data.uid) map.set(data.uid, tenant)
+  })
+  return map
+}
+
+function filterPermissionsForAdmin(
+  permissions: Record<string, any>[],
+  tenantByUserId: Map<string, UserTenant>,
+  adminViewer?: AdminViewer,
+) {
+  if (adminViewer?.role !== "admin") return permissions
+  const scope = resolveUserTenant(adminViewer)
+  return permissions.filter((p) => {
+    const subscriberTenant = tenantByUserId.get(p.subscriberId)
+    const publisherTenant = tenantByUserId.get(p.publisherId)
+    if (scope === "kevionics") {
+      return subscriberTenant === "kevionics"
+    }
+    if (subscriberTenant === "kevionics" || publisherTenant === "kevionics") {
+      return false
+    }
+    return true
+  })
+}
+
+function filterAssignmentsForAdmin(
+  assignments: Record<string, any>[],
+  tenantByUserId: Map<string, UserTenant>,
+  adminViewer?: AdminViewer,
+) {
+  if (adminViewer?.role !== "admin") return assignments
+  const scope = resolveUserTenant(adminViewer)
+  return assignments.filter((a) => {
+    const subscriberTenant = tenantByUserId.get(a.subscriberId)
+    if (scope === "kevionics") {
+      return subscriberTenant === "kevionics"
+    }
+    return subscriberTenant !== "kevionics"
+  })
 }
 
 // ── Users ───────────────────────────────────────────────────────────────────
@@ -79,32 +139,17 @@ export async function createUser(input: {
   }
 }
 
-export async function getAllUsers(adminViewer?: { role?: Role; email?: string; tenant?: UserTenant }) {
+export async function getAllUsers(adminViewer?: AdminViewer) {
   const db = await getAdminDb()
   const snap = await db.collection("users").orderBy("createdAt", "desc").get()
-  let rows = snap.docs.map(docToObject)
-  if (adminViewer?.role === "admin") {
-    const scope = resolveUserTenant(adminViewer)
-    if (scope === "kevionics") {
-      rows = rows.filter((u: any) => resolveUserTenant(u) === "kevionics" && u.role === "subscriber")
-    } else {
-      rows = rows.filter((u: any) => resolveUserTenant(u) !== "kevionics")
-    }
-  }
-  return rows
+  const rows = snap.docs.map(docToObject)
+  return filterUsersForAdmin(rows, adminViewer)
 }
 
-export async function getUsersByRole(
-  role: Role,
-  adminViewer?: { role?: Role; email?: string; tenant?: UserTenant },
-) {
+export async function getUsersByRole(role: Role, adminViewer?: AdminViewer) {
   const db = await getAdminDb()
   const snap = await db.collection("users").where("role", "==", role).get()
-  let users = snap.docs.map(docToObject)
-  if (role === "subscriber" && adminViewer?.role === "admin") {
-    const scope = resolveUserTenant(adminViewer)
-    users = users.filter((u: any) => resolveUserTenant(u) === scope)
-  }
+  const users = filterUsersForAdmin(snap.docs.map(docToObject), adminViewer)
   return users.sort(
     (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   )
@@ -155,12 +200,14 @@ export async function createStreamPermission(permission: Record<string, any>) {
   return { success: true, id: ref.id }
 }
 
-export async function getStreamPermissions() {
+export async function getStreamPermissions(adminViewer?: AdminViewer) {
   const db = await getAdminDb()
   const snap = await db.collection("streamPermissions").get()
-  return snap.docs
-    .map(docToObject)
-    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  const rows = snap.docs.map(docToObject)
+  const tenantByUserId = await loadUserTenantByIdMap()
+  return filterPermissionsForAdmin(rows, tenantByUserId, adminViewer).sort(
+    (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  )
 }
 
 export async function updateStreamPermission(permissionId: string, updates: Record<string, any>) {
@@ -182,23 +229,31 @@ export async function createStreamAssignment(assignment: Record<string, any>) {
   return { success: true, id: ref.id }
 }
 
-export async function getStreamAssignments() {
+export async function getStreamAssignments(adminViewer?: AdminViewer) {
   const db = await getAdminDb()
   const snap = await db.collection("streamAssignments").get()
-  return snap.docs
-    .map(docToObject)
-    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  const rows = snap.docs.map(docToObject)
+  const tenantByUserId = await loadUserTenantByIdMap()
+  return filterAssignmentsForAdmin(rows, tenantByUserId, adminViewer).sort(
+    (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  )
 }
 
 /** One round-trip for the Stream Assignments admin tab. */
-export async function getStreamAssignmentsBootstrap(
-  adminViewer?: { role?: Role; email?: string; tenant?: UserTenant },
-) {
-  const [subscribers, streams, assignments] = await Promise.all([
+export async function getStreamAssignmentsBootstrap(adminViewer?: AdminViewer) {
+  const tenantByUserId = await loadUserTenantByIdMap()
+  const [subscribers, streams, assignmentRows] = await Promise.all([
     getUsersByRole("subscriber", adminViewer),
     getActiveStreams(),
-    getStreamAssignments(),
+    getAdminDb().then((db) => db.collection("streamAssignments").get()),
   ])
+  const assignments = filterAssignmentsForAdmin(
+    assignmentRows.docs.map(docToObject),
+    tenantByUserId,
+    adminViewer,
+  ).sort(
+    (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  )
   return { subscribers, streams, assignments }
 }
 

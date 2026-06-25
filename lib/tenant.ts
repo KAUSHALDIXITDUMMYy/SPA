@@ -11,14 +11,29 @@ export function resolveUserTenant(user: {
   tenant?: UserTenant
   email?: string
 }): UserTenant {
-  if (user.tenant === "kevionics" || user.tenant === "default") {
-    return user.tenant
-  }
   const email = (user.email || "").toLowerCase()
+  // @kevionics.com always belongs to the shadow tenant (even if legacy rows say "default").
   if (email.endsWith(`@${KEVIONICS_EMAIL_DOMAIN}`)) {
     return "kevionics"
   }
+  if (user.tenant === "kevionics" || user.tenant === "default") {
+    return user.tenant
+  }
   return "default"
+}
+
+/** Whether an admin user list / assignment matrix should include this account. */
+export function userVisibleToAdmin(
+  admin: { tenant?: UserTenant; email?: string; role?: string },
+  target: { tenant?: UserTenant; email?: string; role?: string },
+): boolean {
+  if (admin.role !== "admin") return true
+  const adminTenant = resolveUserTenant(admin)
+  const targetTenant = resolveUserTenant(target)
+  if (adminTenant === "kevionics") {
+    return targetTenant === "kevionics" && target.role === "subscriber"
+  }
+  return targetTenant !== "kevionics"
 }
 
 export function isShadowAdmin(user: { role?: UserRole; email?: string; tenant?: UserTenant }): boolean {
@@ -75,12 +90,7 @@ export function adminCanManageTargetUser(
   target: { tenant?: UserTenant; email?: string; role?: string },
 ): boolean {
   if (admin.role !== "admin") return false
-  const at = resolveUserTenant(admin)
-  const tt = resolveUserTenant(target)
-  if (at === "kevionics") {
-    return tt === "kevionics" && target.role === "subscriber"
-  }
-  return tt !== "kevionics"
+  return userVisibleToAdmin(admin, target)
 }
 
 export function broadcastVisibleToSubscriber(

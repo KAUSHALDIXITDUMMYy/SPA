@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireUserProfile, forbidden } from "@/lib/server/api-auth"
+import { resolveUserTenant } from "@/lib/tenant"
 import * as sub from "@/lib/server/subscriber-data"
 
 /**
@@ -38,7 +39,13 @@ export async function GET(req: NextRequest) {
         return NextResponse.json(await sub.checkStreamAccess(subscriberId, publisherId))
       case "allPermissions":
         if (!isAdmin) return forbidden()
-        return NextResponse.json({ permissions: await sub.getAllPermissions() })
+        return NextResponse.json({
+          permissions: await sub.getAllPermissions({
+            role: profile.role,
+            email: profile.email,
+            tenant: resolveUserTenant(profile),
+          }),
+        })
       default:
         return NextResponse.json({ error: "Invalid type" }, { status: 400 })
     }

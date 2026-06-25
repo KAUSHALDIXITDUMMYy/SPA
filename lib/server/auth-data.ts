@@ -91,6 +91,8 @@ export async function migratePendingUser(
     if (e?.code === "auth/email-already-exists") {
       const existing = await auth.getUserByEmail(lower)
       newAuthUid = existing.uid
+      // Orphaned Auth rows can exist before Firestore migration finishes — align password.
+      await auth.updateUser(newAuthUid, { password })
     } else {
       return { migrated: false, error: e?.message || "Failed to create account" }
     }

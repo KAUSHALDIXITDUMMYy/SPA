@@ -4,6 +4,7 @@
  */
 
 import { getAdminDb } from "@/lib/firebase-admin"
+import { resolveUserTenant, type UserTenant } from "@/lib/tenant"
 
 function toIso(value: any): string {
   if (!value) return new Date().toISOString()
@@ -94,20 +95,34 @@ export async function trackSubscriberActivity(data: TrackInput) {
   return { success: true, id: ref.id }
 }
 
-export async function getAdminAnalytics(limitCount = 100) {
+export async function getAdminAnalytics(
+  limitCount = 100,
+  adminViewer?: { role?: string; email?: string; tenant?: UserTenant },
+) {
   const db = await getAdminDb()
   const analyticsSnap = await db
     .collection("streamAnalytics")
     .orderBy("timestamp", "desc")
     .limit(limitCount)
     .get()
-  const analytics = analyticsSnap.docs.map(mapDoc)
+  let analytics = analyticsSnap.docs.map(mapDoc)
 
   const activeSnap = await db.collection("activeViewers").where("isActive", "==", true).get()
-  const activeViewers = activeSnap.docs.map(mapDoc)
+  let activeViewers = activeSnap.docs.map(mapDoc)
 
   const streamsSnap = await db.collection("streamSessions").where("isActive", "==", true).get()
   const activeStreams = streamsSnap.docs.map(mapDoc)
+
+  if (adminViewer?.role === "admin") {
+    const scope = resolveUserTenant(adminViewer)
+    const matchTenant = (row: { subscriberTenant?: string }) => {
+      const t = row.subscriberTenant
+      if (t === "kevionics" || t === "default") return t === scope
+      return scope !== "kevionics"
+    }
+    analytics = analytics.filter(matchTenant)
+    activeViewers = activeViewers.filter(matchTenant)
+  }
 
   const uniqueViewers = new Set(analytics.map((a: any) => a.subscriberId)).size
   const leaveEvents = analytics.filter((a: any) => a.action === "leave")

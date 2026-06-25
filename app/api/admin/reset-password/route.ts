@@ -52,13 +52,16 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    if (userData.role === "subscriber") {
-      await userRef.update({ mustChangePassword: true })
+    // Admin-set passwords should work as-is; do not force change-password on next login.
+    const clearForcedPasswordChange = {
+      mustChangePassword: false,
+      pendingPassword: null,
     }
 
     if (userData.isPending) {
       await userRef.update({
         pendingPassword: newPassword,
+        mustChangePassword: false,
       })
 
       return NextResponse.json({
@@ -73,6 +76,7 @@ export async function POST(req: NextRequest) {
       if (!auth) {
         await userRef.update({
           pendingPassword: newPassword,
+          mustChangePassword: false,
         })
         return NextResponse.json({
           success: true,
@@ -88,6 +92,7 @@ export async function POST(req: NextRequest) {
         if (error.code === "auth/user-not-found") {
           await userRef.update({
             pendingPassword: newPassword,
+            mustChangePassword: false,
           })
           return NextResponse.json({
             success: true,
@@ -100,6 +105,8 @@ export async function POST(req: NextRequest) {
       await auth.updateUser(firebaseAuthUser.uid, {
         password: newPassword,
       })
+
+      await userRef.update(clearForcedPasswordChange)
 
       if (userData.role === "admin" || userData.role === "publisher" || userData.role === "subscriber") {
         void syncUserRoleClaim(firebaseAuthUser.uid, userData.role).catch(() => {})
@@ -115,6 +122,7 @@ export async function POST(req: NextRequest) {
       if (error.message?.includes("firebase-admin") || error.message?.includes("Admin SDK") || !error.code) {
         await userRef.update({
           pendingPassword: newPassword,
+          mustChangePassword: false,
         })
         return NextResponse.json({
           success: true,
