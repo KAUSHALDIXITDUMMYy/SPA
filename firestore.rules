@@ -1,21 +1,182 @@
 rules_version = '2';
 
-// LOCKED DOWN — deny all direct client access.
+// Web app: all data via backend API (Admin SDK). These rules are for native Android/iOS
+// apps that still read/write Firestore directly, plus contact form creates.
 //
-// Every read/write now goes through our backend API routes, which use the Firebase
-// Admin SDK. The Admin SDK bypasses these rules entirely, so the app keeps working
-// while NO client (browser, mobile, or a clone site embedding our public config) can
-// touch Firestore directly. This removes the previous vulnerability where any
-// signed-in user could read/write the whole database.
-//
-// Publish in Firebase Console → Firestore → Rules → Publish (and via firebase deploy).
-//
-// If you ever add a feature that must read Firestore directly from the client, add a
-// narrowly-scoped match block here for that specific collection/path only — never a
-// broad `if signedIn()` rule.
+// Publish: Firebase Console → Firestore → Rules → Publish (project smas-57b80).
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function role() {
+      return request.auth.token.role;
+    }
+
+    function isAdmin() {
+      return signedIn() && role() == 'admin';
+    }
+
+    function isOwnUser() {
+      return signedIn() && (request.auth.uid == resource.data.uid || request.auth.uid == userId);
+    }
+
+    // Users may update their own profile, but not privilege / auth fields.
+    function userSelfUpdateOk() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(['role', 'tenant', 'isActive', 'isPending', 'pendingPassword', 'mustChangePassword']);
+    }
+
+    // ── Users ───────────────────────────────────────────────────────────────
+    // TEMP (store app v1): mobile calls users.get() — any signed-in user can read profiles.
+    // Tighten to publisher/admin-only after app update ships (see git history / firestore.rules).
+    match /users/{userId} {
+      allow read: if signedIn() || resource.data.isPending == true;
+      allow create: if isAdmin() || (signedIn() && request.resource.data.role == 'subscriber');
+      allow update: if isAdmin() || (isOwnUser() && userSelfUpdateOk());
+      allow delete: if isAdmin();
+    }
+
+    // ── Assignments & permissions (scoped to the signed-in user) ────────────
+    match /streamPermissions/{permId} {
+      allow read: if signedIn() && (
+        isAdmin()
+        || resource.data.subscriberId == uid()
+        || resource.data.publisherId == uid()
+      );
+      allow write: if isAdmin();
+    }
+
+    match /streamAssignments/{assignId} {
+      allow read: if signedIn() && (
+        isAdmin()
+        || resource.data.subscriberId == uid()
+      );
+      allow write: if isAdmin();
+    }
+
+    // Legacy zoom assignment collections (if mobile still uses them)
+    match /zoomPublisherAssignments/{docId} {
+      allow read: if signedIn() && (
+        isAdmin() || resource.data.subscriberId == uid()
+      );
+      allow write: if isAdmin();
+    }
+
+    match /zoomCallAssignments/{docId} {
+      allow read: if signedIn() && (
+        isAdmin() || resource.data.subscriberId == uid()
+      );
+      allow write: if isAdmin();
+    }
+
+    // ── Streams & schedule (mobile publisher + subscriber) ────────────────────
+    match /streamSessions/{sessionId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && (
+        isAdmin() || request.resource.data.publisherId == uid()
+      );
+      allow update: if signedIn() && (
+        isAdmin()
+        || resource.data.publisherId == uid()
+        || request.resource.data.publisherId == uid()
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /scheduledCalls/{callId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /dailySchedule/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /zoomCalls/{callId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── Notifications, chat, reports ────────────────────────────────────────
+    match /adminBroadcasts/{broadcastId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /streamChatMessages/{messageId} {
+      allow read: if signedIn();
+      // Mobile + web use senderId (not userId).
+      allow create: if signedIn() && (
+        request.resource.data.senderId == uid()
+        || request.resource.data.userId == uid()
+      );
+      allow update, delete: if isAdmin();
+    }
+
+    match /reports/{reportId} {
+      allow create: if signedIn();
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Contact form (no login) — web /api/contact also writes via Admin SDK.
+    match /contactMessages/{messageId} {
+      allow create: if request.resource.data.keys().hasAll(['name', 'email', 'subject', 'message']);
+      allow read, update, delete: if isAdmin();
+    }
+
+    // ── Server-only (never client) ──────────────────────────────────────────
+    match /mfaSecrets/{docId} {
+      allow read, write: if false;
+    }
+
+    match /cleanupLogs/{docId} {
+      allow read, write: if false;
+    }
+
+    match /accessLogs/{docId} {
+      allow read, write: if false;
+    }
+
+    match /blockEvents/{docId} {
+      allow read, write: if false;
+    }
+
+    // Mobile apps may write join/leave heartbeats directly (web uses API).
+    match /activeViewers/{docId} {
+      allow read: if signedIn() && (
+        isAdmin()
+        || resource.data.subscriberId == uid()
+        || resource.data.publisherId == uid()
+      );
+      allow create: if signedIn()
+        && request.resource.data.subscriberId == uid();
+      allow update: if signedIn() && (
+        isAdmin() || resource.data.subscriberId == uid()
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /streamAnalytics/{docId} {
+      allow read: if signedIn() && (
+        isAdmin()
+        || resource.data.subscriberId == uid()
+        || resource.data.publisherId == uid()
+      );
+      allow create: if signedIn()
+        && request.resource.data.subscriberId == uid();
+      allow update, delete: if isAdmin();
+    }
+
+    // Deny everything else (no blanket signedIn() catch-all).
     match /{document=**} {
       allow read, write: if false;
     }

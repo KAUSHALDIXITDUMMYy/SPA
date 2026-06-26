@@ -36,7 +36,6 @@ export async function POST(req: NextRequest) {
           await authData.createProfile({
             uid,
             email: profile.email || payload.email,
-            role: payload.role,
             displayName: payload.displayName,
           }),
         )

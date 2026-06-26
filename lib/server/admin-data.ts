@@ -23,6 +23,9 @@ type Role = "admin" | "publisher" | "subscriber"
 
 type AdminViewer = { role?: Role; email?: string; tenant?: UserTenant }
 
+const TENANT_MAP_TTL_MS = 60_000
+let tenantMapCache: { map: Map<string, UserTenant>; at: number } | null = null
+
 /** Convert a Firestore Timestamp / Date / string to an ISO string (or null). */
 function toIso(value: any): string | null {
   if (!value) return null
@@ -50,6 +53,11 @@ function filterUsersForAdmin<T extends { tenant?: UserTenant; email?: string; ro
 }
 
 async function loadUserTenantByIdMap(): Promise<Map<string, UserTenant>> {
+  const now = Date.now()
+  if (tenantMapCache && now - tenantMapCache.at < TENANT_MAP_TTL_MS) {
+    return tenantMapCache.map
+  }
+
   const db = await getAdminDb()
   const snap = await db.collection("users").get()
   const map = new Map<string, UserTenant>()
@@ -59,6 +67,7 @@ async function loadUserTenantByIdMap(): Promise<Map<string, UserTenant>> {
     map.set(doc.id, tenant)
     if (data.uid) map.set(data.uid, tenant)
   })
+  tenantMapCache = { map, at: now }
   return map
 }
 
@@ -241,8 +250,8 @@ export async function getStreamAssignments(adminViewer?: AdminViewer) {
 
 /** One round-trip for the Stream Assignments admin tab. */
 export async function getStreamAssignmentsBootstrap(adminViewer?: AdminViewer) {
-  const tenantByUserId = await loadUserTenantByIdMap()
-  const [subscribers, streams, assignmentRows] = await Promise.all([
+  const [tenantByUserId, subscribers, streams, assignmentRows] = await Promise.all([
+    loadUserTenantByIdMap(),
     getUsersByRole("subscriber", adminViewer),
     getActiveStreams(),
     getAdminDb().then((db) => db.collection("streamAssignments").get()),

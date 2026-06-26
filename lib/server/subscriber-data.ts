@@ -43,20 +43,50 @@ export async function getSubscriberPermissions(subscriberId: string) {
   const permissions = permsSnap.docs.map((d: any) => serializeRow(d.id, d.data()))
   const assignments = assignsSnap.docs.map((d: any) => serializeRow(d.id, d.data()))
 
-  const [usersSnap, streamsSnap] = await Promise.all([
-    db.collection("users").where("role", "in", ["publisher", "admin"]).get(),
+  const publisherIds = new Set<string>()
+  permissions.forEach((p: any) => {
+    if (p.publisherId) publisherIds.add(p.publisherId)
+  })
+
+  const assignmentSessionIds = assignments
+    .map((a: any) => a.streamSessionId as string | undefined)
+    .filter((id: string | undefined): id is string => Boolean(id))
+
+  const assignmentSessionSnaps =
+    assignmentSessionIds.length > 0
+      ? await db.getAll(...assignmentSessionIds.map((id) => db.collection("streamSessions").doc(id)))
+      : []
+
+  assignmentSessionSnaps.forEach((snap: any) => {
+    if (snap.exists) {
+      const pid = snap.data()?.publisherId as string | undefined
+      if (pid) publisherIds.add(pid)
+    }
+  })
+
+  const [activeStreamsSnap, publisherSnaps] = await Promise.all([
     db.collection("streamSessions").where("isActive", "==", true).get(),
+    publisherIds.size > 0
+      ? db.getAll(...[...publisherIds].map((id) => db.collection("users").doc(id)))
+      : Promise.resolve([]),
   ])
 
   const usersMap = new Map<string, any>()
-  usersSnap.docs.forEach((d: any) => {
-    const u = d.data()
-    usersMap.set(u.uid, u)
+  publisherSnaps.forEach((snap: any) => {
+    if (!snap.exists) return
+    const u = snap.data()
+    usersMap.set(snap.id, u)
+    if (u.uid) usersMap.set(u.uid, u)
   })
 
   const activeStreamsMap = new Map<string, any>()
-  streamsSnap.docs.forEach((d: any) => {
+  activeStreamsSnap.docs.forEach((d: any) => {
     activeStreamsMap.set(d.id, serializeSession(d.id, d.data()))
+  })
+  assignmentSessionSnaps.forEach((snap: any) => {
+    if (snap.exists && !activeStreamsMap.has(snap.id)) {
+      activeStreamsMap.set(snap.id, serializeSession(snap.id, snap.data()))
+    }
   })
 
   const enriched: any[] = []

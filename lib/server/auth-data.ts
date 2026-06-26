@@ -39,16 +39,22 @@ export async function getProfile(uid: string) {
 export async function createProfile(input: {
   uid: string
   email: string
-  role: "admin" | "publisher" | "subscriber"
+  role?: "admin" | "publisher" | "subscriber"
   displayName?: string
 }) {
   const db = await getAdminDb()
+  const existing = await db.collection("users").doc(input.uid).get()
+  if (existing.exists) {
+    return { success: false, error: "Profile already exists" }
+  }
+
+  const normalizedEmail = (input.email || "").trim().toLowerCase()
   const profile = {
     uid: input.uid,
-    email: input.email,
-    role: input.role,
-    tenant: resolveUserTenant({ email: input.email }),
-    displayName: input.displayName || input.email.split("@")[0],
+    email: normalizedEmail,
+    role: "subscriber" as const,
+    tenant: resolveUserTenant({ email: normalizedEmail }),
+    displayName: input.displayName || normalizedEmail.split("@")[0],
     createdAt: new Date(),
     isActive: true,
   }

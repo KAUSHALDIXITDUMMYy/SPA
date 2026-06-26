@@ -28,12 +28,14 @@ export const BLOCKED_API_HOSTS = fromEnv("BLOCKED_API_HOSTS", [
 export const ALLOWED_API_ORIGINS = fromEnv("ALLOWED_API_ORIGINS", [
   "https://sportsmagicianaudio.vercel.app",
   "https://kevionics-audio-three.vercel.app",
+  "https://spa-gules-ten.vercel.app",
 ])
 
 /** Hostnames that are legitimately OUR deployment (anything else = a clone). */
 export const OWN_HOSTS = fromEnv("OWN_HOSTS", [
   "sportsmagicianaudio.vercel.app",
   "kevionics-audio-three.vercel.app",
+  "spa-gules-ten.vercel.app",
 ])
 
 function headerContainsBlockedHost(value: string | null): boolean {

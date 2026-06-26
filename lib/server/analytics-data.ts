@@ -38,7 +38,8 @@ export interface TrackInput {
 export async function trackSubscriberActivity(data: TrackInput) {
   const db = await getAdminDb()
   const { location, ...activityRest } = data
-  const analyticsData = { ...activityRest, timestamp: new Date() }
+  const analyticsData: Record<string, unknown> = { ...activityRest, timestamp: new Date() }
+  if (analyticsData.duration === undefined) delete analyticsData.duration
   const activeViewers = db.collection("activeViewers")
 
   if (data.action === "join") {
