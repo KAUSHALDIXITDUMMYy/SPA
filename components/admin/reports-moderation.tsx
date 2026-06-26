@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react"
 import {
-  getReports,
-  getBlockEvents,
+  getReportsPage,
+  getBlockEventsPage,
   resolveReport,
   updateUserStatus,
   type Report,
@@ -15,10 +15,11 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useAuth } from "@/hooks/use-auth"
-import { Flag, UserX, Ban, RefreshCw, Clock } from "lucide-react"
+import { Flag, UserX, Ban, RefreshCw, Clock, Loader2 } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 import { getUserProfile, type UserProfile } from "@/lib/auth"
 import { resolveUserTenant, type UserTenant } from "@/lib/tenant"
+import { useInfiniteScroll } from "@/hooks/use-infinite-scroll"
 
 async function filterModerationListsForAdmin(
   reports: Report[],
@@ -70,22 +71,52 @@ export function ReportsModeration() {
   const { userProfile, loading: authLoading } = useAuth()
   const [reports, setReports] = useState<Report[]>([])
   const [blockEvents, setBlockEvents] = useState<BlockEvent[]>([])
-  const [loading, setLoading] = useState(true)
   const [actingId, setActingId] = useState<string | null>(null)
 
-  const load = async () => {
-    setLoading(true)
-    const [r, b] = await Promise.all([getReports(), getBlockEvents()])
-    const { reports: rf, blocks: bf } = await filterModerationListsForAdmin(r, b, userProfile)
-    setReports(rf)
-    setBlockEvents(bf)
-    setLoading(false)
-  }
+  const {
+    items: rawReports,
+    loading: reportsLoading,
+    loadingMore: reportsLoadingMore,
+    hasMore: reportsHasMore,
+    reset: reloadReports,
+    sentinelRef: reportsSentinelRef,
+  } = useInfiniteScroll<Report>({
+    fetchPage: getReportsPage,
+    enabled: Boolean(userProfile && !authLoading),
+    resetKey: userProfile?.uid,
+  })
+
+  const {
+    items: rawBlocks,
+    loading: blocksLoading,
+    loadingMore: blocksLoadingMore,
+    hasMore: blocksHasMore,
+    reset: reloadBlocks,
+    sentinelRef: blocksSentinelRef,
+  } = useInfiniteScroll<BlockEvent>({
+    fetchPage: getBlockEventsPage,
+    enabled: Boolean(userProfile && !authLoading),
+    resetKey: userProfile?.uid,
+  })
+
+  const loading = reportsLoading || blocksLoading
 
   useEffect(() => {
-    if (authLoading || !userProfile) return
-    void load()
-  }, [authLoading, userProfile])
+    if (!userProfile) return
+    void (async () => {
+      const { reports: rf, blocks: bf } = await filterModerationListsForAdmin(
+        rawReports,
+        rawBlocks,
+        userProfile,
+      )
+      setReports(rf)
+      setBlockEvents(bf)
+    })()
+  }, [rawReports, rawBlocks, userProfile])
+
+  const load = async () => {
+    await Promise.all([reloadReports(), reloadBlocks()])
+  }
 
   const handleResolve = async (reportId: string) => {
     if (!userProfile?.uid) return
@@ -212,6 +243,18 @@ export function ReportsModeration() {
                     )}
                   </Card>
                 ))}
+                {reportsHasMore && (
+                  <div ref={reportsSentinelRef} className="py-3 text-center text-xs text-muted-foreground">
+                    {reportsLoadingMore ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Loading more reports…
+                      </span>
+                    ) : (
+                      "Scroll for more reports"
+                    )}
+                  </div>
+                )}
               </div>
             </ScrollArea>
           )}
@@ -243,6 +286,18 @@ export function ReportsModeration() {
                     <span className="text-muted-foreground text-xs">{formatDate(e.createdAt)}</span>
                   </div>
                 ))}
+                {blocksHasMore && (
+                  <div ref={blocksSentinelRef} className="py-3 text-center text-xs text-muted-foreground">
+                    {blocksLoadingMore ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Loading more block events…
+                      </span>
+                    ) : (
+                      "Scroll for more block events"
+                    )}
+                  </div>
+                )}
               </div>
             </ScrollArea>
           )}

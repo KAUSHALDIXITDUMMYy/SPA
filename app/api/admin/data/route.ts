@@ -37,9 +37,19 @@ export async function POST(req: NextRequest) {
           }),
         )
       case "getAllUsers":
-        return NextResponse.json({ users: await adminData.getAllUsers(viewer) })
+        return NextResponse.json(
+          await adminData.getAllUsersPage(viewer, {
+            limit: payload.limit,
+            cursor: payload.cursor,
+          }),
+        )
       case "getUsersByRole":
-        return NextResponse.json({ users: await adminData.getUsersByRole(payload.role, viewer) })
+        return NextResponse.json(
+          await adminData.getUsersByRolePage(payload.role, viewer, {
+            limit: payload.limit,
+            cursor: payload.cursor,
+          }),
+        )
       case "updateUserStatus":
         return NextResponse.json(await adminData.updateUserStatus(payload.userId, payload.isActive))
       case "updateUserChatPermission":
@@ -55,7 +65,19 @@ export async function POST(req: NextRequest) {
       case "createStreamPermission":
         return NextResponse.json(await adminData.createStreamPermission(payload.permission))
       case "getStreamPermissions":
-        return NextResponse.json({ permissions: await adminData.getStreamPermissions(viewer) })
+        return NextResponse.json(
+          await adminData.getStreamPermissionsPage(viewer, {
+            limit: payload.limit,
+            cursor: payload.cursor,
+          }),
+        )
+      case "getStreamPermissionsForSubscriberIds":
+        return NextResponse.json({
+          permissions: await adminData.getStreamPermissionsForSubscriberIds(
+            payload.subscriberIds || [],
+            viewer,
+          ),
+        })
       case "updateStreamPermission":
         return NextResponse.json(
           await adminData.updateStreamPermission(payload.permissionId, payload.updates),
@@ -67,7 +89,12 @@ export async function POST(req: NextRequest) {
       case "getStreamAssignments":
         return NextResponse.json({ assignments: await adminData.getStreamAssignments(viewer) })
       case "getStreamAssignmentsBootstrap":
-        return NextResponse.json(await adminData.getStreamAssignmentsBootstrap(viewer))
+        return NextResponse.json(
+          await adminData.getStreamAssignmentsBootstrap(viewer, {
+            limit: payload.limit,
+            cursor: payload.cursor,
+          }),
+        )
       case "deleteStreamAssignment":
         return NextResponse.json(await adminData.deleteStreamAssignment(payload.assignmentId))
       case "updateStreamAssignment":
@@ -75,7 +102,12 @@ export async function POST(req: NextRequest) {
           await adminData.updateStreamAssignment(payload.assignmentId, payload.updates),
         )
       case "getContactMessages":
-        return NextResponse.json({ messages: await adminData.getContactMessages() })
+        return NextResponse.json(
+          await adminData.getContactMessagesPage({
+            limit: payload.limit,
+            cursor: payload.cursor,
+          }),
+        )
       case "markContactMessageRead":
         return NextResponse.json(await adminData.markContactMessageRead(payload.messageId))
       case "createAdminBroadcast":
@@ -88,11 +120,21 @@ export async function POST(req: NextRequest) {
           }),
         )
       case "getReports":
-        return NextResponse.json({ reports: await adminData.getReports() })
+        return NextResponse.json(
+          await adminData.getReportsPage({
+            limit: payload.limit,
+            cursor: payload.cursor,
+          }),
+        )
       case "resolveReport":
         return NextResponse.json(await adminData.resolveReport(payload.reportId, profile.uid))
       case "getBlockEvents":
-        return NextResponse.json({ events: await adminData.getBlockEvents() })
+        return NextResponse.json(
+          await adminData.getBlockEventsPage({
+            limit: payload.limit,
+            cursor: payload.cursor,
+          }),
+        )
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })
     }

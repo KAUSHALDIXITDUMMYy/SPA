@@ -4,6 +4,8 @@
  */
 
 import { getAdminDb } from "@/lib/firebase-admin"
+import type { Firestore } from "firebase-admin/firestore"
+import { paginateOrderedQuery, queryByIdChunks } from "@/lib/server/pagination"
 import { resolveUserTenant, type UserTenant } from "@/lib/tenant"
 
 function toIso(value: any): string | null {
@@ -205,36 +207,70 @@ export async function getUserPermissions(subscriberId: string) {
     .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
 }
 
+function filterPermissionsForAdmin(
+  rows: Record<string, any>[],
+  tenantByUserId: Map<string, UserTenant>,
+  adminViewer?: { role?: string; email?: string; tenant?: UserTenant },
+) {
+  if (adminViewer?.role !== "admin") return rows
+  const scope = resolveUserTenant(adminViewer)
+  return rows.filter((p) => {
+    const st = tenantByUserId.get(p.subscriberId)
+    const pt = tenantByUserId.get(p.publisherId)
+    if (scope === "kevionics") return st === "kevionics"
+    return st !== "kevionics" && pt !== "kevionics"
+  })
+}
+
+async function loadTenantMapForPermissions(db: Firestore) {
+  const usersSnap = await db.collection("users").get()
+  const tenantByUserId = new Map<string, UserTenant>()
+  usersSnap.docs.forEach((doc) => {
+    const data = doc.data()
+    const tenant = resolveUserTenant(data as { email?: string; tenant?: UserTenant })
+    tenantByUserId.set(doc.id, tenant)
+    if (data.uid) tenantByUserId.set(data.uid, tenant)
+  })
+  return tenantByUserId
+}
+
+export async function getAllPermissionsPage(
+  adminViewer?: { role?: string; email?: string; tenant?: UserTenant },
+  options?: { limit?: number; cursor?: string | null },
+) {
+  const db = await getAdminDb()
+  const tenantByUserId =
+    adminViewer?.role === "admin" ? await loadTenantMapForPermissions(db) : new Map()
+  return paginateOrderedQuery({
+    db,
+    buildQuery: (database) => database.collection("streamPermissions").orderBy("createdAt", "desc"),
+    mapDoc: (doc) => serializeRow(doc.id, doc.data() || {}),
+    accept: (row) => filterPermissionsForAdmin([row], tenantByUserId, adminViewer).length > 0,
+    limit: options?.limit,
+    cursor: options?.cursor,
+    cursorCollection: "streamPermissions",
+  })
+}
+
+export async function getPermissionsForSubscriberIds(
+  subscriberIds: string[],
+  adminViewer?: { role?: string; email?: string; tenant?: UserTenant },
+) {
+  const db = await getAdminDb()
+  const tenantByUserId =
+    adminViewer?.role === "admin" ? await loadTenantMapForPermissions(db) : new Map()
+  const rows = await queryByIdChunks(db, "streamPermissions", "subscriberId", subscriberIds, (doc) =>
+    serializeRow(doc.id, doc.data() || {}),
+  )
+  return filterPermissionsForAdmin(rows, tenantByUserId, adminViewer)
+}
+
 export async function getAllPermissions(adminViewer?: {
   role?: string
   email?: string
   tenant?: UserTenant
 }) {
-  const db = await getAdminDb()
-  const snap = await db.collection("streamPermissions").get()
-  let rows = snap.docs
-    .map((d: any) => serializeRow(d.id, d.data()))
-    .sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
-
-  if (adminViewer?.role === "admin") {
-    const usersSnap = await db.collection("users").get()
-    const tenantByUserId = new Map<string, UserTenant>()
-    usersSnap.docs.forEach((doc) => {
-      const data = doc.data()
-      const tenant = resolveUserTenant(data as { email?: string; tenant?: UserTenant })
-      tenantByUserId.set(doc.id, tenant)
-      if (data.uid) tenantByUserId.set(data.uid, tenant)
-    })
-    const scope = resolveUserTenant(adminViewer)
-    rows = rows.filter((p) => {
-      const st = tenantByUserId.get(p.subscriberId)
-      const pt = tenantByUserId.get(p.publisherId)
-      if (scope === "kevionics") return st === "kevionics"
-      return st !== "kevionics" && pt !== "kevionics"
-    })
-  }
-
-  return rows
+  return (await getAllPermissionsPage(adminViewer)).items
 }
 
 export async function checkStreamAccess(subscriberId: string, publisherId: string) {

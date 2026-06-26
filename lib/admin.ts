@@ -1,5 +1,6 @@
 import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
 import { type UserProfile, type UserRole } from "./auth"
+import { type PaginatedResult, PAGE_SIZE } from "./pagination"
 import { parseStreamSessions, type StreamSession as StreamingSession } from "./streaming"
 import { type UserTenant } from "./tenant"
 
@@ -80,16 +81,37 @@ export const createUser = async (
   return json
 }
 
+function mapPaginatedUsers(json: Record<string, unknown>): PaginatedResult<UserProfile & { id: string }> {
+  return {
+    items: (json.items || []) as (UserProfile & { id: string })[],
+    nextCursor: (json.nextCursor as string | null) ?? null,
+    hasMore: Boolean(json.hasMore),
+  }
+}
+
+export const getAllUsersPage = async (
+  cursor?: string | null,
+): Promise<PaginatedResult<UserProfile & { id: string }>> => {
+  const { ok, json } = await postAdmin("getAllUsers", { cursor, limit: PAGE_SIZE })
+  if (!ok) return { items: [], nextCursor: null, hasMore: false }
+  return mapPaginatedUsers(json)
+}
+
 export const getAllUsers = async (_adminViewer?: UserProfile | null) => {
-  const { ok, json } = await postAdmin("getAllUsers")
-  if (!ok) return []
-  return (json.users || []) as (UserProfile & { id: string })[]
+  return (await getAllUsersPage()).items
+}
+
+export const getUsersByRolePage = async (
+  role: UserRole,
+  cursor?: string | null,
+): Promise<PaginatedResult<UserProfile & { id: string }>> => {
+  const { ok, json } = await postAdmin("getUsersByRole", { role, cursor, limit: PAGE_SIZE })
+  if (!ok) return { items: [], nextCursor: null, hasMore: false }
+  return mapPaginatedUsers(json)
 }
 
 export const getUsersByRole = async (role: UserRole, _adminViewer?: UserProfile | null) => {
-  const { ok, json } = await postAdmin("getUsersByRole", { role })
-  if (!ok) return []
-  return (json.users || []) as (UserProfile & { id: string })[]
+  return (await getUsersByRolePage(role)).items
 }
 
 export const updateUserStatus = async (userId: string, isActive: boolean) => {
@@ -151,10 +173,28 @@ export const createStreamPermission = async (
   return ok ? { success: true, id: json.id } : { success: false, error: json.error }
 }
 
-export const getStreamPermissions = async () => {
-  const { ok, json } = await postAdmin("getStreamPermissions")
+export const getStreamPermissionsPage = async (
+  cursor?: string | null,
+): Promise<PaginatedResult<StreamPermission>> => {
+  const { ok, json } = await postAdmin("getStreamPermissions", { cursor, limit: PAGE_SIZE })
+  if (!ok) return { items: [], nextCursor: null, hasMore: false }
+  return {
+    items: (json.items || []).map((p: any) => ({ ...p, createdAt: toDate(p.createdAt) })) as StreamPermission[],
+    nextCursor: (json.nextCursor as string | null) ?? null,
+    hasMore: Boolean(json.hasMore),
+  }
+}
+
+export const getStreamPermissionsForSubscriberIds = async (
+  subscriberIds: string[],
+): Promise<StreamPermission[]> => {
+  const { ok, json } = await postAdmin("getStreamPermissionsForSubscriberIds", { subscriberIds })
   if (!ok) return []
   return (json.permissions || []).map((p: any) => ({ ...p, createdAt: toDate(p.createdAt) })) as StreamPermission[]
+}
+
+export const getStreamPermissions = async () => {
+  return (await getStreamPermissionsPage()).items
 }
 
 export const updateStreamPermission = async (
@@ -188,6 +228,8 @@ export type StreamAssignmentsBootstrap = {
   subscribers: (UserProfile & { id: string })[]
   streams: StreamingSession[]
   assignments: StreamAssignment[]
+  nextCursor?: string | null
+  hasMore?: boolean
 }
 
 let streamAssignmentsBootstrapCache: StreamAssignmentsBootstrap | null = null
@@ -201,12 +243,17 @@ function mapStreamAssignmentsBootstrap(json: Record<string, unknown>): StreamAss
       ...a,
       createdAt: toDate(a.createdAt),
     })) as StreamAssignment[],
+    nextCursor: (json.nextCursor as string | null) ?? null,
+    hasMore: Boolean(json.hasMore),
   }
 }
 
-export const invalidateStreamAssignmentsBootstrap = () => {
-  streamAssignmentsBootstrapCache = null
-  streamAssignmentsBootstrapPromise = null
+export const getStreamAssignmentsBootstrapPage = async (
+  cursor?: string | null,
+): Promise<StreamAssignmentsBootstrap> => {
+  const { ok, json } = await postAdmin("getStreamAssignmentsBootstrap", { cursor, limit: PAGE_SIZE })
+  if (!ok) throw new Error(json.error || "Failed to load stream assignments")
+  return mapStreamAssignmentsBootstrap(json)
 }
 
 export const getStreamAssignmentsBootstrap = async (
@@ -220,12 +267,7 @@ export const getStreamAssignmentsBootstrap = async (
   }
 
   const load = async (): Promise<StreamAssignmentsBootstrap> => {
-    const { ok, json } = await postAdmin("getStreamAssignmentsBootstrap")
-    if (!ok) {
-      streamAssignmentsBootstrapPromise = null
-      throw new Error(json.error || "Failed to load stream assignments")
-    }
-    const data = mapStreamAssignmentsBootstrap(json)
+    const data = await getStreamAssignmentsBootstrapPage()
     streamAssignmentsBootstrapCache = data
     streamAssignmentsBootstrapPromise = null
     return data
@@ -259,10 +301,25 @@ export interface ContactMessage {
   read?: boolean
 }
 
+export const invalidateStreamAssignmentsBootstrap = () => {
+  streamAssignmentsBootstrapCache = null
+  streamAssignmentsBootstrapPromise = null
+}
+
+export const getContactMessagesPage = async (
+  cursor?: string | null,
+): Promise<PaginatedResult<ContactMessage>> => {
+  const { ok, json } = await postAdmin("getContactMessages", { cursor, limit: PAGE_SIZE })
+  if (!ok) return { items: [], nextCursor: null, hasMore: false }
+  return {
+    items: (json.items || []).map((m: any) => ({ ...m, createdAt: toDate(m.createdAt) })) as ContactMessage[],
+    nextCursor: (json.nextCursor as string | null) ?? null,
+    hasMore: Boolean(json.hasMore),
+  }
+}
+
 export const getContactMessages = async () => {
-  const { ok, json } = await postAdmin("getContactMessages")
-  if (!ok) return []
-  return (json.messages || []).map((m: any) => ({ ...m, createdAt: toDate(m.createdAt) })) as ContactMessage[]
+  return (await getContactMessagesPage()).items
 }
 
 export const markContactMessageRead = async (messageId: string) => {
@@ -294,23 +351,35 @@ export const createAdminBroadcast = async (
   return ok ? { success: true, id: json.id } : { success: false, error: json.error }
 }
 
-export const getAdminBroadcasts = async (): Promise<AdminBroadcast[]> => {
+export const getAdminBroadcastsPage = async (
+  cursor?: string | null,
+): Promise<PaginatedResult<AdminBroadcast>> => {
   try {
-    const res = await fetchWithAuth(`${COMMUNITY_ENDPOINT}?action=broadcasts`, { method: "GET" })
-    if (!res.ok) return []
+    const qs = new URLSearchParams({ action: "broadcasts", limit: String(PAGE_SIZE) })
+    if (cursor) qs.set("cursor", cursor)
+    const res = await fetchWithAuth(`${COMMUNITY_ENDPOINT}?${qs.toString()}`, { method: "GET" })
+    if (!res.ok) return { items: [], nextCursor: null, hasMore: false }
     const json = await res.json()
-    return (json.broadcasts || []).map((b: any) => ({
-      id: b.id,
-      message: b.message,
-      createdByUid: b.createdByUid,
-      createdByName: b.createdByName || undefined,
-      createdAt: toDate(b.createdAt),
-      targetTenant: b.targetTenant as UserTenant | undefined,
-    })) as AdminBroadcast[]
+    return {
+      items: (json.broadcasts || []).map((b: any) => ({
+        id: b.id,
+        message: b.message,
+        createdByUid: b.createdByUid,
+        createdByName: b.createdByName || undefined,
+        createdAt: toDate(b.createdAt),
+        targetTenant: b.targetTenant as UserTenant | undefined,
+      })) as AdminBroadcast[],
+      nextCursor: (json.nextCursor as string | null) ?? null,
+      hasMore: Boolean(json.hasMore),
+    }
   } catch (error) {
     console.error("Error fetching admin broadcasts:", error)
-    return []
+    return { items: [], nextCursor: null, hasMore: false }
   }
+}
+
+export const getAdminBroadcasts = async (): Promise<AdminBroadcast[]> => {
+  return (await getAdminBroadcastsPage()).items
 }
 
 /**
@@ -358,14 +427,22 @@ export const createReport = async (report: Omit<Report, "id" | "createdAt" | "st
   return ok ? { success: true, id: json.id } : { success: false, error: json.error }
 }
 
+export const getReportsPage = async (cursor?: string | null): Promise<PaginatedResult<Report>> => {
+  const { ok, json } = await postAdmin("getReports", { cursor, limit: PAGE_SIZE })
+  if (!ok) return { items: [], nextCursor: null, hasMore: false }
+  return {
+    items: (json.items || []).map((r: any) => ({
+      ...r,
+      createdAt: toDate(r.createdAt),
+      resolvedAt: r.resolvedAt ? toDate(r.resolvedAt) : undefined,
+    })) as Report[],
+    nextCursor: (json.nextCursor as string | null) ?? null,
+    hasMore: Boolean(json.hasMore),
+  }
+}
+
 export const getReports = async () => {
-  const { ok, json } = await postAdmin("getReports")
-  if (!ok) return []
-  return (json.reports || []).map((r: any) => ({
-    ...r,
-    createdAt: toDate(r.createdAt),
-    resolvedAt: r.resolvedAt ? toDate(r.resolvedAt) : undefined,
-  })) as Report[]
+  return (await getReportsPage()).items
 }
 
 export const resolveReport = async (reportId: string, _resolvedBy: string) => {
@@ -388,10 +465,20 @@ export const addBlockEvent = async (event: Omit<BlockEvent, "id" | "createdAt">)
   return ok ? { success: true } : { success: false, error: json.error }
 }
 
+export const getBlockEventsPage = async (
+  cursor?: string | null,
+): Promise<PaginatedResult<BlockEvent>> => {
+  const { ok, json } = await postAdmin("getBlockEvents", { cursor, limit: PAGE_SIZE })
+  if (!ok) return { items: [], nextCursor: null, hasMore: false }
+  return {
+    items: (json.items || []).map((e: any) => ({ ...e, createdAt: toDate(e.createdAt) })) as BlockEvent[],
+    nextCursor: (json.nextCursor as string | null) ?? null,
+    hasMore: Boolean(json.hasMore),
+  }
+}
+
 export const getBlockEvents = async () => {
-  const { ok, json } = await postAdmin("getBlockEvents")
-  if (!ok) return []
-  return (json.events || []).map((e: any) => ({ ...e, createdAt: toDate(e.createdAt) })) as BlockEvent[]
+  return (await getBlockEventsPage()).items
 }
 
 export const blockUser = async (

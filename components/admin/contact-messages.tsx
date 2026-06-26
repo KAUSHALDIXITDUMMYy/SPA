@@ -1,43 +1,43 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { getContactMessages, markContactMessageRead, type ContactMessage } from "@/lib/admin"
+import { useEffect, useMemo, useState } from "react"
+import { getContactMessagesPage, markContactMessageRead, type ContactMessage } from "@/lib/admin"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Mail, RefreshCw } from "lucide-react"
+import { Mail, RefreshCw, Loader2 } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 import { resolveUserTenant } from "@/lib/tenant"
+import { useInfiniteScroll } from "@/hooks/use-infinite-scroll"
 
 export function ContactMessages() {
   const { userProfile } = useAuth()
-  const [messages, setMessages] = useState<ContactMessage[]>([])
-  const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  const load = async () => {
-    setLoading(true)
-    const list = await getContactMessages()
-    const scope = userProfile?.role === "admin" ? resolveUserTenant(userProfile) : "default"
-    const filtered =
-      userProfile?.role === "admin"
-        ? list.filter((m) => resolveUserTenant({ email: m.email }) === scope)
-        : list
-    setMessages(filtered)
-    setLoading(false)
-  }
+  const {
+    items: rawMessages,
+    setItems: setMessages,
+    loading,
+    loadingMore,
+    hasMore,
+    reset,
+    sentinelRef,
+  } = useInfiniteScroll<ContactMessage>({
+    fetchPage: getContactMessagesPage,
+    enabled: Boolean(userProfile),
+    resetKey: userProfile?.uid,
+  })
 
-  useEffect(() => {
-    if (!userProfile) return
-    void load()
-  }, [userProfile?.uid, userProfile?.email, userProfile?.tenant])
+  const messages = useMemo(() => {
+    const scope = userProfile?.role === "admin" ? resolveUserTenant(userProfile) : "default"
+    if (userProfile?.role !== "admin") return rawMessages
+    return rawMessages.filter((m) => resolveUserTenant({ email: m.email }) === scope)
+  }, [rawMessages, userProfile])
 
   const handleMarkRead = async (id: string) => {
     await markContactMessageRead(id)
-    setMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, read: true } : m))
-    )
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, read: true } : m)))
     setSelectedId(id)
   }
 
@@ -64,9 +64,9 @@ export function ContactMessages() {
             <Mail className="h-5 w-5" />
             Contact messages
           </CardTitle>
-          <CardDescription>Messages sent from the Contact Us page</CardDescription>
+          <CardDescription>Messages sent from the Contact Us page (100 per page)</CardDescription>
         </div>
-        <Button variant="outline" size="sm" onClick={load}>
+        <Button variant="outline" size="sm" onClick={() => void reset()}>
           <RefreshCw className="h-4 w-4 mr-2" />
           Refresh
         </Button>
@@ -98,21 +98,33 @@ export function ContactMessages() {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {!msg.read && (
-                          <Badge variant="secondary">New</Badge>
+                          <Badge variant="default" className="text-xs">
+                            New
+                          </Badge>
                         )}
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
                           {formatDate(msg.createdAt)}
                         </span>
                       </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="py-0 px-4 pb-3 pt-0">
-                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                      {msg.message}
-                    </p>
+                  <CardContent className="py-2 px-4 text-sm text-muted-foreground whitespace-pre-wrap">
+                    {msg.message}
                   </CardContent>
                 </Card>
               ))}
+              {hasMore && (
+                <div ref={sentinelRef} className="py-4 text-center text-sm text-muted-foreground">
+                  {loadingMore ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading more…
+                    </span>
+                  ) : (
+                    "Scroll for more messages"
+                  )}
+                </div>
+              )}
             </div>
           </ScrollArea>
         )}

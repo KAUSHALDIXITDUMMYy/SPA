@@ -1,4 +1,5 @@
 import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
+import { PAGE_SIZE, type PaginatedResult } from "@/lib/pagination"
 import type { StreamPermission } from "./admin"
 
 const ENDPOINT = "/api/subscriber"
@@ -16,9 +17,51 @@ async function getPermissions(params: Record<string, string>): Promise<StreamPer
     const res = await fetchWithAuth(`${ENDPOINT}?${qs}`, { method: "GET" })
     if (!res.ok) return []
     const json = await res.json()
-    return (json.permissions || []) as StreamPermission[]
+    return (json.permissions || json.items || []) as StreamPermission[]
   } catch (error) {
     console.error("Error fetching permissions:", error)
+    return []
+  }
+}
+
+export async function getAllPermissionsPage(
+  cursor?: string | null,
+): Promise<PaginatedResult<StreamPermission>> {
+  try {
+    const qs = new URLSearchParams({
+      type: "allPermissions",
+      limit: String(PAGE_SIZE),
+    })
+    if (cursor) qs.set("cursor", cursor)
+    const res = await fetchWithAuth(`${ENDPOINT}?${qs.toString()}`, { method: "GET" })
+    if (!res.ok) return { items: [], nextCursor: null, hasMore: false }
+    const json = await res.json()
+    return {
+      items: (json.items || []) as StreamPermission[],
+      nextCursor: (json.nextCursor as string | null) ?? null,
+      hasMore: Boolean(json.hasMore),
+    }
+  } catch (error) {
+    console.error("Error fetching permissions page:", error)
+    return { items: [], nextCursor: null, hasMore: false }
+  }
+}
+
+export async function getPermissionsForSubscriberIds(
+  subscriberIds: string[],
+): Promise<StreamPermission[]> {
+  if (!subscriberIds.length) return []
+  try {
+    const qs = new URLSearchParams({
+      type: "permissionsForSubscribers",
+      subscriberIds: subscriberIds.join(","),
+    })
+    const res = await fetchWithAuth(`${ENDPOINT}?${qs.toString()}`, { method: "GET" })
+    if (!res.ok) return []
+    const json = await res.json()
+    return (json.permissions || []) as StreamPermission[]
+  } catch (error) {
+    console.error("Error fetching permissions for subscribers:", error)
     return []
   }
 }
@@ -60,8 +103,8 @@ export class PermissionsManager {
   subscribeToAllPermissions(callback: (permissions: StreamPermission[]) => void): () => void {
     let active = true
     const poll = async () => {
-      const permissions = await getPermissions({ type: "allPermissions" })
-      if (active) callback(permissions)
+      const page = await getAllPermissionsPage()
+      if (active) callback(page.items)
     }
     void poll()
     const interval = setInterval(poll, 8000)
@@ -120,7 +163,5 @@ export const getPermissionSummary = (permission: StreamPermission): string => {
   const permissions = []
   if (permission.allowVideo) permissions.push("Video")
   if (permission.allowAudio) permissions.push("Audio")
-  if (permissions.length === 0) return "No access"
-  if (permissions.length === 2) return "Full access"
-  return permissions.join(", ") + " only"
+  return permissions.length > 0 ? permissions.join(", ") : "No permissions"
 }

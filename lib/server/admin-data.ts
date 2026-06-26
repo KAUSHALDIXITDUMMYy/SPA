@@ -15,7 +15,9 @@ import {
   getStreamAssignmentDocsForStreamIds,
   resolveAssignmentDateKey,
 } from "@/lib/server/assignment-day"
+import { paginateOrderedQuery, queryByIdChunks } from "@/lib/server/pagination"
 import { getActiveStreams } from "@/lib/server/streaming-data"
+import { normalizePageLimit } from "@/lib/pagination"
 import {
   resolveUserTenant,
   userVisibleToAdmin,
@@ -152,20 +154,48 @@ export async function createUser(input: {
   }
 }
 
-export async function getAllUsers(adminViewer?: AdminViewer) {
+export async function getAllUsersPage(
+  adminViewer?: AdminViewer,
+  options?: { limit?: number; cursor?: string | null },
+) {
   const db = await getAdminDb()
-  const snap = await db.collection("users").orderBy("createdAt", "desc").get()
-  const rows = snap.docs.map(docToObject)
-  return filterUsersForAdmin(rows, adminViewer)
+  const page = await paginateOrderedQuery({
+    db,
+    buildQuery: (database) => database.collection("users").orderBy("createdAt", "desc"),
+    mapDoc: docToObject,
+    accept: (row) => filterUsersForAdmin([row], adminViewer).length > 0,
+    limit: options?.limit,
+    cursor: options?.cursor,
+    cursorCollection: "users",
+  })
+  return page
+}
+
+export async function getAllUsers(adminViewer?: AdminViewer) {
+  return (await getAllUsersPage(adminViewer)).items
+}
+
+export async function getUsersByRolePage(
+  role: Role,
+  adminViewer?: AdminViewer,
+  options?: { limit?: number; cursor?: string | null },
+) {
+  const db = await getAdminDb()
+  const page = await paginateOrderedQuery({
+    db,
+    buildQuery: (database) =>
+      database.collection("users").where("role", "==", role).orderBy("createdAt", "desc"),
+    mapDoc: docToObject,
+    accept: (row) => filterUsersForAdmin([row], adminViewer).length > 0,
+    limit: options?.limit,
+    cursor: options?.cursor,
+    cursorCollection: "users",
+  })
+  return page
 }
 
 export async function getUsersByRole(role: Role, adminViewer?: AdminViewer) {
-  const db = await getAdminDb()
-  const snap = await db.collection("users").where("role", "==", role).get()
-  const users = filterUsersForAdmin(snap.docs.map(docToObject), adminViewer)
-  return users.sort(
-    (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  )
+  return (await getUsersByRolePage(role, adminViewer)).items
 }
 
 export async function updateUserStatus(userId: string, isActive: boolean) {
@@ -213,11 +243,34 @@ export async function createStreamPermission(permission: Record<string, any>) {
   return { success: true, id: ref.id }
 }
 
-export async function getStreamPermissions(adminViewer?: AdminViewer) {
+export async function getStreamPermissionsPage(
+  adminViewer?: AdminViewer,
+  options?: { limit?: number; cursor?: string | null },
+) {
   const db = await getAdminDb()
-  const snap = await db.collection("streamPermissions").get()
-  const rows = snap.docs.map(docToObject)
   const tenantByUserId = await loadUserTenantByIdMap()
+  return paginateOrderedQuery({
+    db,
+    buildQuery: (database) => database.collection("streamPermissions").orderBy("createdAt", "desc"),
+    mapDoc: docToObject,
+    accept: (row) => filterPermissionsForAdmin([row], tenantByUserId, adminViewer).length > 0,
+    limit: options?.limit,
+    cursor: options?.cursor,
+    cursorCollection: "streamPermissions",
+  })
+}
+
+export async function getStreamPermissions(adminViewer?: AdminViewer) {
+  return (await getStreamPermissionsPage(adminViewer)).items
+}
+
+export async function getStreamPermissionsForSubscriberIds(
+  subscriberIds: string[],
+  adminViewer?: AdminViewer,
+) {
+  const db = await getAdminDb()
+  const tenantByUserId = await loadUserTenantByIdMap()
+  const rows = await queryByIdChunks(db, "streamPermissions", "subscriberId", subscriberIds, docToObject)
   return filterPermissionsForAdmin(rows, tenantByUserId, adminViewer).sort(
     (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   )
@@ -272,13 +325,25 @@ export async function getStreamAssignments(adminViewer?: AdminViewer) {
   return assignments
 }
 
-/** One round-trip for the Stream Assignments admin tab. */
-export async function getStreamAssignmentsBootstrap(adminViewer?: AdminViewer) {
-  const [subscribers, { streams, assignments }] = await Promise.all([
-    getUsersByRole("subscriber", adminViewer),
+/** One round-trip for the Stream Assignments admin tab (subscribers paginated). */
+export async function getStreamAssignmentsBootstrap(
+  adminViewer?: AdminViewer,
+  options?: { limit?: number; cursor?: string | null },
+) {
+  const limit = normalizePageLimit(options?.limit)
+  const [subscriberPage, { streams, assignments: allAssignments }] = await Promise.all([
+    getUsersByRolePage("subscriber", adminViewer, { limit, cursor: options?.cursor }),
     loadAssignmentsForActiveStreams(adminViewer),
   ])
-  return { subscribers, streams, assignments }
+  const subscriberIds = new Set(subscriberPage.items.map((s: any) => s.id))
+  const assignments = allAssignments.filter((a: any) => subscriberIds.has(a.subscriberId))
+  return {
+    subscribers: subscriberPage.items,
+    streams,
+    assignments,
+    nextCursor: subscriberPage.nextCursor,
+    hasMore: subscriberPage.hasMore,
+  }
 }
 
 export async function deleteStreamAssignment(assignmentId: string) {
@@ -294,10 +359,20 @@ export async function updateStreamAssignment(assignmentId: string, updates: Reco
 }
 
 // ── Contact messages ──────────────────────────────────────────────────────────
-export async function getContactMessages() {
+export async function getContactMessagesPage(options?: { limit?: number; cursor?: string | null }) {
   const db = await getAdminDb()
-  const snap = await db.collection("contactMessages").orderBy("createdAt", "desc").get()
-  return snap.docs.map(docToObject)
+  return paginateOrderedQuery({
+    db,
+    buildQuery: (database) => database.collection("contactMessages").orderBy("createdAt", "desc"),
+    mapDoc: docToObject,
+    limit: options?.limit,
+    cursor: options?.cursor,
+    cursorCollection: "contactMessages",
+  })
+}
+
+export async function getContactMessages() {
+  return (await getContactMessagesPage()).items
 }
 
 export async function markContactMessageRead(messageId: string) {
@@ -326,10 +401,20 @@ export async function createAdminBroadcast(input: {
   return { success: true, id: ref.id }
 }
 
-export async function getAdminBroadcasts() {
+export async function getAdminBroadcastsPage(options?: { limit?: number; cursor?: string | null }) {
   const db = await getAdminDb()
-  const snap = await db.collection("adminBroadcasts").orderBy("createdAt", "desc").get()
-  return snap.docs.map(docToObject)
+  return paginateOrderedQuery({
+    db,
+    buildQuery: (database) => database.collection("adminBroadcasts").orderBy("createdAt", "desc"),
+    mapDoc: docToObject,
+    limit: options?.limit,
+    cursor: options?.cursor,
+    cursorCollection: "adminBroadcasts",
+  })
+}
+
+export async function getAdminBroadcasts() {
+  return (await getAdminBroadcastsPage()).items
 }
 
 // ── Reports ─────────────────────────────────────────────────────────────────
@@ -343,10 +428,20 @@ export async function createReport(report: Record<string, any>) {
   return { success: true, id: ref.id }
 }
 
-export async function getReports() {
+export async function getReportsPage(options?: { limit?: number; cursor?: string | null }) {
   const db = await getAdminDb()
-  const snap = await db.collection("reports").orderBy("createdAt", "desc").get()
-  return snap.docs.map(docToObject)
+  return paginateOrderedQuery({
+    db,
+    buildQuery: (database) => database.collection("reports").orderBy("createdAt", "desc"),
+    mapDoc: docToObject,
+    limit: options?.limit,
+    cursor: options?.cursor,
+    cursorCollection: "reports",
+  })
+}
+
+export async function getReports() {
+  return (await getReportsPage()).items
 }
 
 export async function resolveReport(reportId: string, resolvedBy: string) {
@@ -366,10 +461,20 @@ export async function addBlockEvent(event: Record<string, any>) {
   return { success: true }
 }
 
-export async function getBlockEvents() {
+export async function getBlockEventsPage(options?: { limit?: number; cursor?: string | null }) {
   const db = await getAdminDb()
-  const snap = await db.collection("blockEvents").orderBy("createdAt", "desc").get()
-  return snap.docs.map(docToObject)
+  return paginateOrderedQuery({
+    db,
+    buildQuery: (database) => database.collection("blockEvents").orderBy("createdAt", "desc"),
+    mapDoc: docToObject,
+    limit: options?.limit,
+    cursor: options?.cursor,
+    cursorCollection: "blockEvents",
+  })
+}
+
+export async function getBlockEvents() {
+  return (await getBlockEventsPage()).items
 }
 
 export async function blockUser(input: {

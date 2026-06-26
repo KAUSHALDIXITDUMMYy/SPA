@@ -7,64 +7,41 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { permissionsManager, getPermissionSummary } from "@/lib/permissions"
+import { getAllPermissionsPage, getPermissionSummary } from "@/lib/permissions"
 import { updateStreamPermission, deleteStreamPermission, getUsersByRole, type StreamPermission } from "@/lib/admin"
 import type { UserProfile } from "@/lib/auth"
-import { Users, Shield, Trash2, Activity } from "lucide-react"
+import { Users, Shield, Trash2, Activity, Loader2 } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
+import { useInfiniteScroll } from "@/hooks/use-infinite-scroll"
 
 export function RealTimePermissions() {
   const { userProfile, loading: authLoading } = useAuth()
-  const [permissions, setPermissions] = useState<StreamPermission[]>([])
   const [publishers, setPublishers] = useState<(UserProfile & { id: string })[]>([])
   const [subscribers, setSubscribers] = useState<(UserProfile & { id: string })[]>([])
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
 
+  const {
+    items: permissions,
+    setItems: setPermissions,
+    loading,
+    loadingMore,
+    hasMore,
+    reset: reloadPermissions,
+    sentinelRef,
+  } = useInfiniteScroll<StreamPermission>({
+    fetchPage: getAllPermissionsPage,
+    enabled: Boolean(userProfile?.role === "admin" && !authLoading),
+    resetKey: userProfile?.uid,
+  })
+
   useEffect(() => {
-    if (authLoading || !userProfile || userProfile.role !== "admin") {
-      if (!authLoading) setLoading(false)
-      return
-    }
-
-    let unsubscribe: (() => void) | undefined
-    let cancelled = false
-
-    const sortUsers = (users: any[]) => {
-      return users.sort((a, b) => {
-        const nameA = (a.displayName || a.email || "").toLowerCase()
-        const nameB = (b.displayName || b.email || "").toLowerCase()
-        return nameA.localeCompare(nameB)
-      })
-    }
-
-    const run = async () => {
-      setLoading(true)
-      const [publishersData, subscribersData] = await Promise.all([
-        getUsersByRole("publisher", userProfile),
-        getUsersByRole("subscriber", userProfile),
-      ])
-      if (cancelled) return
-
-      setPublishers(sortUsers(publishersData as (UserProfile & { id: string })[]))
-      const sortedSubs = sortUsers(subscribersData as (UserProfile & { id: string })[])
-      setSubscribers(sortedSubs)
-
-      const subIds = new Set(sortedSubs.map((s) => s.id))
-      unsubscribe = permissionsManager.subscribeToAllPermissions((updatedPermissions) => {
-        setPermissions(updatedPermissions.filter((p) => subIds.has(p.subscriberId)))
-        setLoading(false)
-      })
-    }
-
-    void run()
-
-    return () => {
-      cancelled = true
-      unsubscribe?.()
-    }
-  }, [authLoading, userProfile])
+    if (authLoading || !userProfile || userProfile.role !== "admin") return
+    void getUsersByRole("publisher", userProfile).then((rows) => setPublishers(rows as any))
+    void getUsersByRole("subscriber", userProfile).then((rows) => setSubscribers(rows as any))
+    const interval = setInterval(() => void reloadPermissions(), 15000)
+    return () => clearInterval(interval)
+  }, [authLoading, userProfile, reloadPermissions])
 
   const getPublisherName = (publisherId: string) => {
     const publisher = publishers.find((p) => p.id === publisherId)
@@ -286,6 +263,22 @@ export function RealTimePermissions() {
                     </TableCell>
                   </TableRow>
                 ))}
+                {hasMore && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center text-sm text-muted-foreground py-4">
+                      <div ref={sentinelRef}>
+                        {loadingMore ? (
+                          <span className="inline-flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Loading more permissions…
+                          </span>
+                        ) : (
+                          "Scroll for more permissions"
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           )}

@@ -10,7 +10,12 @@ export async function GET(req: NextRequest) {
   const action = new URL(req.url).searchParams.get("action") || "broadcasts"
   try {
     if (action === "broadcasts") {
-      return NextResponse.json({ broadcasts: await adminData.getAdminBroadcasts() })
+      const { searchParams } = new URL(req.url)
+      const page = await adminData.getAdminBroadcastsPage({
+        limit: Number(searchParams.get("limit") || "") || undefined,
+        cursor: searchParams.get("cursor"),
+      })
+      return NextResponse.json({ broadcasts: page.items, nextCursor: page.nextCursor, hasMore: page.hasMore })
     }
     return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })
   } catch (error: any) {

@@ -29,6 +29,7 @@ import {
   updateStreamAssignment,
   getStreamAssignments,
   getStreamAssignmentsBootstrap,
+  getStreamAssignmentsBootstrapPage,
   invalidateStreamAssignmentsBootstrap,
   type StreamAssignment,
 } from "@/lib/admin"
@@ -106,6 +107,9 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
   const [bulkEmailSelectedStreams, setBulkEmailSelectedStreams] = useState<Set<string>>(new Set())
   const [matrixRowsVisible, setMatrixRowsVisible] = useState(MATRIX_PAGE_SIZE)
   const [matrixColsVisible, setMatrixColsVisible] = useState(MATRIX_PAGE_SIZE)
+  const [subscribersHasMore, setSubscribersHasMore] = useState(false)
+  const [subscribersCursor, setSubscribersCursor] = useState<string | null>(null)
+  const [loadingMoreSubscribers, setLoadingMoreSubscribers] = useState(false)
 
   useEffect(() => {
     if (!active || authLoading || !adminUid) {
@@ -118,13 +122,15 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
       if (showSpinner) setDataLoading(true)
       setError("")
       try {
-        const { subscribers: subs, streams: activeStreams, assignments } =
-          await getStreamAssignmentsBootstrap()
+        const { subscribers: subs, streams: activeStreams, assignments, nextCursor, hasMore } =
+          await getStreamAssignmentsBootstrapPage()
         if (cancelled) return
 
         setSubscribers(subs as (UserProfile & { id: string })[])
         setStreams(activeStreams)
         setAllAssignments(assignmentsToMap(assignments))
+        setSubscribersCursor(nextCursor ?? null)
+        setSubscribersHasMore(Boolean(hasMore))
         hasLoadedOnce.current = true
       } catch (err: any) {
         if (!cancelled) setError(err.message || "Failed to load data")
@@ -244,6 +250,37 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
     [filteredSubscribers, matrixRowsVisible],
   )
 
+  const loadMoreSubscribers = useCallback(async () => {
+    if (!subscribersHasMore || !subscribersCursor || loadingMoreSubscribers) return
+    setLoadingMoreSubscribers(true)
+    try {
+      const page = await getStreamAssignmentsBootstrapPage(subscribersCursor)
+      setSubscribers((prev) => {
+        const seen = new Set(prev.map((s) => s.id))
+        const merged = [...prev]
+        for (const sub of page.subscribers) {
+          if (!seen.has(sub.id)) merged.push(sub)
+        }
+        return merged
+      })
+      setAllAssignments((prev) => {
+        const next = new Map(prev)
+        page.assignments.forEach((assignment) => {
+          const existing = next.get(assignment.subscriberId) || []
+          next.set(assignment.subscriberId, [...existing, assignment])
+        })
+        return next
+      })
+      if (page.streams.length) setStreams(page.streams)
+      setSubscribersCursor(page.nextCursor ?? null)
+      setSubscribersHasMore(Boolean(page.hasMore))
+    } catch (err: any) {
+      setError(err.message || "Failed to load more subscribers")
+    } finally {
+      setLoadingMoreSubscribers(false)
+    }
+  }, [subscribersHasMore, subscribersCursor, loadingMoreSubscribers])
+
   const handleMatrixScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       const el = e.currentTarget
@@ -252,12 +289,24 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
         setMatrixRowsVisible((n) =>
           Math.min(n + MATRIX_PAGE_SIZE, filteredSubscribers.length),
         )
+        if (
+          matrixRowsVisible + MATRIX_PAGE_SIZE >= filteredSubscribers.length &&
+          subscribersHasMore
+        ) {
+          void loadMoreSubscribers()
+        }
       }
       if (el.scrollLeft + el.clientWidth >= el.scrollWidth - edge) {
         setMatrixColsVisible((n) => Math.min(n + MATRIX_PAGE_SIZE, filteredStreams.length))
       }
     },
-    [filteredSubscribers.length, filteredStreams.length],
+    [
+      filteredSubscribers.length,
+      filteredStreams.length,
+      matrixRowsVisible,
+      subscribersHasMore,
+      loadMoreSubscribers,
+    ],
   )
 
   // Check if subscriber has stream assigned
@@ -1017,9 +1066,15 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                               >
                                 {matrixRowsVisible < filteredSubscribers.length && (
                                   <span>
-                                    Showing {matrixRowsVisible} of {filteredSubscribers.length} subscribers — scroll down
-                                    to load {Math.min(MATRIX_PAGE_SIZE, filteredSubscribers.length - matrixRowsVisible)}{" "}
-                                    more.
+                                    Showing {matrixRowsVisible} of {filteredSubscribers.length} loaded subscribers — scroll
+                                    down to load more rows.
+                                  </span>
+                                )}
+                                {subscribersHasMore && matrixRowsVisible >= filteredSubscribers.length && (
+                                  <span>
+                                    {loadingMoreSubscribers
+                                      ? "Loading more subscribers from server…"
+                                      : "Scroll down to fetch the next 100 subscribers."}
                                   </span>
                                 )}
                                 {matrixRowsVisible < filteredSubscribers.length &&

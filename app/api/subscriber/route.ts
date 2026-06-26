@@ -39,13 +39,31 @@ export async function GET(req: NextRequest) {
         return NextResponse.json(await sub.checkStreamAccess(subscriberId, publisherId))
       case "allPermissions":
         if (!isAdmin) return forbidden()
+        return NextResponse.json(
+          await sub.getAllPermissionsPage(
+            {
+              role: profile.role,
+              email: profile.email,
+              tenant: resolveUserTenant(profile),
+            },
+            {
+              limit: Number(searchParams.get("limit") || "") || undefined,
+              cursor: searchParams.get("cursor"),
+            },
+          ),
+        )
+      case "permissionsForSubscribers": {
+        if (!isAdmin) return forbidden()
+        const raw = searchParams.get("subscriberIds") || ""
+        const subscriberIds = raw.split(",").map((s) => s.trim()).filter(Boolean)
         return NextResponse.json({
-          permissions: await sub.getAllPermissions({
+          permissions: await sub.getPermissionsForSubscriberIds(subscriberIds, {
             role: profile.role,
             email: profile.email,
             tenant: resolveUserTenant(profile),
           }),
         })
+      }
       default:
         return NextResponse.json({ error: "Invalid type" }, { status: 400 })
     }

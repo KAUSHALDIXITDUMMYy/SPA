@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type UIEvent } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { getUsersByRole, getStreamPermissions, createStreamPermission, deleteStreamPermission, updateStreamPermission, type StreamPermission } from "@/lib/admin"
+import { getUsersByRole, getUsersByRolePage, getStreamPermissionsForSubscriberIds, createStreamPermission, deleteStreamPermission, updateStreamPermission, type StreamPermission } from "@/lib/admin"
 import type { UserProfile } from "@/lib/auth"
-import { permissionsManager } from "@/lib/permissions"
+import { PAGE_SIZE } from "@/lib/pagination"
 import { Video, Volume2, X, Users, Link2, Unlink, CheckSquare, Square, Grid3x3, List, ArrowRightLeft, Loader2, CheckCircle2 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -30,6 +30,10 @@ export function SubscriberAssignments() {
   const [success, setSuccess] = useState("")
   const [allPermissions, setAllPermissions] = useState<Map<string, StreamPermission[]>>(new Map())
   const [viewMode, setViewMode] = useState<"list" | "matrix">("matrix")
+  const [subscribersHasMore, setSubscribersHasMore] = useState(false)
+  const [subscribersCursor, setSubscribersCursor] = useState<string | null>(null)
+  const [loadingMoreSubscribers, setLoadingMoreSubscribers] = useState(false)
+  const [visibleSubscriberRows, setVisibleSubscriberRows] = useState(PAGE_SIZE)
 
   useEffect(() => {
     if (authLoading || !userProfile || userProfile.role !== "admin") {
@@ -38,49 +42,100 @@ export function SubscriberAssignments() {
     }
     const load = async () => {
       setLoading(true)
-      const [subs, pubs] = await Promise.all([
-        getUsersByRole("subscriber", userProfile),
+      const [subPage, pubs] = await Promise.all([
+        getUsersByRolePage("subscriber"),
         getUsersByRole("publisher", userProfile),
       ])
-      setSubscribers(subs as any)
+      setSubscribers(subPage.items as any)
+      setSubscribersCursor(subPage.nextCursor)
+      setSubscribersHasMore(subPage.hasMore)
       setPublishers(pubs as any)
       setLoading(false)
     }
     void load()
   }, [authLoading, userProfile])
 
-  // Single admin poll for all permissions (avoids N concurrent requests per subscriber)
-  useEffect(() => {
-    if (subscribers.length === 0) return
-
-    const subIds = new Set(subscribers.map((s) => s.id))
-    const unsubscribe = permissionsManager.subscribeToAllPermissions((allPerms) => {
-      const bySubscriber = new Map<string, StreamPermission[]>()
-      for (const sub of subscribers) {
-        bySubscriber.set(sub.id, [])
+  const loadPermissionsForSubscribers = async (subs: (UserProfile & { id: string })[]) => {
+    if (!subs.length) return
+    const perms = await getStreamPermissionsForSubscriberIds(subs.map((s) => s.id))
+    setAllPermissions((prev) => {
+      const next = new Map(prev)
+      for (const sub of subs) {
+        if (!next.has(sub.id)) next.set(sub.id, [])
       }
-      for (const perm of allPerms) {
-        if (!subIds.has(perm.subscriberId)) continue
-        bySubscriber.get(perm.subscriberId)!.push(perm)
+      for (const perm of perms) {
+        const list = [...(next.get(perm.subscriberId) || [])]
+        const idx = list.findIndex((p) => p.id === perm.id)
+        if (idx >= 0) list[idx] = perm
+        else list.push(perm)
+        next.set(perm.subscriberId, list)
       }
-      setAllPermissions(bySubscriber)
+      return next
     })
+  }
 
-    return unsubscribe
+  useEffect(() => {
+    if (subscribers.length === 0) {
+      setAllPermissions(new Map())
+      return
+    }
+    void loadPermissionsForSubscribers(subscribers)
+    const interval = setInterval(() => void loadPermissionsForSubscribers(subscribers), 15000)
+    return () => clearInterval(interval)
   }, [subscribers])
+
+  const loadMoreSubscribers = async () => {
+    if (!subscribersHasMore || !subscribersCursor || loadingMoreSubscribers) return
+    setLoadingMoreSubscribers(true)
+    try {
+      const page = await getUsersByRolePage("subscriber", subscribersCursor)
+      const merged: (UserProfile & { id: string })[] = []
+      setSubscribers((prev) => {
+        const seen = new Set(prev.map((s) => s.id))
+        const next = [...prev]
+        for (const row of page.items) {
+          if (!seen.has(row.id)) {
+            next.push(row as any)
+            merged.push(row as any)
+          }
+        }
+        return next
+      })
+      if (merged.length) void loadPermissionsForSubscribers(merged)
+      setSubscribersCursor(page.nextCursor)
+      setSubscribersHasMore(page.hasMore)
+    } finally {
+      setLoadingMoreSubscribers(false)
+    }
+  }
 
   const filteredSubscribers = useMemo(() => {
     const q = searchSubs.trim().toLowerCase()
     const label = (s: { displayName?: string; email?: string }) =>
       (s.displayName || s.email || "").toLowerCase()
     const filtered = q ? subscribers.filter((s) => label(s).includes(q)) : subscribers
-    // Sort alphabetically
-    return filtered.sort((a, b) => {
-      const nameA = label(a)
-      const nameB = label(b)
-      return nameA.localeCompare(nameB)
-    })
+    return filtered.sort((a, b) => label(a).localeCompare(label(b)))
   }, [searchSubs, subscribers])
+
+  const subsForMatrix = useMemo(
+    () => filteredSubscribers.slice(0, visibleSubscriberRows),
+    [filteredSubscribers, visibleSubscriberRows],
+  )
+
+  useEffect(() => {
+    setVisibleSubscriberRows(Math.min(PAGE_SIZE, filteredSubscribers.length))
+  }, [searchSubs, filteredSubscribers.length])
+
+  const handleMatrixScroll = (e: UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget
+    const edge = 72
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - edge) {
+      setVisibleSubscriberRows((n) => Math.min(n + PAGE_SIZE, filteredSubscribers.length))
+      if (visibleSubscriberRows + PAGE_SIZE >= filteredSubscribers.length && subscribersHasMore) {
+        void loadMoreSubscribers()
+      }
+    }
+  }
 
   const filteredPublishers = useMemo(() => {
     const q = searchPubs.trim().toLowerCase()
@@ -744,7 +799,7 @@ export function SubscriberAssignments() {
               </div>
               
               <div className="border rounded-lg overflow-hidden">
-                <div className="overflow-auto max-h-[600px]" style={{ scrollbarWidth: 'thin' }}>
+                <div className="overflow-auto max-h-[600px]" style={{ scrollbarWidth: 'thin' }} onScroll={handleMatrixScroll}>
                   <div className="inline-block min-w-full">
                     <table className="w-full border-collapse">
                       <thead className="sticky top-0 bg-background z-10">
@@ -765,7 +820,7 @@ export function SubscriberAssignments() {
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredSubscribers.map((s) => (
+                        {subsForMatrix.map((s) => (
                           <tr key={s.id} className="hover:bg-muted/50">
                             <td className="border p-2 font-medium bg-muted/50 sticky left-0 z-10 bg-muted/50">
                               <div className="truncate text-xs sm:text-sm" title={s.displayName || s.email}>
@@ -787,6 +842,20 @@ export function SubscriberAssignments() {
                             })}
                           </tr>
                         ))}
+                        {(visibleSubscriberRows < filteredSubscribers.length || subscribersHasMore) && (
+                          <tr>
+                            <td
+                              colSpan={Math.max(filteredPublishers.length, 1) + 1}
+                              className="border p-2 text-center text-xs text-muted-foreground bg-muted/50"
+                            >
+                              {loadingMoreSubscribers
+                                ? "Loading more subscribers…"
+                                : visibleSubscriberRows < filteredSubscribers.length
+                                  ? `Showing ${visibleSubscriberRows} of ${filteredSubscribers.length} loaded — scroll for more`
+                                  : "Scroll to load the next 100 subscribers from the server"}
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>

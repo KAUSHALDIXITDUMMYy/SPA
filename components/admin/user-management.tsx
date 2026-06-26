@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
-import { createUser, getAllUsers, updateUserStatus, updateUserChatPermission, resetUserPassword, deleteUserAccount } from "@/lib/admin"
+import { createUser, getAllUsersPage, updateUserStatus, updateUserChatPermission, resetUserPassword, deleteUserAccount } from "@/lib/admin"
 import type { UserProfile, UserRole } from "@/lib/auth"
 import {
   Plus,
@@ -43,6 +43,7 @@ import { toast } from "@/hooks/use-toast"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useAuth } from "@/hooks/use-auth"
+import { useInfiniteScroll } from "@/hooks/use-infinite-scroll"
 import { isShadowAdmin, KEVIONICS_EMAIL_DOMAIN, resolveUserTenant } from "@/lib/tenant"
 
 // Utility function to convert Firestore Timestamp to Date
@@ -101,8 +102,27 @@ const normalizeDomain = (d: string) => d.trim().toLowerCase().replace(/^@/, "")
 export function UserManagement() {
   const { user, userProfile, loading: authLoading } = useAuth()
   const isKevShadow = Boolean(userProfile && isShadowAdmin(userProfile))
-  const [users, setUsers] = useState<(UserProfile & { id: string })[]>([])
-  const [loading, setLoading] = useState(true)
+  const {
+    items: users,
+    setItems: setUsers,
+    loading,
+    loadingMore,
+    hasMore,
+    reset: reloadUsers,
+    sentinelRef,
+  } = useInfiniteScroll<UserProfile & { id: string }>({
+    fetchPage: getAllUsersPage,
+    enabled: Boolean(userProfile?.role === "admin"),
+    resetKey: `${userProfile?.uid ?? ""}:${userProfile?.tenant ?? ""}`,
+    merge: (prev, next) => {
+      const seen = new Set(prev.map((u) => u.id))
+      const merged = [...prev]
+      for (const row of next) {
+        if (!seen.has(row.id)) merged.push(row)
+      }
+      return merged
+    },
+  })
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
   const [error, setError] = useState("")
@@ -138,10 +158,9 @@ export function UserManagement() {
 
   useEffect(() => {
     if (!userProfile || userProfile.role !== "admin") return
-    void loadUsers(false)
-    const intervalId = setInterval(() => void loadUsers(true), 60_000)
+    const intervalId = setInterval(() => void reloadUsers(), 60_000)
     return () => clearInterval(intervalId)
-  }, [userProfile?.uid, userProfile?.tenant, userProfile?.email])
+  }, [userProfile?.uid, userProfile?.tenant, userProfile?.email, reloadUsers])
 
   useEffect(() => {
     if (isKevShadow) {
@@ -151,22 +170,10 @@ export function UserManagement() {
     }
   }, [isKevShadow])
 
-  /** @param silent When true, refresh list without full-page loading spinner (reduces Firestore reads vs. realtime snapshot on entire collection). */
-  const loadUsers = async (silent = false) => {
-    if (!userProfile || userProfile.role !== "admin") return
-    if (!silent) setLoading(true)
-    try {
-      const usersData = await getAllUsers(userProfile)
-      setUsers(usersData as (UserProfile & { id: string })[])
-    } finally {
-      if (!silent) setLoading(false)
-    }
-  }
-
   const handleRefreshUserList = async () => {
     setListRefreshing(true)
     try {
-      await loadUsers(true)
+      await reloadUsers()
     } finally {
       setListRefreshing(false)
     }
@@ -207,7 +214,7 @@ export function UserManagement() {
       setDisplayName("")
       setRole("subscriber")
       setShowCreateForm(false)
-      loadUsers()
+      void reloadUsers()
     }
 
     setCreateLoading(false)
@@ -316,7 +323,7 @@ export function UserManagement() {
   const handleToggleChat = async (userId: string, currentValue: boolean) => {
     const result = await updateUserChatPermission(userId, !currentValue)
     if (result.success) {
-      void loadUsers(true)
+      void reloadUsers()
       const u = users.find((x) => x.id === userId)
       toast({
         title: "Chat Updated",
@@ -334,7 +341,7 @@ export function UserManagement() {
   const handleToggleUserStatus = async (userId: string, currentStatus: boolean) => {
     const result = await updateUserStatus(userId, !currentStatus)
     if (result.success) {
-      void loadUsers(true)
+      void reloadUsers()
       const user = users.find(u => u.id === userId)
       toast({
         title: "Status Updated",
@@ -427,7 +434,7 @@ export function UserManagement() {
     if (result.success) {
       toast({ title: "User deleted", description: result.message || `${userEmail} has been removed.` })
       setUsers((prev) => prev.filter((u) => u.id !== userId))
-      void loadUsers(true)
+      void reloadUsers()
     } else {
       toast({ title: "Could not delete user", description: result.error, variant: "destructive" })
     }
@@ -887,6 +894,8 @@ export function UserManagement() {
                   getRoleBadgeVariant={getRoleBadgeVariant}
                   onResetPassword={openResetPasswordDialog}
                   onDelete={handleDeleteUser}
+                  sentinelRef={hasMore ? sentinelRef : undefined}
+                  loadingMore={loadingMore}
                 />
               )}
             </TabsContent>
@@ -1012,6 +1021,8 @@ function UserTable({
   getRoleBadgeVariant,
   onResetPassword,
   onDelete,
+  sentinelRef,
+  loadingMore,
 }: {
   users: (UserProfile & { id: string })[]
   onToggleStatus: (userId: string, currentStatus: boolean) => void
@@ -1019,6 +1030,8 @@ function UserTable({
   getRoleBadgeVariant: (role: UserRole) => any
   onResetPassword: (userId: string, userEmail: string) => void
   onDelete: (userId: string, userEmail: string) => void | Promise<void>
+  sentinelRef?: React.RefObject<HTMLDivElement | null>
+  loadingMore?: boolean
 }) {
   return (
     <div className="overflow-x-auto -mx-4 sm:mx-0">
@@ -1144,6 +1157,22 @@ function UserTable({
                 </TableCell>
               </TableRow>
             ))}
+            {(sentinelRef || loadingMore) && (
+              <TableRow>
+                <TableCell colSpan={8} className="text-center text-sm text-muted-foreground py-4">
+                  <div ref={sentinelRef}>
+                    {loadingMore ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading more users…
+                      </span>
+                    ) : (
+                      "Scroll for more users"
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
       </div>
