@@ -50,6 +50,12 @@ export async function POST(req: NextRequest) {
             cursor: payload.cursor,
           }),
         )
+      case "searchUsersByRole":
+        return NextResponse.json(
+          await adminData.searchUsersByRole(payload.role, payload.query || "", viewer, {
+            limit: payload.limit,
+          }),
+        )
       case "updateUserStatus":
         return NextResponse.json(await adminData.updateUserStatus(payload.userId, payload.isActive))
       case "updateUserChatPermission":
@@ -88,6 +94,13 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(await adminData.createStreamAssignment(payload.assignment))
       case "getStreamAssignments":
         return NextResponse.json({ assignments: await adminData.getStreamAssignments(viewer) })
+      case "getStreamAssignmentsForSubscriberIds":
+        return NextResponse.json({
+          assignments: await adminData.getStreamAssignmentsForSubscriberIds(
+            payload.subscriberIds || [],
+            viewer,
+          ),
+        })
       case "getStreamAssignmentsBootstrap":
         return NextResponse.json(
           await adminData.getStreamAssignmentsBootstrap(viewer, {

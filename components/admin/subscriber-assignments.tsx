@@ -15,6 +15,7 @@ import { Video, Volume2, X, Users, Link2, Unlink, CheckSquare, Square, Grid3x3, 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAuth } from "@/hooks/use-auth"
+import { useDebouncedUserSearch } from "@/hooks/use-debounced-user-search"
 
 export function SubscriberAssignments() {
   const { userProfile, loading: authLoading } = useAuth()
@@ -34,6 +35,10 @@ export function SubscriberAssignments() {
   const [subscribersCursor, setSubscribersCursor] = useState<string | null>(null)
   const [loadingMoreSubscribers, setLoadingMoreSubscribers] = useState(false)
   const [visibleSubscriberRows, setVisibleSubscriberRows] = useState(PAGE_SIZE)
+  const { searchResults: subscriberSearchResults, searching: searchingSubs, isSearchActive: subscriberSearchActive } =
+    useDebouncedUserSearch("subscriber", searchSubs)
+  const { searchResults: publisherSearchResults, searching: searchingPubs, isSearchActive: publisherSearchActive } =
+    useDebouncedUserSearch("publisher", searchPubs)
 
   useEffect(() => {
     if (authLoading || !userProfile || userProfile.role !== "admin") {
@@ -84,6 +89,11 @@ export function SubscriberAssignments() {
     return () => clearInterval(interval)
   }, [subscribers])
 
+  useEffect(() => {
+    if (!subscriberSearchActive || subscriberSearchResults.length === 0) return
+    void loadPermissionsForSubscribers(subscriberSearchResults)
+  }, [subscriberSearchResults, subscriberSearchActive])
+
   const loadMoreSubscribers = async () => {
     if (!subscribersHasMore || !subscribersCursor || loadingMoreSubscribers) return
     setLoadingMoreSubscribers(true)
@@ -113,9 +123,11 @@ export function SubscriberAssignments() {
     const q = searchSubs.trim().toLowerCase()
     const label = (s: { displayName?: string; email?: string }) =>
       (s.displayName || s.email || "").toLowerCase()
-    const filtered = q ? subscribers.filter((s) => label(s).includes(q)) : subscribers
+    const pool = subscriberSearchActive ? subscriberSearchResults : subscribers
+    const filtered =
+      !subscriberSearchActive && q ? pool.filter((s) => label(s).includes(q)) : pool
     return filtered.sort((a, b) => label(a).localeCompare(label(b)))
-  }, [searchSubs, subscribers])
+  }, [searchSubs, subscribers, subscriberSearchResults, subscriberSearchActive])
 
   const subsForMatrix = useMemo(
     () => filteredSubscribers.slice(0, visibleSubscriberRows),
@@ -131,7 +143,7 @@ export function SubscriberAssignments() {
     const edge = 72
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - edge) {
       setVisibleSubscriberRows((n) => Math.min(n + PAGE_SIZE, filteredSubscribers.length))
-      if (visibleSubscriberRows + PAGE_SIZE >= filteredSubscribers.length && subscribersHasMore) {
+      if (visibleSubscriberRows + PAGE_SIZE >= filteredSubscribers.length && subscribersHasMore && !subscriberSearchActive) {
         void loadMoreSubscribers()
       }
     }
@@ -141,14 +153,14 @@ export function SubscriberAssignments() {
     const q = searchPubs.trim().toLowerCase()
     const label = (p: { displayName?: string; email?: string }) =>
       (p.displayName || p.email || "").toLowerCase()
-    const filtered = q ? publishers.filter((p) => label(p).includes(q)) : publishers
-    // Sort alphabetically
+    const pool = publisherSearchActive ? publisherSearchResults : publishers
+    const filtered = !publisherSearchActive && q ? pool.filter((p) => label(p).includes(q)) : pool
     return filtered.sort((a, b) => {
       const nameA = label(a)
       const nameB = label(b)
       return nameA.localeCompare(nameB)
     })
-  }, [searchPubs, publishers])
+  }, [searchPubs, publishers, publisherSearchResults, publisherSearchActive])
 
   // Check if subscriber has publisher assigned
   const isAssigned = (subscriberId: string, publisherId: string) => {
@@ -567,7 +579,7 @@ export function SubscriberAssignments() {
             </CardHeader>
             <CardContent className="space-y-3">
               <Input
-                placeholder="Search subscribers..."
+                placeholder="Search subscribers (email or name, 2+ chars)..."
                 value={searchSubs}
                 onChange={(e) => setSearchSubs(e.target.value)}
               />
@@ -683,7 +695,7 @@ export function SubscriberAssignments() {
             </CardHeader>
             <CardContent className="space-y-3">
               <Input
-                placeholder="Search publishers..."
+                placeholder="Search publishers (email or name, 2+ chars)..."
                 value={searchPubs}
                 onChange={(e) => setSearchPubs(e.target.value)}
               />
@@ -785,13 +797,13 @@ export function SubscriberAssignments() {
             <div className="space-y-3">
               <div className="flex flex-col sm:flex-row gap-3">
                 <Input
-                  placeholder="Search subscribers..."
+                  placeholder="Search subscribers (email or name, 2+ chars)..."
                   value={searchSubs}
                   onChange={(e) => setSearchSubs(e.target.value)}
                   className="flex-1"
                 />
                 <Input
-                  placeholder="Search publishers..."
+                  placeholder="Search publishers (email or name, 2+ chars)..."
                   value={searchPubs}
                   onChange={(e) => setSearchPubs(e.target.value)}
                   className="flex-1"

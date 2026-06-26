@@ -198,6 +198,49 @@ export async function getUsersByRole(role: Role, adminViewer?: AdminViewer) {
   return (await getUsersByRolePage(role, adminViewer)).items
 }
 
+function userMatchesSearchQuery(
+  row: { email?: string; displayName?: string },
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return false
+  const email = String(row.email || "").toLowerCase()
+  const name = String(row.displayName || "").toLowerCase()
+  return email.includes(q) || name.includes(q)
+}
+
+/** Search subscribers/publishers across the full role list (not just the first loaded page). */
+export async function searchUsersByRole(
+  role: Role,
+  query: string,
+  adminViewer?: AdminViewer,
+  options?: { limit?: number; maxScan?: number },
+) {
+  const q = query.trim().toLowerCase()
+  const limit = Math.min(options?.limit ?? 100, 100)
+  const maxScan = options?.maxScan ?? 5000
+  if (!q) return { items: [] as Record<string, any>[] }
+
+  const matches: Record<string, any>[] = []
+  let cursor: string | null = null
+  let scanned = 0
+
+  while (matches.length < limit && scanned < maxScan) {
+    const page = await getUsersByRolePage(role, adminViewer, { limit: 200, cursor })
+    scanned += page.items.length
+    for (const row of page.items) {
+      if (userMatchesSearchQuery(row, q)) {
+        matches.push(row)
+        if (matches.length >= limit) break
+      }
+    }
+    if (!page.hasMore || !page.nextCursor) break
+    cursor = page.nextCursor
+  }
+
+  return { items: matches }
+}
+
 export async function updateUserStatus(userId: string, isActive: boolean) {
   const db = await getAdminDb()
   await db.collection("users").doc(userId).update({ isActive })
@@ -323,6 +366,18 @@ async function loadAssignmentsForActiveStreams(adminViewer?: AdminViewer) {
 export async function getStreamAssignments(adminViewer?: AdminViewer) {
   const { assignments } = await loadAssignmentsForActiveStreams(adminViewer)
   return assignments
+}
+
+export async function getStreamAssignmentsForSubscriberIds(
+  subscriberIds: string[],
+  adminViewer?: AdminViewer,
+) {
+  const db = await getAdminDb()
+  const tenantByUserId = await loadUserTenantByIdMap()
+  const rows = await queryByIdChunks(db, "streamAssignments", "subscriberId", subscriberIds, docToObject)
+  return filterAssignmentsForAdmin(rows, tenantByUserId, adminViewer).sort(
+    (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  )
 }
 
 /** One round-trip for the Stream Assignments admin tab (subscribers paginated). */

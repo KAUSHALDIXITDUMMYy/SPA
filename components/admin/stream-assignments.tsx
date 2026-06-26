@@ -30,6 +30,7 @@ import {
   getStreamAssignments,
   getStreamAssignmentsBootstrap,
   getStreamAssignmentsBootstrapPage,
+  getStreamAssignmentsForSubscriberIds,
   invalidateStreamAssignmentsBootstrap,
   type StreamAssignment,
 } from "@/lib/admin"
@@ -50,6 +51,7 @@ import {
   Square,
 } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
+import { useDebouncedUserSearch } from "@/hooks/use-debounced-user-search"
 
 // Memoized matrix cell to prevent unnecessary re-renders
 const MatrixCell = memo(({ 
@@ -110,6 +112,8 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
   const [subscribersHasMore, setSubscribersHasMore] = useState(false)
   const [subscribersCursor, setSubscribersCursor] = useState<string | null>(null)
   const [loadingMoreSubscribers, setLoadingMoreSubscribers] = useState(false)
+  const { searchResults, searching: searchingSubs, isSearchActive: subscriberSearchActive } =
+    useDebouncedUserSearch("subscriber", searchSubs)
 
   useEffect(() => {
     if (!active || authLoading || !adminUid) {
@@ -179,6 +183,37 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
     [],
   )
 
+  useEffect(() => {
+    if (!subscriberSearchActive || searchResults.length === 0) return
+    let cancelled = false
+    void (async () => {
+      const assignments = await getStreamAssignmentsForSubscriberIds(searchResults.map((s) => s.id))
+      if (cancelled) return
+      setAllAssignments((prev) => {
+        const next = new Map(prev)
+        assignments.forEach((assignment) => {
+          const existing = next.get(assignment.subscriberId) || []
+          const idx = existing.findIndex(
+            (a) =>
+              (a.id && assignment.id && a.id === assignment.id) ||
+              a.streamSessionId === assignment.streamSessionId,
+          )
+          if (idx >= 0) {
+            const list = [...existing]
+            list[idx] = assignment
+            next.set(assignment.subscriberId, list)
+          } else {
+            next.set(assignment.subscriberId, [...existing, assignment])
+          }
+        })
+        return next
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [searchResults, subscriberSearchActive])
+
   const refreshAssignments = useCallback(async () => {
     const assignments = await getStreamAssignments()
     setAssignmentsFromList(assignments)
@@ -189,13 +224,15 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
     const q = searchSubs.trim().toLowerCase()
     const label = (s: UserProfile & { id: string }) =>
       (s.displayName || s.email || "").toLowerCase()
-    const filtered = q ? subscribers.filter((s) => label(s).includes(q)) : subscribers
+    const pool = subscriberSearchActive ? searchResults : subscribers
+    const filtered =
+      !subscriberSearchActive && q ? pool.filter((s) => label(s).includes(q)) : pool
     return filtered.sort((a, b) => {
       const nameA = label(a)
       const nameB = label(b)
       return nameA.localeCompare(nameB)
     })
-  }, [searchSubs, subscribers])
+  }, [searchSubs, subscribers, searchResults, subscriberSearchActive])
 
   const filteredStreams = useMemo(() => {
     const q = searchStreams.trim().toLowerCase()
@@ -290,6 +327,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
           Math.min(n + MATRIX_PAGE_SIZE, filteredSubscribers.length),
         )
         if (
+          !subscriberSearchActive &&
           matrixRowsVisible + MATRIX_PAGE_SIZE >= filteredSubscribers.length &&
           subscribersHasMore
         ) {
@@ -305,6 +343,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
       filteredStreams.length,
       matrixRowsVisible,
       subscribersHasMore,
+      subscriberSearchActive,
       loadMoreSubscribers,
     ],
   )
@@ -954,11 +993,14 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                   <div className="flex-1 relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Search subscribers..."
+                      placeholder="Search subscribers (email or name)..."
                       value={searchSubs}
                       onChange={(e) => setSearchSubs(e.target.value)}
                       className="pl-9"
                     />
+                    {searchingSubs ? (
+                      <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+                    ) : null}
                   </div>
                   <div className="flex-1 relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />

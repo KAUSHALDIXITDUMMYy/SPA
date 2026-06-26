@@ -115,6 +115,17 @@ export const getUsersByRole = async (role: UserRole, _adminViewer?: UserProfile 
   return (await getUsersByRolePage(role)).items
 }
 
+export const searchUsersByRole = async (
+  role: UserRole,
+  query: string,
+): Promise<(UserProfile & { id: string })[]> => {
+  const q = query.trim()
+  if (!q) return []
+  const { ok, json } = await postAdmin("searchUsersByRole", { role, query: q, limit: PAGE_SIZE })
+  if (!ok) return []
+  return (json.items ?? []) as (UserProfile & { id: string })[]
+}
+
 export const updateUserStatus = async (userId: string, isActive: boolean) => {
   const { ok, json } = await postAdmin("updateUserStatus", { userId, isActive })
   return ok ? { success: true } : { success: false, error: json.error }
@@ -224,6 +235,15 @@ export const createStreamAssignment = async (
 
 export const getStreamAssignments = async () => {
   const { ok, json } = await postAdmin("getStreamAssignments")
+  if (!ok) return []
+  return (json.assignments || []).map((a: any) => ({ ...a, createdAt: toDate(a.createdAt) })) as StreamAssignment[]
+}
+
+export const getStreamAssignmentsForSubscriberIds = async (
+  subscriberIds: string[],
+): Promise<StreamAssignment[]> => {
+  if (!subscriberIds.length) return []
+  const { ok, json } = await postAdmin("getStreamAssignmentsForSubscriberIds", { subscriberIds })
   if (!ok) return []
   return (json.assignments || []).map((a: any) => ({ ...a, createdAt: toDate(a.createdAt) })) as StreamAssignment[]
 }
