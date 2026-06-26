@@ -80,8 +80,8 @@ const convertTimestampToDate = (timestamp: any): Date | null => {
 // Utility function to sort users alphabetically
 const sortUsersAlphabetically = (users: (UserProfile & { id: string })[]) => {
   return [...users].sort((a, b) => {
-    const nameA = (a.displayName || a.email).toLowerCase()
-    const nameB = (b.displayName || b.email).toLowerCase()
+    const nameA = (a.displayName || a.email || "").toLowerCase()
+    const nameB = (b.displayName || b.email || "").toLowerCase()
     return nameA.localeCompare(nameB)
   })
 }
@@ -461,9 +461,9 @@ export function UserManagement() {
     const q = searchQuery.trim().toLowerCase()
     return sorted.filter(
       (u) =>
-        u.email.toLowerCase().includes(q) ||
+        (u.email || "").toLowerCase().includes(q) ||
         (u.displayName || "").toLowerCase().includes(q) ||
-        u.role.toLowerCase().includes(q)
+        (u.role || "").toLowerCase().includes(q),
     )
   }, [users, searchQuery])
 

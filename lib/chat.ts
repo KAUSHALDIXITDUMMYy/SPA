@@ -82,7 +82,7 @@ export function subscribeToStreamChat(
     }
   }
   void poll()
-  const interval = setInterval(poll, 3000)
+  const interval = setInterval(poll, 8000)
   return () => {
     active = false
     clearInterval(interval)

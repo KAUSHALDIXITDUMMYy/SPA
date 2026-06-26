@@ -71,22 +71,26 @@ export function SubscriberAssignments() {
 
   const filteredSubscribers = useMemo(() => {
     const q = searchSubs.trim().toLowerCase()
-    const filtered = q ? subscribers.filter((s) => (s.displayName || s.email).toLowerCase().includes(q)) : subscribers
+    const label = (s: { displayName?: string; email?: string }) =>
+      (s.displayName || s.email || "").toLowerCase()
+    const filtered = q ? subscribers.filter((s) => label(s).includes(q)) : subscribers
     // Sort alphabetically
     return filtered.sort((a, b) => {
-      const nameA = (a.displayName || a.email).toLowerCase()
-      const nameB = (b.displayName || b.email).toLowerCase()
+      const nameA = label(a)
+      const nameB = label(b)
       return nameA.localeCompare(nameB)
     })
   }, [searchSubs, subscribers])
 
   const filteredPublishers = useMemo(() => {
     const q = searchPubs.trim().toLowerCase()
-    const filtered = q ? publishers.filter((p) => (p.displayName || p.email).toLowerCase().includes(q)) : publishers
+    const label = (p: { displayName?: string; email?: string }) =>
+      (p.displayName || p.email || "").toLowerCase()
+    const filtered = q ? publishers.filter((p) => label(p).includes(q)) : publishers
     // Sort alphabetically
     return filtered.sort((a, b) => {
-      const nameA = (a.displayName || a.email).toLowerCase()
-      const nameB = (b.displayName || b.email).toLowerCase()
+      const nameA = label(a)
+      const nameB = label(b)
       return nameA.localeCompare(nameB)
     })
   }, [searchPubs, publishers])

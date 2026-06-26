@@ -181,21 +181,21 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
 
   const filteredSubscribers = useMemo(() => {
     const q = searchSubs.trim().toLowerCase()
-    const filtered = q ? subscribers.filter((s) => 
-      (s.displayName || s.email).toLowerCase().includes(q)
-    ) : subscribers
+    const label = (s: UserProfile & { id: string }) =>
+      (s.displayName || s.email || "").toLowerCase()
+    const filtered = q ? subscribers.filter((s) => label(s).includes(q)) : subscribers
     return filtered.sort((a, b) => {
-      const nameA = (a.displayName || a.email).toLowerCase()
-      const nameB = (b.displayName || b.email).toLowerCase()
+      const nameA = label(a)
+      const nameB = label(b)
       return nameA.localeCompare(nameB)
     })
   }, [searchSubs, subscribers])
 
   const filteredStreams = useMemo(() => {
     const q = searchStreams.trim().toLowerCase()
-    const filtered = q ? streams.filter((s) =>
-      (s.title || s.publisherName || s.roomId).toLowerCase().includes(q)
-    ) : streams
+    const label = (s: StreamSession) =>
+      (s.title || s.publisherName || s.roomId || "").toLowerCase()
+    const filtered = q ? streams.filter((s) => label(s).includes(q)) : streams
     return filtered.sort((a, b) => {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     })
@@ -361,7 +361,10 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
   // Find subscribers by emails
   const findSubscribersByEmails = useCallback((emails: string[]): string[] => {
     return subscribers
-      .filter((sub) => emails.includes(sub.email.toLowerCase()))
+      .filter((sub) => {
+        const email = (sub.email || "").toLowerCase()
+        return email.length > 0 && emails.includes(email)
+      })
       .map((sub) => sub.id)
   }, [subscribers])
 

@@ -221,9 +221,11 @@ export const getStreamAssignmentsBootstrap = async (
 
   const load = async (): Promise<StreamAssignmentsBootstrap> => {
     const { ok, json } = await postAdmin("getStreamAssignmentsBootstrap")
-    const data = ok
-      ? mapStreamAssignmentsBootstrap(json)
-      : { subscribers: [], streams: [], assignments: [] }
+    if (!ok) {
+      streamAssignmentsBootstrapPromise = null
+      throw new Error(json.error || "Failed to load stream assignments")
+    }
+    const data = mapStreamAssignmentsBootstrap(json)
     streamAssignmentsBootstrapCache = data
     streamAssignmentsBootstrapPromise = null
     return data

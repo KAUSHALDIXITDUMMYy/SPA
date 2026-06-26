@@ -33,8 +33,8 @@ export function RealTimePermissions() {
 
     const sortUsers = (users: any[]) => {
       return users.sort((a, b) => {
-        const nameA = (a.displayName || a.email).toLowerCase()
-        const nameB = (b.displayName || b.email).toLowerCase()
+        const nameA = (a.displayName || a.email || "").toLowerCase()
+        const nameB = (b.displayName || b.email || "").toLowerCase()
         return nameA.localeCompare(nameB)
       })
     }
