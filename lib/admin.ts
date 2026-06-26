@@ -82,8 +82,9 @@ export const createUser = async (
 }
 
 function mapPaginatedUsers(json: Record<string, unknown>): PaginatedResult<UserProfile & { id: string }> {
+  const items = (json.items ?? json.users ?? []) as (UserProfile & { id: string })[]
   return {
-    items: (json.items || []) as (UserProfile & { id: string })[],
+    items,
     nextCursor: (json.nextCursor as string | null) ?? null,
     hasMore: Boolean(json.hasMore),
   }
@@ -179,7 +180,10 @@ export const getStreamPermissionsPage = async (
   const { ok, json } = await postAdmin("getStreamPermissions", { cursor, limit: PAGE_SIZE })
   if (!ok) return { items: [], nextCursor: null, hasMore: false }
   return {
-    items: (json.items || []).map((p: any) => ({ ...p, createdAt: toDate(p.createdAt) })) as StreamPermission[],
+    items: (json.items ?? json.permissions ?? []).map((p: any) => ({
+      ...p,
+      createdAt: toDate(p.createdAt),
+    })) as StreamPermission[],
     nextCursor: (json.nextCursor as string | null) ?? null,
     hasMore: Boolean(json.hasMore),
   }
@@ -312,7 +316,7 @@ export const getContactMessagesPage = async (
   const { ok, json } = await postAdmin("getContactMessages", { cursor, limit: PAGE_SIZE })
   if (!ok) return { items: [], nextCursor: null, hasMore: false }
   return {
-    items: (json.items || []).map((m: any) => ({ ...m, createdAt: toDate(m.createdAt) })) as ContactMessage[],
+    items: (json.items ?? json.messages ?? []).map((m: any) => ({ ...m, createdAt: toDate(m.createdAt) })) as ContactMessage[],
     nextCursor: (json.nextCursor as string | null) ?? null,
     hasMore: Boolean(json.hasMore),
   }
@@ -431,7 +435,7 @@ export const getReportsPage = async (cursor?: string | null): Promise<PaginatedR
   const { ok, json } = await postAdmin("getReports", { cursor, limit: PAGE_SIZE })
   if (!ok) return { items: [], nextCursor: null, hasMore: false }
   return {
-    items: (json.items || []).map((r: any) => ({
+    items: (json.items ?? json.reports ?? []).map((r: any) => ({
       ...r,
       createdAt: toDate(r.createdAt),
       resolvedAt: r.resolvedAt ? toDate(r.resolvedAt) : undefined,
@@ -471,7 +475,7 @@ export const getBlockEventsPage = async (
   const { ok, json } = await postAdmin("getBlockEvents", { cursor, limit: PAGE_SIZE })
   if (!ok) return { items: [], nextCursor: null, hasMore: false }
   return {
-    items: (json.items || []).map((e: any) => ({ ...e, createdAt: toDate(e.createdAt) })) as BlockEvent[],
+    items: (json.items ?? json.events ?? []).map((e: any) => ({ ...e, createdAt: toDate(e.createdAt) })) as BlockEvent[],
     nextCursor: (json.nextCursor as string | null) ?? null,
     hasMore: Boolean(json.hasMore),
   }

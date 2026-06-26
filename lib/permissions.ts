@@ -37,7 +37,7 @@ export async function getAllPermissionsPage(
     if (!res.ok) return { items: [], nextCursor: null, hasMore: false }
     const json = await res.json()
     return {
-      items: (json.items || []) as StreamPermission[],
+      items: (json.items ?? json.permissions ?? []) as StreamPermission[],
       nextCursor: (json.nextCursor as string | null) ?? null,
       hasMore: Boolean(json.hasMore),
     }
