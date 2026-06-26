@@ -4,6 +4,7 @@
  */
 
 import { getAdminDb } from "@/lib/firebase-admin"
+import { rollAssignmentDayOnScheduleSave } from "@/lib/server/assignment-day"
 import {
   createScheduledPlaceholderSession,
   removeStreamSessionsForScheduledCall,
@@ -54,6 +55,9 @@ export async function createScheduledCall(input: {
   if (endsAt.getTime() <= startsAt.getTime()) {
     return { success: false, error: "End time must be after start time." }
   }
+
+  await rollAssignmentDayOnScheduleSave(input.dateKey)
+
   const db = await getAdminDb()
   const roomId = generateScheduledRoomId(input.dateKey)
   const ref = await db.collection("scheduledCalls").add({

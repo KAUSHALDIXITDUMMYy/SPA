@@ -11,6 +11,10 @@
 
 import { FieldValue } from "firebase-admin/firestore"
 import { getAdminDb } from "@/lib/firebase-admin"
+import {
+  getStreamAssignmentDocsForStreamIds,
+  resolveAssignmentDateKey,
+} from "@/lib/server/assignment-day"
 import { getActiveStreams } from "@/lib/server/streaming-data"
 import {
   resolveUserTenant,
@@ -234,35 +238,46 @@ export async function deleteStreamPermission(permissionId: string) {
 // ── Stream assignments ──────────────────────────────────────────────────────
 export async function createStreamAssignment(assignment: Record<string, any>) {
   const db = await getAdminDb()
-  const ref = await db.collection("streamAssignments").add({ ...assignment, createdAt: new Date() })
+  const dateKey = await resolveAssignmentDateKey(db)
+  const ref = await db.collection("streamAssignments").add({
+    ...assignment,
+    dateKey,
+    createdAt: new Date(),
+  })
   return { success: true, id: ref.id }
 }
 
-export async function getStreamAssignments(adminViewer?: AdminViewer) {
+async function loadAssignmentsForActiveStreams(adminViewer?: AdminViewer) {
   const db = await getAdminDb()
-  const snap = await db.collection("streamAssignments").get()
-  const rows = snap.docs.map(docToObject)
-  const tenantByUserId = await loadUserTenantByIdMap()
-  return filterAssignmentsForAdmin(rows, tenantByUserId, adminViewer).sort(
-    (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  )
+  const [tenantByUserId, streams] = await Promise.all([
+    loadUserTenantByIdMap(),
+    getActiveStreams(),
+  ])
+  const streamIds = streams.map((s: any) => s.id).filter(Boolean)
+  const assignmentDocs = await getStreamAssignmentDocsForStreamIds(db, streamIds)
+  return {
+    streams,
+    assignments: filterAssignmentsForAdmin(
+      assignmentDocs.map(docToObject),
+      tenantByUserId,
+      adminViewer,
+    ).sort(
+      (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    ),
+  }
+}
+
+export async function getStreamAssignments(adminViewer?: AdminViewer) {
+  const { assignments } = await loadAssignmentsForActiveStreams(adminViewer)
+  return assignments
 }
 
 /** One round-trip for the Stream Assignments admin tab. */
 export async function getStreamAssignmentsBootstrap(adminViewer?: AdminViewer) {
-  const [tenantByUserId, subscribers, streams, assignmentRows] = await Promise.all([
-    loadUserTenantByIdMap(),
+  const [subscribers, { streams, assignments }] = await Promise.all([
     getUsersByRole("subscriber", adminViewer),
-    getActiveStreams(),
-    getAdminDb().then((db) => db.collection("streamAssignments").get()),
+    loadAssignmentsForActiveStreams(adminViewer),
   ])
-  const assignments = filterAssignmentsForAdmin(
-    assignmentRows.docs.map(docToObject),
-    tenantByUserId,
-    adminViewer,
-  ).sort(
-    (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  )
   return { subscribers, streams, assignments }
 }
 
