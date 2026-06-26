@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAuth } from "@/hooks/use-auth"
-import { compareSubscriberPermissionsByStreamStart, getAvailableStreamsSplit } from "@/lib/subscriber"
+import { useSubscriberDashboard } from "@/hooks/use-subscriber-dashboard"
+import { compareSubscriberPermissionsByStreamStart } from "@/lib/subscriber"
 import { isAwaitingBroadcastSession } from "@/lib/streaming"
 import type { SubscriberPermission } from "@/lib/subscriber"
 import { US_STREAM_SPORTS, SPORT_FILTER_ALL, SPORT_FILTER_UNSPECIFIED, streamSportLabel } from "@/lib/sports"
@@ -19,13 +20,10 @@ import { Radio, Activity, Filter as FilterIcon, RefreshCw, Loader2, Square } fro
 
 export function RealTimeStreams() {
   const { user, userProfile } = useAuth()
+  const { adHoc, loading, refreshing, error, refresh } = useSubscriberDashboard()
   const isMobile = useIsMobile()
-  const [availableStreams, setAvailableStreams] = useState<SubscriberPermission[]>([])
   const [selectedStream, setSelectedStream] = useState<SubscriberPermission | null>(null)
   const [sportFilter, setSportFilter] = useState<string>(SPORT_FILTER_ALL)
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState("")
   const streamViewerRef = useRef<StreamViewerHandle>(null)
   /**
    * After leave completes we set selection to null (full StreamViewer unmount, same as "Back to Streams").
@@ -34,6 +32,18 @@ export function RealTimeStreams() {
    */
   const pendingStreamRef = useRef<SubscriberPermission | null>(null)
 
+  const availableStreams = useMemo(
+    () => [...adHoc].sort(compareSubscriberPermissionsByStreamStart),
+    [adHoc],
+  )
+
+  useEffect(() => {
+    setSelectedStream((current) => {
+      if (!current) return current
+      return availableStreams.find((s) => s.id === current.id) ?? null
+    })
+  }, [availableStreams])
+
   const filteredStreams = availableStreams.filter((perm) => {
     const sport = perm.streamSession?.sport
     if (sportFilter === SPORT_FILTER_ALL) return true
@@ -41,39 +51,6 @@ export function RealTimeStreams() {
     if (sportFilter === SPORT_FILTER_UNSPECIFIED) return s === ""
     return s === sportFilter
   })
-
-  const loadStreams = useCallback(
-    async (options?: { manual?: boolean }) => {
-      if (!user) return
-      const isManual = options?.manual === true
-      if (isManual) setRefreshing(true)
-      try {
-        const { adHoc: streams } = await getAvailableStreamsSplit(user.uid)
-        const sortedStreams = [...streams].sort(compareSubscriberPermissionsByStreamStart)
-        setAvailableStreams(sortedStreams)
-        setSelectedStream((current) => {
-          if (!current) return current
-          const updated = streams.find((s) => s.id === current.id) || null
-          return updated
-        })
-        setError("")
-      } catch (err: any) {
-        console.error("[v0] Error loading streams:", err)
-        setError("Failed to load streams")
-      } finally {
-        setLoading(false)
-        if (isManual) setRefreshing(false)
-      }
-    },
-    [user],
-  )
-
-  useEffect(() => {
-    if (!user) return
-    void loadStreams()
-    const interval = setInterval(() => void loadStreams(), 15_000)
-    return () => clearInterval(interval)
-  }, [user, loadStreams])
 
   /** Apply pending stream only after viewer has fully unmounted (selectedStream === null). */
   useEffect(() => {
@@ -265,7 +242,7 @@ export function RealTimeStreams() {
               size="sm"
               className="h-9 w-full shrink-0 gap-2 sm:w-auto sm:min-w-[8.5rem]"
               disabled={loading || refreshing}
-              onClick={() => void loadStreams({ manual: true })}
+              onClick={() => void refresh(true)}
             >
               {refreshing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -308,7 +285,7 @@ export function RealTimeStreams() {
                   variant="outline"
                   className="mt-4 gap-2"
                   disabled={refreshing}
-                  onClick={() => void loadStreams({ manual: true })}
+                  onClick={() => void refresh(true)}
                 >
                   {refreshing ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

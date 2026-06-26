@@ -7,10 +7,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   compareSubscriberPermissionsByStreamStart,
-  getAvailableStreamsSplit,
   streamSessionCreatedAtMs,
   type SubscriberPermission,
 } from "@/lib/subscriber"
+import { useSubscriberDashboard } from "@/hooks/use-subscriber-dashboard"
 import {
   getLocalDateKey,
   getScheduledCallById,
@@ -18,7 +18,8 @@ import {
   isScheduledCallTransmitting,
   type ScheduledCall,
 } from "@/lib/scheduled-calls"
-import { isAwaitingBroadcastSession, getActiveStreams } from "@/lib/streaming"
+import { isAwaitingBroadcastSession } from "@/lib/streaming"
+import type { StreamSession } from "@/lib/streaming"
 import { streamSportLabel } from "@/lib/sports"
 import { StreamViewer, type StreamViewerHandle } from "./stream-viewer"
 import { SubscriberFloatingChat } from "@/components/subscriber/subscriber-floating-chat"
@@ -26,25 +27,24 @@ import { useAuth } from "@/hooks/use-auth"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { Phone, Radio, Activity, RefreshCw, Loader2, Square } from "lucide-react"
 
-type ActiveSessionRow = {
-  id: string
-  roomId: string
-  publisherId: string
-  isActive: boolean
-  awaitingBroadcast?: boolean
-  scheduledCallId?: string
+function isStreamSessionLive(sess: StreamSession | undefined): boolean {
+  return Boolean(sess?.isActive && sess.awaitingBroadcast !== true)
 }
 
-function isPermissionLive(perm: SubscriberPermission, sessions: ActiveSessionRow[]): boolean {
-  const s = perm.streamSession
-  if (!s) return false
-  return sessions.some(
-    (a) =>
-      a.isActive &&
-      a.awaitingBroadcast !== true &&
-      a.roomId === s.roomId &&
-      a.publisherId === s.publisherId,
-  )
+function isPermissionLive(perm: SubscriberPermission): boolean {
+  return isStreamSessionLive(perm.streamSession)
+}
+
+function isScheduledCallLive(call: ScheduledCall, sess: StreamSession | undefined): boolean {
+  if (!sess || !isStreamSessionLive(sess)) return false
+  return isScheduledCallTransmitting(call, [
+    {
+      roomId: String(sess.roomId ?? ""),
+      publisherId: String(sess.publisherId ?? ""),
+      isActive: true,
+      awaitingBroadcast: sess.awaitingBroadcast === true,
+    },
+  ])
 }
 
 export type SubscriberScheduledCallsProps = {
@@ -53,12 +53,13 @@ export type SubscriberScheduledCallsProps = {
 
 export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsProps) {
   const { user, userProfile } = useAuth()
+  const { scheduled, loading: streamsLoading, refreshing, refresh } = useSubscriberDashboard()
   const isMobile = useIsMobile()
-  const [activeSessions, setActiveSessions] = useState<ActiveSessionRow[]>([])
-  const [scheduledPermissions, setScheduledPermissions] = useState<SubscriberPermission[]>([])
+  const scheduledPermissions = useMemo(
+    () => [...scheduled].sort(compareSubscriberPermissionsByStreamStart),
+    [scheduled],
+  )
   const [listening, setListening] = useState<SubscriberPermission | null>(null)
-  const [streamsLoading, setStreamsLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
   /** Calendar row for each stream session id (from scheduledCallId when present). */
   const [callMetaByStreamSessionId, setCallMetaByStreamSessionId] = useState<
     Record<string, ScheduledCall | null>
@@ -67,56 +68,12 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
   const pendingListeningRef = useRef<SubscriberPermission | null>(null)
   const dateKey = getLocalDateKey()
 
-  const loadScheduledStreams = useCallback(
-    async (options?: { manual?: boolean }) => {
-      if (!userId) return
-      const isManual = options?.manual === true
-      if (isManual) setRefreshing(true)
-      try {
-        const { scheduled } = await getAvailableStreamsSplit(userId)
-        const sorted = [...scheduled].sort(compareSubscriberPermissionsByStreamStart)
-        setScheduledPermissions(sorted)
-        setListening((cur) => {
-          if (!cur) return cur
-          return sorted.find((p) => p.id === cur.id) ?? null
-        })
-      } finally {
-        setStreamsLoading(false)
-        if (isManual) setRefreshing(false)
-      }
-    },
-    [userId],
-  )
-
   useEffect(() => {
-    loadScheduledStreams()
-    const interval = setInterval(loadScheduledStreams, 15_000)
-    return () => clearInterval(interval)
-  }, [loadScheduledStreams])
-
-  useEffect(() => {
-    let active = true
-    const load = async () => {
-      const streams = await getActiveStreams()
-      if (!active) return
-      setActiveSessions(
-        streams.map((x) => ({
-          id: x.id || "",
-          roomId: String(x.roomId ?? ""),
-          publisherId: String(x.publisherId ?? ""),
-          isActive: !!x.isActive,
-          awaitingBroadcast: x.awaitingBroadcast === true,
-          scheduledCallId: x.scheduledCallId ? String(x.scheduledCallId) : undefined,
-        })),
-      )
-    }
-    void load()
-    const interval = setInterval(load, 5000)
-    return () => {
-      active = false
-      clearInterval(interval)
-    }
-  }, [])
+    setListening((cur) => {
+      if (!cur) return cur
+      return scheduledPermissions.find((p) => p.id === cur.id) ?? null
+    })
+  }, [scheduledPermissions])
 
   const dedupedRooms = useMemo(() => {
     const m = new Map<string, SubscriberPermission>()
@@ -154,20 +111,23 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const next: Record<string, ScheduledCall | null> = {}
-      for (const p of dedupedRooms) {
-        const sess = p.streamSession
-        if (!sess?.id) continue
-        const cid = sess.scheduledCallId?.trim()
-        if (cid) {
+      const entries = await Promise.all(
+        dedupedRooms.map(async (p) => {
+          const sess = p.streamSession
+          if (!sess?.id) return null
+          const cid = sess.scheduledCallId?.trim()
+          if (!cid) return [sess.id, null] as const
           const call = await getScheduledCallById(cid)
-          if (cancelled) return
-          next[sess.id] = call
-        } else {
-          next[sess.id] = null
-        }
+          return [sess.id, call] as const
+        }),
+      )
+      if (cancelled) return
+      const next: Record<string, ScheduledCall | null> = {}
+      for (const entry of entries) {
+        if (!entry) continue
+        next[entry[0]] = entry[1]
       }
-      if (!cancelled) setCallMetaByStreamSessionId(next)
+      setCallMetaByStreamSessionId(next)
     })()
     return () => {
       cancelled = true
@@ -202,8 +162,8 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
   }, [])
 
   const liveCount = useMemo(
-    () => dedupedRoomsSorted.filter((p) => isPermissionLive(p, activeSessions)).length,
-    [dedupedRoomsSorted, activeSessions],
+    () => dedupedRoomsSorted.filter((p) => isPermissionLive(p)).length,
+    [dedupedRoomsSorted],
   )
 
   const emptyViewerPane = (
@@ -223,8 +183,7 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
           sess.id && Object.prototype.hasOwnProperty.call(callMetaByStreamSessionId, sess.id)
             ? callMetaByStreamSessionId[sess.id]
             : undefined
-        const live =
-          cal != null ? isScheduledCallTransmitting(cal, activeSessions) : isPermissionLive(perm, activeSessions)
+        const live = cal != null ? isScheduledCallLive(cal, sess) : isPermissionLive(perm)
         const inWindow = cal ? isCallInTimeWindow(cal) : false
         const title = cal?.title?.trim() || sess.title || "Scheduled room"
         const sport = cal?.sport?.trim() || sess.sport?.trim()
@@ -345,7 +304,7 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
                 size="sm"
                 className="h-9 w-full gap-2 sm:w-auto sm:min-w-[8.5rem]"
                 disabled={streamsLoading || refreshing}
-                onClick={() => void loadScheduledStreams({ manual: true })}
+                onClick={() => void refresh(true)}
               >
                 {refreshing ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

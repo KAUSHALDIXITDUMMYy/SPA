@@ -17,6 +17,14 @@
       ]
     },
     {
+      "collectionGroup": "streamSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "publisherId", "order": "ASCENDING" },
+        { "fieldPath": "isActive", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "streamChatMessages",
       "queryScope": "COLLECTION",
       "fields": [

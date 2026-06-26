@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
     switch (type) {
       case "permissions":
         if (!selfOrAdmin) return forbidden()
-        return NextResponse.json({ permissions: await sub.getSubscriberPermissions(subscriberId) })
+        return NextResponse.json(await sub.getSubscriberPermissions(subscriberId))
       case "accessiblePublishers":
         if (!selfOrAdmin) return forbidden()
         return NextResponse.json({

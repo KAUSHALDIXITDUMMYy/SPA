@@ -49,13 +49,40 @@ async function get(params: Record<string, string>): Promise<any> {
   return res.json()
 }
 
+export async function fetchSubscriberDashboard(subscriberId: string): Promise<{
+  permissions: SubscriberPermission[]
+  hasAssignment: boolean
+}> {
+  const json = await get({ type: "permissions", subscriberId })
+  const permissions = (json.permissions || []).map(normalizePerm)
+  let hasAssignment: boolean
+  if (json.hasAssignment === undefined) {
+    hasAssignment = await subscriberHasAnyAssignment(subscriberId)
+  } else {
+    hasAssignment = Boolean(json.hasAssignment)
+  }
+  return { permissions, hasAssignment }
+}
+
 export const getSubscriberPermissions = async (subscriberId: string): Promise<SubscriberPermission[]> => {
   try {
-    const json = await get({ type: "permissions", subscriberId })
-    return (json.permissions || []).map(normalizePerm)
+    const data = await fetchSubscriberDashboard(subscriberId)
+    return data.permissions
   } catch (error) {
     console.error("Error fetching subscriber permissions:", error)
     return []
+  }
+}
+
+/** Client-side split of active permissions (no extra API call). */
+export function splitAvailableStreams(permissions: SubscriberPermission[]): {
+  adHoc: SubscriberPermission[]
+  scheduled: SubscriberPermission[]
+} {
+  const active = permissions.filter((p) => p.streamSession?.isActive)
+  return {
+    adHoc: active.filter((p) => !streamSessionIsScheduledRoom(p.streamSession)),
+    scheduled: active.filter((p) => streamSessionIsScheduledRoom(p.streamSession)),
   }
 }
 
@@ -77,11 +104,8 @@ export async function getAvailableStreamsSplit(subscriberId: string): Promise<{
   adHoc: SubscriberPermission[]
   scheduled: SubscriberPermission[]
 }> {
-  const all = await getAvailableStreams(subscriberId)
-  return {
-    adHoc: all.filter((p) => !streamSessionIsScheduledRoom(p.streamSession)),
-    scheduled: all.filter((p) => streamSessionIsScheduledRoom(p.streamSession)),
-  }
+  const data = await fetchSubscriberDashboard(subscriberId)
+  return splitAvailableStreams(data.permissions)
 }
 
 /** Publisher IDs this subscriber may hear. */

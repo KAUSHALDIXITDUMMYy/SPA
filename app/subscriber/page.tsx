@@ -8,7 +8,7 @@ import { SubscriberNotifications } from "@/components/subscriber/subscriber-noti
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { signOut } from "@/lib/auth"
 import { useAuth } from "@/hooks/use-auth"
@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import { Radio, LogOut, AlertTriangle, UserX, Calendar, Menu, Bell, Phone, KeyRound } from "lucide-react"
 import { ChangePasswordDialog } from "@/components/subscriber/change-password-dialog"
+import { SubscriberDashboardProvider } from "@/hooks/use-subscriber-dashboard"
 import { toast } from "@/hooks/use-toast"
 
 export default function SubscriberDashboard() {
@@ -158,49 +159,39 @@ export default function SubscriberDashboard() {
                 </div>
               </CardContent>
             </Card>
-          ) : (
-            // Active user - show normal content
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 sm:space-y-6">
-              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto gap-1">
-                <TabsTrigger value="streams" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                  <Radio className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span className="hidden xs:inline">Audio Streams</span>
-                  <span className="xs:hidden">Streams</span>
-                </TabsTrigger>
-                <TabsTrigger value="scheduled-calls" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                  <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span className="hidden xs:inline">Scheduled calls</span>
-                  <span className="xs:hidden">Calls</span>
-                </TabsTrigger>
-                <TabsTrigger value="notifications" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                  <Bell className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span className="hidden xs:inline">Notifications</span>
-                  <span className="xs:hidden">Alerts</span>
-                </TabsTrigger>
-                <TabsTrigger value="schedule" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                  <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
-                  <span className="hidden xs:inline">Today&apos;s Schedule</span>
-                  <span className="xs:hidden">Schedule</span>
-                </TabsTrigger>
-              </TabsList>
+          ) : user?.uid ? (
+            <SubscriberDashboardProvider subscriberId={user.uid}>
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 sm:space-y-6">
+                <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 h-auto gap-1">
+                  <TabsTrigger value="streams" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
+                    <Radio className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span className="hidden xs:inline">Audio Streams</span>
+                    <span className="xs:hidden">Streams</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="scheduled-calls" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
+                    <Phone className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span className="hidden xs:inline">Scheduled calls</span>
+                    <span className="xs:hidden">Calls</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="notifications" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
+                    <Bell className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span className="hidden xs:inline">Notifications</span>
+                    <span className="xs:hidden">Alerts</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="schedule" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
+                    <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span className="hidden xs:inline">Today&apos;s Schedule</span>
+                    <span className="xs:hidden">Schedule</span>
+                  </TabsTrigger>
+                </TabsList>
 
-              <TabsContent value="streams">
-                <RealTimeStreams />
-              </TabsContent>
-
-              <TabsContent value="scheduled-calls">
-                {user?.uid ? <SubscriberScheduledCalls userId={user.uid} /> : null}
-              </TabsContent>
-
-              <TabsContent value="notifications">
-                <SubscriberNotifications />
-              </TabsContent>
-
-              <TabsContent value="schedule">
-                <TodaysSchedule />
-              </TabsContent>
-            </Tabs>
-          )}
+                {activeTab === "streams" ? <RealTimeStreams /> : null}
+                {activeTab === "scheduled-calls" ? <SubscriberScheduledCalls userId={user.uid} /> : null}
+                {activeTab === "notifications" ? <SubscriberNotifications /> : null}
+                {activeTab === "schedule" ? <TodaysSchedule /> : null}
+              </Tabs>
+            </SubscriberDashboardProvider>
+          ) : null}
         </main>
       </div>
     </ProtectedRoute>

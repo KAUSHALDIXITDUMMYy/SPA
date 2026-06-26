@@ -2,30 +2,20 @@
 
 import { useEffect, useState } from "react"
 import { subscribeAdminBroadcasts, type AdminBroadcast } from "@/lib/admin"
-import { subscribeSubscriberAssignmentEligibility } from "@/lib/subscriber"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Bell, Shield } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
+import { useSubscriberDashboard } from "@/hooks/use-subscriber-dashboard"
 import { broadcastVisibleToSubscriber } from "@/lib/tenant"
 
 export function SubscriberNotifications() {
-  const { user, userProfile } = useAuth()
-  const [eligible, setEligible] = useState(false)
-  const [eligibilityReady, setEligibilityReady] = useState(false)
+  const { userProfile } = useAuth()
+  const { hasAssignment, loading } = useSubscriberDashboard()
   const [broadcasts, setBroadcasts] = useState<AdminBroadcast[]>([])
 
   useEffect(() => {
-    if (!user?.uid) return
-    const unsub = subscribeSubscriberAssignmentEligibility(user.uid, (ok) => {
-      setEligible(ok)
-      setEligibilityReady(true)
-    })
-    return unsub
-  }, [user?.uid])
-
-  useEffect(() => {
-    if (!eligible || !userProfile) {
+    if (!hasAssignment || !userProfile) {
       setBroadcasts([])
       return
     }
@@ -33,14 +23,14 @@ export function SubscriberNotifications() {
       setBroadcasts(items.filter((b) => broadcastVisibleToSubscriber(b, userProfile)))
     })
     return unsub
-  }, [eligible, userProfile])
+  }, [hasAssignment, userProfile])
 
   const formatDate = (d: Date) => {
     const date = d instanceof Date ? d : new Date(d)
     return date.toLocaleString()
   }
 
-  if (!eligibilityReady) {
+  if (loading) {
     return (
       <Card>
         <CardContent className="py-8 text-center text-muted-foreground text-sm">Loading…</CardContent>
@@ -48,7 +38,7 @@ export function SubscriberNotifications() {
     )
   }
 
-  if (!eligible) {
+  if (!hasAssignment) {
     return (
       <Card>
         <CardHeader>

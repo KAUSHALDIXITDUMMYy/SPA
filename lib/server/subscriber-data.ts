@@ -26,7 +26,42 @@ function serializeRow(id: string, data: any) {
   return out
 }
 
-export async function getSubscriberPermissions(subscriberId: string) {
+const PUBLISHER_IN_LIMIT = 30
+
+async function loadActiveStreamsForPublishers(db: Firestore, publisherIds: string[]) {
+  const activeStreamsMap = new Map<string, any>()
+  const ids = [...new Set(publisherIds.filter(Boolean))]
+  if (!ids.length) return activeStreamsMap
+
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += PUBLISHER_IN_LIMIT) {
+    chunks.push(ids.slice(i, i + PUBLISHER_IN_LIMIT))
+  }
+
+  const snaps = await Promise.all(
+    chunks.map((chunk) =>
+      db
+        .collection("streamSessions")
+        .where("publisherId", "in", chunk)
+        .where("isActive", "==", true)
+        .get(),
+    ),
+  )
+
+  for (const snap of snaps) {
+    snap.docs.forEach((d: any) => {
+      activeStreamsMap.set(d.id, serializeSession(d.id, d.data()))
+    })
+  }
+  return activeStreamsMap
+}
+
+export type SubscriberPermissionsPayload = {
+  permissions: any[]
+  hasAssignment: boolean
+}
+
+export async function getSubscriberPermissions(subscriberId: string): Promise<SubscriberPermissionsPayload> {
   const db = await getAdminDb()
 
   const [permsSnap, assignsSnap] = await Promise.all([
@@ -66,12 +101,17 @@ export async function getSubscriberPermissions(subscriberId: string) {
     }
   })
 
-  const [activeStreamsSnap, publisherSnaps] = await Promise.all([
-    db.collection("streamSessions").where("isActive", "==", true).get(),
+  const [activeStreamsMap, publisherSnaps] = await Promise.all([
+    loadActiveStreamsForPublishers(db, [...publisherIds]),
     publisherIds.size > 0
       ? db.getAll(...[...publisherIds].map((id) => db.collection("users").doc(id)))
       : Promise.resolve([]),
   ])
+  assignmentSessionSnaps.forEach((snap: any) => {
+    if (snap.exists && !activeStreamsMap.has(snap.id)) {
+      activeStreamsMap.set(snap.id, serializeSession(snap.id, snap.data()))
+    }
+  })
 
   const usersMap = new Map<string, any>()
   publisherSnaps.forEach((snap: any) => {
@@ -81,15 +121,7 @@ export async function getSubscriberPermissions(subscriberId: string) {
     if (u.uid) usersMap.set(u.uid, u)
   })
 
-  const activeStreamsMap = new Map<string, any>()
-  activeStreamsSnap.docs.forEach((d: any) => {
-    activeStreamsMap.set(d.id, serializeSession(d.id, d.data()))
-  })
-  assignmentSessionSnaps.forEach((snap: any) => {
-    if (snap.exists && !activeStreamsMap.has(snap.id)) {
-      activeStreamsMap.set(snap.id, serializeSession(snap.id, snap.data()))
-    }
-  })
+  const hasAssignment = !permsSnap.empty || !assignsSnap.empty
 
   const enriched: any[] = []
 
@@ -139,7 +171,7 @@ export async function getSubscriberPermissions(subscriberId: string) {
     if (!unique.has(key)) unique.set(key, perm)
   })
 
-  return Array.from(unique.values())
+  return { permissions: Array.from(unique.values()), hasAssignment }
 }
 
 export async function getAccessiblePublisherIdsForSubscriber(subscriberId: string): Promise<string[]> {
