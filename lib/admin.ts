@@ -126,6 +126,27 @@ export const searchUsersByRole = async (
   return (json.items ?? []) as (UserProfile & { id: string })[]
 }
 
+/** Search every role at once (server-side), merged + deduped — finds users beyond loaded pages. */
+export const searchAllUsers = async (
+  query: string,
+): Promise<(UserProfile & { id: string })[]> => {
+  const q = query.trim()
+  if (!q) return []
+  const roles: UserRole[] = ["admin", "publisher", "subscriber"]
+  const results = await Promise.all(roles.map((r) => searchUsersByRole(r, q)))
+  const seen = new Set<string>()
+  const merged: (UserProfile & { id: string })[] = []
+  for (const list of results) {
+    for (const u of list) {
+      if (u.id && !seen.has(u.id)) {
+        seen.add(u.id)
+        merged.push(u)
+      }
+    }
+  }
+  return merged
+}
+
 export const updateUserStatus = async (userId: string, isActive: boolean) => {
   const { ok, json } = await postAdmin("updateUserStatus", { userId, isActive })
   return ok ? { success: true } : { success: false, error: json.error }

@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
-import { createUser, getAllUsersPage, updateUserStatus, updateUserChatPermission, resetUserPassword, deleteUserAccount } from "@/lib/admin"
+import { createUser, getAllUsersPage, searchAllUsers, updateUserStatus, updateUserChatPermission, resetUserPassword, deleteUserAccount } from "@/lib/admin"
 import type { UserProfile, UserRole } from "@/lib/auth"
 import {
   Plus,
@@ -145,8 +145,11 @@ export function UserManagement() {
   const [bulkSkippedNames, setBulkSkippedNames] = useState<{ name: string; email: string; reason: string }[]>([])
   const [bulkCreatedCount, setBulkCreatedCount] = useState<number | null>(null)
 
-  // Search state (for All Users tab)
+  // Search state (for All Users tab). Searches the full DB across all roles, not just loaded pages.
   const [searchQuery, setSearchQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<(UserProfile & { id: string })[]>([])
+  const [searching, setSearching] = useState(false)
+  const searchActive = searchQuery.trim().length >= 2
 
   // Password reset state
   const [resetPasswordUserId, setResetPasswordUserId] = useState<string | null>(null)
@@ -461,8 +464,41 @@ export function UserManagement() {
     return { admins, publishers, subscribers }
   }, [users])
 
+  // Debounced server-side search across the full DB (all roles), so matches outside the
+  // loaded pages still appear. Falls back to local filtering for single-character queries.
+  useEffect(() => {
+    const q = searchQuery.trim()
+    if (q.length < 2) {
+      setSearchResults([])
+      setSearching(false)
+      return
+    }
+    setSearching(true)
+    const handle = setTimeout(() => {
+      void searchAllUsers(q)
+        .then((rows) => {
+          setSearchResults(rows)
+          // Merge into the main list so role tabs and row actions stay consistent.
+          setUsers((prev) => {
+            const seen = new Set(prev.map((u) => u.id))
+            const merged = [...prev]
+            for (const row of rows) {
+              if (row.id && !seen.has(row.id)) merged.push(row as UserProfile & { id: string })
+            }
+            return merged
+          })
+        })
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearching(false))
+    }, 300)
+    return () => clearTimeout(handle)
+  }, [searchQuery, setUsers])
+
   // Filter users for All Users tab based on search
   const filteredUsers = useMemo(() => {
+    if (searchActive) {
+      return sortUsersAlphabetically(searchResults)
+    }
     const sorted = sortUsersAlphabetically(users)
     if (!searchQuery.trim()) return sorted
     const q = searchQuery.trim().toLowerCase()
@@ -472,7 +508,7 @@ export function UserManagement() {
         (u.displayName || "").toLowerCase().includes(q) ||
         (u.role || "").toLowerCase().includes(q),
     )
-  }, [users, searchQuery])
+  }, [users, searchQuery, searchActive, searchResults])
 
   const getStats = () => {
     const total = users.length
@@ -876,15 +912,22 @@ export function UserManagement() {
               <div className="relative max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search by email, name, or role..."
+                  placeholder="Search all users by email or name..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-9"
                 />
+                {searching ? (
+                  <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+                ) : null}
               </div>
               {filteredUsers.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  {searchQuery.trim() ? "No users match your search." : "No users found."}
+                  {searching
+                    ? "Searching all users…"
+                    : searchQuery.trim()
+                      ? "No users match your search."
+                      : "No users found."}
                 </div>
               ) : (
                 <UserTable 
@@ -894,8 +937,8 @@ export function UserManagement() {
                   getRoleBadgeVariant={getRoleBadgeVariant}
                   onResetPassword={openResetPasswordDialog}
                   onDelete={handleDeleteUser}
-                  sentinelRef={hasMore ? sentinelRef : undefined}
-                  loadingMore={loadingMore}
+                  sentinelRef={!searchActive && hasMore ? sentinelRef : undefined}
+                  loadingMore={!searchActive && loadingMore}
                 />
               )}
             </TabsContent>
