@@ -147,6 +147,7 @@ export async function createUser(input: {
     pendingPassword: input.password,
   }
   await db.collection("users").doc(pendingUserId).set(userProfile)
+  invalidateUserSearchCache(input.role)
   return {
     user: { uid: pendingUserId, email: normalizedEmail },
     error: null,
@@ -198,45 +199,68 @@ export async function getUsersByRole(role: Role, adminViewer?: AdminViewer) {
   return (await getUsersByRolePage(role, adminViewer)).items
 }
 
-function userMatchesSearchQuery(
-  row: { email?: string; displayName?: string },
-  query: string,
-): boolean {
-  const q = query.trim().toLowerCase()
-  if (!q) return false
-  const email = String(row.email || "").toLowerCase()
-  const name = String(row.displayName || "").toLowerCase()
-  return email.includes(q) || name.includes(q)
+/** Lowercased, search-relevant fields precomputed once so each query is a cheap substring test. */
+type SearchableUser = Record<string, any> & { _search: string }
+
+const USER_SEARCH_TTL_MS = 60_000
+const usersByRoleCache = new Map<Role, { rows: SearchableUser[]; at: number }>()
+
+/**
+ * One full read of a role's users, cached in-memory (TTL). Subsequent searches filter this
+ * list in memory instead of paging Firestore — so search returns near-instantly. The cache
+ * is shared across all admins; per-viewer tenant scoping is applied at query time.
+ */
+async function loadSearchableUsersByRole(role: Role): Promise<SearchableUser[]> {
+  const now = Date.now()
+  const cached = usersByRoleCache.get(role)
+  if (cached && now - cached.at < USER_SEARCH_TTL_MS) return cached.rows
+
+  const db = await getAdminDb()
+  const snap = await db.collection("users").where("role", "==", role).get()
+  const rows: SearchableUser[] = snap.docs.map((doc) => {
+    const obj = docToObject(doc)
+    const email = String(obj.email || "").toLowerCase()
+    const name = String(obj.displayName || "").toLowerCase()
+    return { ...obj, _search: `${email}\n${name}` }
+  })
+  usersByRoleCache.set(role, { rows, at: now })
+  return rows
 }
 
-/** Search subscribers/publishers across the full role list (not just the first loaded page). */
+/** Drop the cached role list (call after creating/deleting users so search stays fresh). */
+export function invalidateUserSearchCache(role?: Role) {
+  if (role) usersByRoleCache.delete(role)
+  else usersByRoleCache.clear()
+}
+
+/** Search subscribers/publishers across the full role list, in-memory and fast. */
 export async function searchUsersByRole(
   role: Role,
   query: string,
   adminViewer?: AdminViewer,
-  options?: { limit?: number; maxScan?: number },
+  options?: { limit?: number },
 ) {
   const q = query.trim().toLowerCase()
   const limit = Math.min(options?.limit ?? 100, 100)
-  const maxScan = options?.maxScan ?? 5000
   if (!q) return { items: [] as Record<string, any>[] }
 
-  const matches: Record<string, any>[] = []
-  let cursor: string | null = null
-  let scanned = 0
+  const all = await loadSearchableUsersByRole(role)
+  const visible = filterUsersForAdmin(all, adminViewer)
 
-  while (matches.length < limit && scanned < maxScan) {
-    const page = await getUsersByRolePage(role, adminViewer, { limit: 200, cursor })
-    scanned += page.items.length
-    for (const row of page.items) {
-      if (userMatchesSearchQuery(row, q)) {
-        matches.push(row)
-        if (matches.length >= limit) break
-      }
+  const matches: Record<string, any>[] = []
+  for (const row of visible) {
+    if (row._search.includes(q)) {
+      const { _search, ...clean } = row
+      matches.push(clean)
+      if (matches.length >= limit) break
     }
-    if (!page.hasMore || !page.nextCursor) break
-    cursor = page.nextCursor
   }
+
+  matches.sort((a, b) =>
+    String(a.displayName || a.email || "")
+      .toLowerCase()
+      .localeCompare(String(b.displayName || b.email || "").toLowerCase()),
+  )
 
   return { items: matches }
 }
@@ -386,6 +410,8 @@ export async function getStreamAssignmentsBootstrap(
   options?: { limit?: number; cursor?: string | null },
 ) {
   const limit = normalizePageLimit(options?.limit)
+  // Warm the subscriber search cache in the background so the first search is instant.
+  void loadSearchableUsersByRole("subscriber").catch(() => {})
   const [subscriberPage, { streams, assignments: allAssignments }] = await Promise.all([
     getUsersByRolePage("subscriber", adminViewer, { limit, cursor: options?.cursor }),
     loadAssignmentsForActiveStreams(adminViewer),
