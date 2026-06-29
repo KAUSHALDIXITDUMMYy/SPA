@@ -19,7 +19,7 @@ const nextConfig = {
     // VPS. Gated to Vercel (VERCEL=1) so the VPS's own build doesn't proxy to
     // itself (infinite loop).
     if (process.env.VERCEL !== "1") return []
-    const origin = process.env.BACKEND_PROXY_ORIGIN || "http://217.216.87.128"
+    const origin = process.env.BACKEND_PROXY_ORIGIN || "http://38.248.12.6"
     return {
       beforeFiles: [{ source: "/api/:path*", destination: `${origin}/api/:path*` }],
     }
