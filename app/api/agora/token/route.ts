@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { RtcRole, RtcTokenBuilder } from "agora-access-token"
+import { RtcRole, RtcTokenBuilder } from "agora-token"
 import { verifyAppCheck, verifyRequestUserProfile } from "@/lib/firebase-admin"
 import { verifyAgoraChannelAccess } from "@/lib/server/verify-stream-access"
 
@@ -54,19 +54,21 @@ export async function POST(req: NextRequest) {
 
     const agoraUid = typeof uid === "number" && uid > 0 ? uid : Math.floor(Math.random() * 2_147_483_647)
     const agoraRole = joinRole === "publisher" ? RtcRole.PUBLISHER : RtcRole.SUBSCRIBER
-    const defaultTtl = joinRole === "publisher" ? 60 * 60 * 2 : 60 * 60
+    const defaultTtl = joinRole === "publisher" ? 60 * 60 * 24 : 60 * 60 * 24
     const ttl = typeof expireSeconds === "number" && expireSeconds > 0 ? expireSeconds : defaultTtl
 
     const currentTs = Math.floor(Date.now() / 1000)
     const privilegeExpiredTs = currentTs + ttl
 
+    // AccessToken2: expiration args are seconds from now, not unix timestamps.
     const token = RtcTokenBuilder.buildTokenWithUid(
       APP_ID,
       APP_CERTIFICATE,
       channelName,
       agoraUid,
       agoraRole,
-      privilegeExpiredTs,
+      ttl,
+      ttl,
     )
 
     return NextResponse.json({ token, uid: agoraUid, appId: APP_ID, expiresAt: privilegeExpiredTs })
