@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { getAllPermissionsPage, getPermissionSummary } from "@/lib/permissions"
+import { startPoll } from "@/lib/client/poll"
 import { updateStreamPermission, deleteStreamPermission, getUsersByRole, type StreamPermission } from "@/lib/admin"
 import type { UserProfile } from "@/lib/auth"
 import { Users, Shield, Trash2, Activity, Loader2 } from "lucide-react"
@@ -39,8 +40,7 @@ export function RealTimePermissions() {
     if (authLoading || !userProfile || userProfile.role !== "admin") return
     void getUsersByRole("publisher", userProfile).then((rows) => setPublishers(rows as any))
     void getUsersByRole("subscriber", userProfile).then((rows) => setSubscribers(rows as any))
-    const interval = setInterval(() => void reloadPermissions(), 15000)
-    return () => clearInterval(interval)
+    return startPoll(() => void reloadPermissions(), 15000)
   }, [authLoading, userProfile, reloadPermissions])
 
   const getPublisherName = (publisherId: string) => {

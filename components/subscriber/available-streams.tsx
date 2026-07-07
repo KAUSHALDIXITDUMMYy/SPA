@@ -14,6 +14,7 @@ import {
   type SubscriberPermission,
 } from "@/lib/subscriber"
 import { isAwaitingBroadcastSession } from "@/lib/streaming"
+import { startPoll } from "@/lib/client/poll"
 import {
   US_STREAM_SPORTS,
   SPORT_FILTER_ALL,
@@ -42,9 +43,7 @@ export function AvailableStreams() {
 
   useEffect(() => {
     if (user) {
-      loadStreams()
-      const interval = setInterval(loadStreams, 30000)
-      return () => clearInterval(interval)
+      return startPoll(loadStreams, 30000)
     }
   }, [user])
 

@@ -4,7 +4,6 @@ import { ProtectedRoute } from "@/components/auth/protected-route"
 import { UserManagement } from "@/components/admin/user-management"
 import { AdminAnalytics } from "@/components/admin/admin-analytics"
 import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { signOut } from "@/lib/auth"
 import { logoutAllUsers } from "@/lib/admin"
 import { useAuth } from "@/hooks/use-auth"
@@ -22,7 +21,6 @@ import {
   Flag,
   Bell,
   Radio,
-  Menu,
   ShieldAlert,
   type LucideIcon,
 } from "lucide-react"
@@ -47,25 +45,17 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet"
 
 const ADMIN_SECTIONS: { value: string; label: string; Icon: LucideIcon }[] = [
-  { value: "users", label: "User Management", Icon: Users },
-  { value: "live-rooms", label: "Live rooms", Icon: Radio },
+  { value: "users", label: "Users", Icon: Users },
+  { value: "live-rooms", label: "Live Rooms", Icon: Radio },
   { value: "analytics", label: "Analytics", Icon: BarChart3 },
-  { value: "assignments", label: "Publisher Assignments", Icon: Shield },
-  { value: "stream-assignments", label: "Stream Assignments", Icon: Settings },
-  { value: "schedule", label: "Today's Schedule", Icon: Calendar },
+  { value: "assignments", label: "Publishers", Icon: Shield },
+  { value: "stream-assignments", label: "Streams", Icon: Settings },
+  { value: "schedule", label: "Schedule", Icon: Calendar },
   { value: "contact", label: "Contact", Icon: Mail },
   { value: "reports", label: "Reports", Icon: Flag },
-  { value: "notifications", label: "Notifications", Icon: Bell },
+  { value: "notifications", label: "Alerts", Icon: Bell },
 ]
 
 export default function AdminDashboard() {
@@ -83,8 +73,6 @@ export default function AdminDashboard() {
     mq.addEventListener("change", onChange)
     return () => mq.removeEventListener("change", onChange)
   }, [])
-
-  const activeSectionLabel = ADMIN_SECTIONS.find((s) => s.value === activeTab)?.label ?? "Admin"
 
   const handleSignOut = async () => {
     await signOut()
@@ -120,201 +108,153 @@ export default function AdminDashboard() {
 
   return (
     <ProtectedRoute allowedRoles={["admin"]}>
-      <div className="min-h-screen bg-background">
-        {/* Header */}
-        <header className="border-b bg-card">
-          <div className="container mx-auto px-4 py-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3 min-w-0 flex-1">
-                <Settings className="h-6 w-6 flex-shrink-0 mt-1" />
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <h1 className="text-xl sm:text-2xl font-bold truncate">
-                      {userProfile && isShadowAdmin(userProfile)
-                        ? `${KEVIONICS_PRODUCT_NAME} — Admin`
-                        : "Admin Dashboard"}
-                    </h1>
-                    <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-                      <SheetTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          className="md:hidden shrink-0 h-9 w-9"
-                          aria-label="Open admin sections menu"
-                          aria-expanded={mobileNavOpen}
-                        >
-                          <Menu className="h-5 w-5" />
-                        </Button>
-                      </SheetTrigger>
-                      <SheetContent
-                        side="bottom"
-                        className="max-h-[min(85vh,32rem)] rounded-t-2xl flex flex-col gap-0 p-0"
-                      >
-                        <SheetHeader className="text-left space-y-1 px-4 pt-4 pb-3 border-b shrink-0">
-                          <SheetTitle>Jump to section</SheetTitle>
-                          <SheetDescription>Choose an admin area</SheetDescription>
-                        </SheetHeader>
-                        <nav
-                          className="flex flex-col gap-0.5 overflow-y-auto px-2 py-3 pb-6"
-                          aria-label="Admin sections"
-                        >
-                          {ADMIN_SECTIONS.map(({ value, label, Icon }) => (
-                            <Button
-                              key={value}
-                              type="button"
-                              variant={activeTab === value ? "secondary" : "ghost"}
-                              className="w-full justify-start gap-3 h-12 px-3 text-base font-normal"
-                              onClick={() => {
-                                setActiveTab(value)
-                                setMobileNavOpen(false)
-                              }}
-                            >
-                              <Icon className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
-                              {label}
-                            </Button>
-                          ))}
-                        </nav>
-                      </SheetContent>
-                    </Sheet>
-                  </div>
-                  <p className="text-sm sm:text-base text-muted-foreground truncate">
-                    Welcome back, {userProfile?.displayName || userProfile?.email}
-                  </p>
-                  <p className="md:hidden text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">{activeSectionLabel}</span>
-                  </p>
-                </div>
+      <div className="min-h-screen bg-background flex">
+        {/* Sidebar - Desktop */}
+        <aside className="hidden md:flex flex-col w-56 border-r border-border bg-sidebar shrink-0">
+          {/* Admin identity */}
+          <div className="p-4 border-b border-border">
+            <h1 className="font-mono text-sm font-bold tracking-widest text-foreground">AUDIO_CORE</h1>
+            <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
+              {userProfile && isShadowAdmin(userProfile)
+                ? KEVIONICS_PRODUCT_NAME.toUpperCase()
+                : "ADMIN PANEL"}
+            </p>
+          </div>
+
+          {/* Navigation */}
+          <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+            {ADMIN_SECTIONS.map(({ value, label, Icon }) => (
+              <button
+                key={value}
+                onClick={() => setActiveTab(value)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === value
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                <span className="font-mono tracking-wide">{label}</span>
+              </button>
+            ))}
+          </nav>
+
+          {/* Bottom section */}
+          <div className="p-3 border-t border-border space-y-1">
+            <button
+              onClick={() => router.push("/admin/access-logs")}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-mono tracking-wide"
+            >
+              <ShieldAlert className="h-3.5 w-3.5" />
+              ACCESS LOGS
+            </button>
+
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button
+                  disabled={logoutAllLoading}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-xs text-destructive hover:text-destructive/80 transition-colors font-mono tracking-wide disabled:opacity-50"
+                >
+                  <UserX className="h-3.5 w-3.5" />
+                  {logoutAllLoading ? "LOGGING OUT..." : "LOGOUT ALL"}
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle className="font-mono uppercase">Logout All Users?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {userProfile && isShadowAdmin(userProfile)
+                      ? "This clears active subscriber sessions only for Kevionics (@kevionics.com) accounts."
+                      : "This clears active subscriber sessions for main-tenant accounts only (not Kevionics shadow subscribers)."}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleLogoutAll} disabled={logoutAllLoading}>
+                    {logoutAllLoading ? "Logging out..." : "Confirm"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            <button
+              onClick={handleSignOut}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors font-mono tracking-wide"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              SIGN OUT
+            </button>
+          </div>
+        </aside>
+
+        {/* Main area */}
+        <div className="flex flex-col flex-1 min-w-0">
+          {/* Mobile Header */}
+          <header className="md:hidden border-b border-border bg-card px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Settings className="h-5 w-5 text-primary" />
+                <span className="font-mono font-bold text-sm tracking-wide">AUDIO_CORE</span>
               </div>
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="destructive" disabled={logoutAllLoading} className="w-full sm:w-auto">
-                      <UserX className="h-4 w-4 mr-2" />
-                      <span className="hidden sm:inline">{logoutAllLoading ? "Logging out..." : "Logout All Users"}</span>
-                      <span className="sm:hidden">{logoutAllLoading ? "Logging out..." : "Logout All"}</span>
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent className="mx-4 max-w-[calc(100vw-2rem)]">
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Logout All Users?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {userProfile && isShadowAdmin(userProfile)
-                          ? "This clears active subscriber sessions only for Kevionics (@kevionics.com) accounts."
-                          : "This clears active subscriber sessions for main-tenant accounts only (not Kevionics shadow subscribers)."}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-                      <AlertDialogCancel className="w-full sm:w-auto">Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleLogoutAll} disabled={logoutAllLoading} className="w-full sm:w-auto">
-                        {logoutAllLoading ? "Logging out..." : "Logout All Users"}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-                <Button variant="outline" onClick={() => router.push("/admin/access-logs")} className="w-full sm:w-auto">
-                  <ShieldAlert className="h-4 w-4 mr-2" />
-                  Access Logs
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
+                  <Settings className="h-4 w-4" />
                 </Button>
-                <Button variant="outline" onClick={handleSignOut} className="w-full sm:w-auto">
-                  <LogOut className="h-4 w-4 mr-2" />
-                  Sign Out
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleSignOut}>
+                  <LogOut className="h-4 w-4" />
                 </Button>
               </div>
             </div>
-          </div>
-        </header>
 
-        {/* Main Content */}
-        <main className="container mx-auto px-2 sm:px-4 py-4 sm:py-8">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 sm:space-y-6">
-            <TabsList className="hidden md:grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-9 h-auto gap-1">
-              <TabsTrigger value="users" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                <Users className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">User Management</span>
-                <span className="xs:hidden">Users</span>
-              </TabsTrigger>
-              <TabsTrigger value="live-rooms" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                <Radio className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">Live rooms</span>
-                <span className="xs:hidden">Live</span>
-              </TabsTrigger>
-              <TabsTrigger value="analytics" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                <BarChart3 className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span>Analytics</span>
-              </TabsTrigger>
-              <TabsTrigger value="assignments" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                <Shield className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">Publisher Assignments</span>
-                <span className="xs:hidden">Publishers</span>
-              </TabsTrigger>
-              <TabsTrigger value="stream-assignments" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                <Settings className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">Stream Assignments</span>
-                <span className="xs:hidden">Streams</span>
-              </TabsTrigger>
-              <TabsTrigger value="schedule" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">Today&apos;s Schedule</span>
-                <span className="xs:hidden">Schedule</span>
-              </TabsTrigger>
-              <TabsTrigger value="contact" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                <Mail className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">Contact</span>
-                <span className="xs:hidden">Contact</span>
-              </TabsTrigger>
-              <TabsTrigger value="reports" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                <Flag className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">Reports</span>
-                <span className="xs:hidden">Reports</span>
-              </TabsTrigger>
-              <TabsTrigger value="notifications" className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-1.5 text-xs sm:text-sm">
-                <Bell className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden xs:inline">Notifications</span>
-                <span className="xs:hidden">Notify</span>
-              </TabsTrigger>
-            </TabsList>
+            {/* Mobile nav - collapsible */}
+            {mobileNavOpen && (
+              <nav className="flex flex-wrap gap-1 mt-3 pb-1">
+                {ADMIN_SECTIONS.map(({ value, label, Icon }) => (
+                  <button
+                    key={value}
+                    onClick={() => {
+                      setActiveTab(value)
+                      setMobileNavOpen(false)
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-mono tracking-wide whitespace-nowrap transition-colors ${
+                      activeTab === value
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:text-foreground bg-secondary/50"
+                    }`}
+                  >
+                    <Icon className="h-3 w-3" />
+                    {label}
+                  </button>
+                ))}
+              </nav>
+            )}
 
-            <TabsContent value="users">
-              <UserManagement />
-            </TabsContent>
+            {/* Active section indicator */}
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-xs font-mono text-primary tracking-wider">
+                {ADMIN_SECTIONS.find((s) => s.value === activeTab)?.label?.toUpperCase()}
+              </span>
+            </div>
+          </header>
 
-            <TabsContent value="live-rooms">
-              <ActiveRoomsAdmin />
-            </TabsContent>
-
-            <TabsContent value="analytics">
-              <AdminAnalytics />
-            </TabsContent>
-
-            <TabsContent value="assignments">
-              <SubscriberAssignments />
-            </TabsContent>
-
-            <TabsContent value="stream-assignments">
-              <StreamAssignments active={activeTab === "stream-assignments"} />
-            </TabsContent>
-
-            <TabsContent value="schedule">
+          {/* Content */}
+          <main className="flex-1 p-4 sm:p-6 overflow-y-auto">
+            {activeTab === "users" && <UserManagement />}
+            {activeTab === "live-rooms" && <ActiveRoomsAdmin />}
+            {activeTab === "analytics" && <AdminAnalytics />}
+            {activeTab === "assignments" && <SubscriberAssignments />}
+            {activeTab === "stream-assignments" && <StreamAssignments active={activeTab === "stream-assignments"} />}
+            {activeTab === "schedule" && (
               <div className="space-y-8">
                 <TodaysScheduleAdmin />
                 <ScheduledCallsAdmin />
               </div>
-            </TabsContent>
-
-            <TabsContent value="contact">
-              <ContactMessages />
-            </TabsContent>
-
-            <TabsContent value="reports">
-              <ReportsModeration />
-            </TabsContent>
-
-            <TabsContent value="notifications">
-              <AdminBroadcasts />
-            </TabsContent>
-          </Tabs>
-        </main>
+            )}
+            {activeTab === "contact" && <ContactMessages />}
+            {activeTab === "reports" && <ReportsModeration />}
+            {activeTab === "notifications" && <AdminBroadcasts />}
+          </main>
+        </div>
       </div>
     </ProtectedRoute>
   )

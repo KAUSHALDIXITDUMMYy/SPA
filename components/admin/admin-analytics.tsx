@@ -29,6 +29,7 @@ import {
   Headphones,
 } from "lucide-react"
 import { getAdminAnalytics, type StreamAnalytics, type StreamViewer, type AnalyticsSummary } from "@/lib/analytics"
+import { startPoll } from "@/lib/client/poll"
 import { formatViewerLocationLabel, normalizeViewerLocation } from "@/lib/viewer-location"
 import { resolveUserTenant, type UserTenant } from "@/lib/tenant"
 import type { UserProfile } from "@/lib/auth"
@@ -183,11 +184,12 @@ export function AdminAnalytics() {
     dashboardUnmountRef.current = false
     setLoading(true)
     setError("")
-    void fetchDashboard()
-    const intervalId = setInterval(() => void fetchDashboard(), ADMIN_ANALYTICS_POLL_MS)
+    // Visibility-aware: stops polling while the Analytics tab is in a hidden/background
+    // browser tab. This poll is the single most expensive read path, so pausing it matters.
+    const stop = startPoll(() => void fetchDashboard(), ADMIN_ANALYTICS_POLL_MS)
     return () => {
       dashboardUnmountRef.current = true
-      clearInterval(intervalId)
+      stop()
     }
   }, [fetchDashboard])
   

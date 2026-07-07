@@ -17,6 +17,7 @@ module.exports = {
         HOSTNAME: "0.0.0.0",
       },
       instances: 1,
+      exec_mode: "fork",
       autorestart: true,
       max_memory_restart: "800M",
     },

@@ -7,6 +7,7 @@ import type { User } from "firebase/auth"
 import { onAuthStateChange, getUserProfile, signOut, heartbeatSession, type UserProfile } from "@/lib/auth"
 import { useRouter } from "next/navigation"
 import { toast } from "@/hooks/use-toast"
+import { startPoll } from "@/lib/client/poll"
 
 interface AuthContextType {
   user: User | null
@@ -89,10 +90,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     }
 
-    const interval = setInterval(refresh, 15000)
+    // Visibility-aware: pauses while the tab is hidden (background tabs were
+    // multiplying the users-collection read cost). Refreshes on return.
+    const stop = startPoll(() => void refresh(), 30000)
     return () => {
       active = false
-      clearInterval(interval)
+      stop()
     }
   }, [user, router])
 

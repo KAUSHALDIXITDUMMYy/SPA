@@ -1,4 +1,5 @@
 import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
+import { startPoll } from "@/lib/client/poll"
 
 const ENDPOINT = "/api/scheduled-calls"
 
@@ -138,15 +139,13 @@ export function subscribeScheduledCallsForDate(
   callback: (calls: ScheduledCall[]) => void,
 ): () => void {
   let active = true
-  const poll = async () => {
+  const stop = startPoll(async () => {
     const list = await getScheduledCallsForDate(dateKey)
     if (active) callback(list)
-  }
-  void poll()
-  const interval = setInterval(poll, 10000)
+  }, 10000)
   return () => {
     active = false
-    clearInterval(interval)
+    stop()
   }
 }
 

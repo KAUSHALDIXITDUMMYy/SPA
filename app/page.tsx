@@ -3,21 +3,33 @@ import { LoginForm } from "@/components/auth/login-form"
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4 sm:p-6">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-6 sm:mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-2">Sportsmagician Audio</h1>
-          <p className="text-sm sm:text-base text-muted-foreground">Professional Audio Streaming Management System</p>
+    <div className="min-h-screen bg-background relative overflow-hidden">
+      {/* Header */}
+      <header className="relative z-10 flex items-center justify-between px-6 py-4">
+        <h2 className="text-primary font-mono font-bold text-lg tracking-wider">SPORTSMAGICIAN</h2>
+        <span className="text-muted-foreground font-mono text-xs tracking-widest hidden sm:block">
+          SYSTEM STATUS: NOMINAL // HIGH FIDELITY
+        </span>
+      </header>
+
+      {/* Watermark */}
+      <div className="absolute right-0 top-1/2 -translate-y-1/2 text-[12rem] sm:text-[16rem] font-black text-muted/20 leading-none tracking-tighter select-none pointer-events-none hidden lg:block">
+        SPA
+      </div>
+
+      {/* Login Card */}
+      <div className="relative z-10 flex items-center justify-center min-h-[calc(100vh-8rem)] px-4">
+        <div className="w-full max-w-md">
+          <LoginForm />
+          <div className="flex items-center justify-center gap-6 mt-6 text-xs font-mono text-muted-foreground tracking-wider">
+            <Link href="/terms" className="hover:text-primary transition-colors">
+              TERMS & EULA
+            </Link>
+            <Link href="/contact-us" className="hover:text-primary transition-colors">
+              CONTACT
+            </Link>
+          </div>
         </div>
-        <LoginForm />
-        <p className="text-center mt-4 space-x-4">
-          <Link href="/terms" className="text-sm text-muted-foreground hover:text-foreground underline">
-            Terms &amp; EULA
-          </Link>
-          <Link href="/contact-us" className="text-sm text-muted-foreground hover:text-foreground underline">
-            Contact us
-          </Link>
-        </p>
       </div>
     </div>
   )
