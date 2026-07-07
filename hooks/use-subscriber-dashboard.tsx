@@ -14,7 +14,6 @@ import {
   splitAvailableStreams,
   type SubscriberPermission,
 } from "@/lib/subscriber"
-import { startPoll } from "@/lib/client/poll"
 
 const POLL_MS = 20_000
 
@@ -70,7 +69,9 @@ export function SubscriberDashboardProvider({
       setLoading(false)
       return
     }
-    return startPoll(() => void refresh(), POLL_MS)
+    void refresh()
+    const interval = setInterval(() => void refresh(), POLL_MS)
+    return () => clearInterval(interval)
   }, [subscriberId, enabled, refresh])
 
   const { adHoc, scheduled } = useMemo(() => splitAvailableStreams(permissions), [permissions])

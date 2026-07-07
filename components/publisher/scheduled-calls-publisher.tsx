@@ -5,8 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/hooks/use-auth"
-import { getPublisherActiveStreamsList } from "@/lib/streaming"
-import { startPoll } from "@/lib/client/poll"
+import { getPublisherStreams } from "@/lib/streaming"
 import {
   getLocalDateKey,
   subscribeScheduledCallsForDate,
@@ -51,8 +50,8 @@ export function ScheduledCallsPublisherSection({
     const load = async () => {
       const gen = ++fetchGen
       try {
-        const streams = await getPublisherActiveStreamsList(uid)
-        const rows = streams.filter((x) => x.scheduledCallId)
+        const streams = await getPublisherStreams(uid)
+        const rows = streams.filter((x) => x.isActive === true && x.scheduledCallId)
         const byId = new Map<string, ScheduledCall>()
         for (const row of rows) {
           const cid = String(row.scheduledCallId ?? "")
@@ -65,10 +64,11 @@ export function ScheduledCallsPublisherSection({
         if (active && gen === fetchGen) setCallsFromSessions([])
       }
     }
-    const stop = startPoll(load, 10000)
+    void load()
+    const interval = setInterval(load, 5000)
     return () => {
       active = false
-      stop()
+      clearInterval(interval)
     }
   }, [uid])
 

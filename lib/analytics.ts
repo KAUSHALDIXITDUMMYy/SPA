@@ -1,5 +1,4 @@
 import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
-import { startPoll } from "@/lib/client/poll"
 import type { ViewerLocation } from "./viewer-location"
 import type { UserTenant } from "./tenant"
 
@@ -156,13 +155,15 @@ export const subscribeToAnalytics = (
   callback: (data: { analytics: StreamAnalytics[]; currentViewers: StreamViewer[] }) => void,
 ) => {
   let active = true
-  const stop = startPoll(async () => {
+  const poll = async () => {
     const { analytics, currentViewers } = await getPublisherAnalytics(publisherId, 50)
     if (active) callback({ analytics, currentViewers })
-  }, 15000)
+  }
+  void poll()
+  const interval = setInterval(poll, 10000)
   return () => {
     active = false
-    stop()
+    clearInterval(interval)
   }
 }
 

@@ -16,7 +16,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 import { createUser, getAllUsersPage, searchAllUsers, updateUserStatus, updateUserChatPermission, resetUserPassword, deleteUserAccount } from "@/lib/admin"
-import { startPoll } from "@/lib/client/poll"
 import type { UserProfile, UserRole } from "@/lib/auth"
 import {
   Plus,
@@ -162,7 +161,8 @@ export function UserManagement() {
 
   useEffect(() => {
     if (!userProfile || userProfile.role !== "admin") return
-    return startPoll(() => void reloadUsers(), 60_000)
+    const intervalId = setInterval(() => void reloadUsers(), 60_000)
+    return () => clearInterval(intervalId)
   }, [userProfile?.uid, userProfile?.tenant, userProfile?.email, reloadUsers])
 
   useEffect(() => {

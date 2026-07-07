@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -59,6 +60,7 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
     [scheduled],
   )
   const [listening, setListening] = useState<SubscriberPermission | null>(null)
+  /** Calendar row for each stream session id (from scheduledCallId when present). */
   const [callMetaByStreamSessionId, setCallMetaByStreamSessionId] = useState<
     Record<string, ScheduledCall | null>
   >({})
@@ -82,6 +84,7 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
     return Array.from(m.values())
   }, [scheduledPermissions])
 
+  /** Scheduled call start time when loaded; else session createdAt — ascending (earliest first). */
   const dedupedRoomsSorted = useMemo(() => {
     const list = [...dedupedRooms]
     list.sort((a, b) => {
@@ -131,6 +134,7 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
     }
   }, [dedupedRooms])
 
+  /** Stop clears listening via onLeaveStream; then we open the room the user tapped. */
   useEffect(() => {
     if (listening !== null) return
     const next = pendingListeningRef.current
@@ -163,11 +167,12 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
   )
 
   const emptyViewerPane = (
-    <div className="border border-border rounded-lg p-12 text-center">
-      <Radio className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-      <p className="text-sm text-muted-foreground font-mono">SELECT A ROOM TO LISTEN</p>
-      <p className="text-xs text-muted-foreground/60 mt-1">Choose from the list to begin playback.</p>
-    </div>
+    <Card>
+      <CardContent className="flex items-center justify-center p-12 text-center text-sm text-muted-foreground">
+        Select a room on the left to listen. Switch anytime by choosing another room. Scheduled games stay in this tab;
+        publisher direct streams are under <strong className="mx-1 text-foreground">Audio Streams</strong>.
+      </CardContent>
+    </Card>
   )
 
   const roomsListUl = (
@@ -201,80 +206,71 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
         return (
           <li
             key={sess.id}
-            className={`rounded-lg border p-4 transition-all cursor-pointer ${
-              isSelected
-                ? "border-primary bg-primary/5"
-                : "border-border bg-card hover:border-primary/30"
-            }`}
-            onClick={() => handleListenToRoom(perm)}
+            className={`flex flex-col gap-3 rounded-lg border bg-card p-3 sm:p-4 ${isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
           >
             <div className="min-w-0 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{title}</span>
                 {live ? (
-                  <span className="text-[10px] font-mono font-bold tracking-wider px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 animate-pulse">
+                  <Badge variant="destructive" className="animate-pulse text-xs">
                     LIVE
-                  </span>
+                  </Badge>
                 ) : inWindow ? (
-                  <span className="text-[10px] font-mono font-bold tracking-wider px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
-                    LIVE SOON
-                  </span>
+                  <Badge variant="outline" className="text-xs">
+                    In window
+                  </Badge>
                 ) : (
-                  <span className="text-[10px] font-mono font-bold tracking-wider px-2 py-0.5 rounded bg-secondary text-muted-foreground border border-border">
-                    SCHEDULED
-                  </span>
+                  <Badge variant="secondary" className="text-xs">
+                    Upcoming / ended
+                  </Badge>
                 )}
-                {isAwaitingBroadcastSession(sess) && (
-                  <span className="text-[10px] font-mono tracking-wider px-2 py-0.5 rounded bg-secondary text-muted-foreground border border-border">
-                    PENDING
-                  </span>
-                )}
-                {sport && (
-                  <span className="text-[10px] font-mono tracking-wider px-2 py-0.5 rounded bg-secondary text-muted-foreground border border-border">
+                {isAwaitingBroadcastSession(sess) ? (
+                  <Badge variant="secondary" className="text-xs">
+                    Waiting for host
+                  </Badge>
+                ) : null}
+                {sport ? (
+                  <Badge variant="secondary" className="text-xs font-normal">
                     {streamSportLabel(sport)}
-                  </span>
-                )}
+                  </Badge>
+                ) : null}
+                {dateLine ? (
+                  <Badge variant="outline" className="font-mono text-[10px]">
+                    {dateLine}
+                  </Badge>
+                ) : null}
               </div>
-              <h4 className="font-medium text-sm text-foreground">{title}</h4>
-              <div className="space-y-0.5">
-                {timeLine && (
-                  <p className="text-xs text-muted-foreground font-mono">{timeLine}</p>
-                )}
-                <p className="text-xs text-muted-foreground font-mono">
-                  HOST: {publisherLine?.toUpperCase()}
+              {timeLine ? (
+                <p className="text-xs text-muted-foreground">
+                  {timeLine} · {publisherLine}
                 </p>
-                {dateLine && (
-                  <p className="text-[10px] text-muted-foreground/60 font-mono">DATE: {dateLine}</p>
-                )}
-              </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">{publisherLine}</p>
+              )}
+              <p className="break-all font-mono text-[11px] text-muted-foreground">Room ID: {sess.roomId}</p>
             </div>
-            <div className="flex gap-2 mt-3">
+            <div className="flex gap-2">
               <Button
                 type="button"
                 size="sm"
-                className="flex-1 font-mono tracking-wider text-xs"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleListenToRoom(perm)
-                }}
+                className="min-w-0 flex-1 sm:w-auto sm:flex-initial"
+                onClick={() => handleListenToRoom(perm)}
               >
-                <Radio className="mr-2 h-3.5 w-3.5" />
-                LISTEN
+                <Radio className="mr-2 h-3.5 w-3.5 shrink-0" />
+                Listen
               </Button>
-              {isSelected && (
+              {isSelected ? (
                 <Button
                   type="button"
                   variant="secondary"
                   size="sm"
-                  className="shrink-0 font-mono tracking-wider text-xs"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleBackToRooms()
-                  }}
+                  className="shrink-0 gap-1"
+                  onClick={handleBackToRooms}
                 >
-                  <Square className="h-3 w-3 mr-1" />
-                  STOP
+                  <Square className="h-3.5 w-3.5" />
+                  Stop
                 </Button>
-              )}
+              ) : null}
             </div>
           </li>
         )
@@ -284,9 +280,9 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
 
   const roomsColumn = (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground tracking-wider">
-        <Activity className="h-3.5 w-3.5" />
-        AVAILABLE ROOMS
+      <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <Activity className="h-4 w-4" />
+        Rooms you can open
       </div>
       {roomsListUl}
     </div>
@@ -294,117 +290,128 @@ export function SubscriberScheduledCalls({ userId }: SubscriberScheduledCallsPro
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <Phone className="h-5 w-5 text-primary" />
-          <div>
-            <h2 className="font-mono text-lg font-bold tracking-wide uppercase">Scheduled Rooms</h2>
-            <p className="text-[10px] font-mono text-muted-foreground tracking-wider flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-              CURRENT QUEUE: {dedupedRoomsSorted.length} SESSION{dedupedRoomsSorted.length !== 1 ? "S" : ""}
-              {liveCount > 0 && <> · <span className="text-red-400">{liveCount} LIVE</span></>}
-            </p>
-          </div>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="font-mono text-xs tracking-wider"
-          disabled={streamsLoading || refreshing}
-          onClick={() => void refresh(true)}
-        >
-          {refreshing ? <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-2" />}
-          REFRESH
-        </Button>
-      </div>
-
-      {/* Content */}
-      {streamsLoading ? (
-        <div className="border border-border rounded-lg p-8 text-center">
-          <Loader2 className="h-6 w-6 animate-spin text-primary mx-auto mb-3" />
-          <p className="text-muted-foreground text-sm font-mono">LOADING ROOMS...</p>
-        </div>
-      ) : dedupedRoomsSorted.length === 0 ? (
-        <div className="border border-border rounded-lg p-8 text-center">
-          <Phone className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground font-mono">NO SCHEDULED ROOMS AVAILABLE</p>
-          <p className="text-xs text-muted-foreground/60 mt-1 max-w-sm mx-auto">
-            After an admin assigns you to a publisher or stream, active rooms appear here.
-            Direct publisher streams are under Streams.
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {listening && isMobile ? (
-            <div className="space-y-4 lg:col-span-3">
-              <p className="text-xs text-muted-foreground font-mono">
-                Tap another room to switch. Audio connects immediately.
-              </p>
-              {roomsColumn}
-              <StreamViewer
-                ref={streamViewerRef}
-                key={listening.streamSession?.id || listening.id}
-                permission={listening}
-                onLeaveStream={() => setListening(null)}
-                autoJoin={true}
-                layout="mobileInline"
-              />
-              {user && userProfile && listening.streamSession?.id ? (
-                <SubscriberFloatingChat
-                  streamSessionId={listening.streamSession.id}
-                  streamTitle={listening.streamSession.title}
-                  userId={user.uid}
-                  userName={userProfile.displayName || userProfile.email || ""}
-                  userEmail={userProfile.email}
-                  allowChat={userProfile.allowChat === true}
-                />
-              ) : null}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <Phone className="h-5 w-5 text-primary shrink-0" />
+              <CardTitle className="text-lg">Your scheduled rooms</CardTitle>
             </div>
-          ) : isMobile && !listening ? (
-            <div className="lg:col-span-3">{roomsColumn}</div>
-          ) : (
-            <>
-              <div className="min-h-0 lg:col-span-1 lg:max-h-[min(75vh,640px)] lg:overflow-y-auto lg:pr-1">
-                {roomsColumn}
-              </div>
-              <div className="space-y-4 lg:col-span-2">
-                {listening ? (
-                  <>
-                    <StreamViewer
-                      ref={streamViewerRef}
-                      key={listening.streamSession?.id || listening.id}
-                      permission={listening}
-                      onLeaveStream={() => setListening(null)}
-                      autoJoin={true}
-                      layout="standard"
-                    />
-                    {user && userProfile && listening.streamSession?.id ? (
-                      <SubscriberFloatingChat
-                        streamSessionId={listening.streamSession.id}
-                        streamTitle={listening.streamSession.title}
-                        userId={user.uid}
-                        userName={userProfile.displayName || userProfile.email || ""}
-                        userEmail={userProfile.email}
-                        allowChat={userProfile.allowChat === true}
-                      />
-                    ) : null}
-                  </>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 w-full gap-2 sm:w-auto sm:min-w-[8.5rem]"
+                disabled={streamsLoading || refreshing}
+                onClick={() => void refresh(true)}
+              >
+                {refreshing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  emptyViewerPane
+                  <RefreshCw className="h-4 w-4" />
                 )}
+                Refresh
+              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="animate-pulse text-xs w-fit">
+                  Auto-updating
+                </Badge>
+                <Badge variant={liveCount > 0 ? "default" : "secondary"} className="w-fit">
+                  {liveCount} live now
+                </Badge>
               </div>
-            </>
+            </div>
+          </div>
+          <CardDescription>
+            Every <strong className="text-foreground">admin-scheduled</strong> room you&apos;re assigned to (by publisher
+            or by stream), including games on other calendar days. Today is <span className="font-mono">{dateKey}</span>.
+            Publisher-started feeds that are not scheduled rooms are under <strong className="text-foreground">Audio Streams</strong>.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {streamsLoading ? (
+            <p className="text-sm text-muted-foreground">Loading…</p>
+          ) : dedupedRoomsSorted.length === 0 ? (
+            <Alert>
+              <AlertDescription className="text-sm">
+                No scheduled rooms are available to you yet. After an admin assigns you to a publisher or to a specific
+                scheduled stream, active rooms appear here. Direct publisher streams (not tied to a scheduled room) show
+                under <strong>Audio Streams</strong>.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
+              {listening && isMobile ? (
+                <div className="space-y-4 lg:col-span-3">
+                  <p className="text-xs text-muted-foreground">
+                    Tap <strong className="text-foreground">Listen</strong> on another room to switch. Audio connects
+                    right away for the room you chose.
+                  </p>
+                  {roomsColumn}
+                  <StreamViewer
+                    ref={streamViewerRef}
+                    key={listening.streamSession?.id || listening.id}
+                    permission={listening}
+                    onLeaveStream={() => setListening(null)}
+                    autoJoin={true}
+                    layout="mobileInline"
+                  />
+                  {user && userProfile && listening.streamSession?.id ? (
+                    <SubscriberFloatingChat
+                      streamSessionId={listening.streamSession.id}
+                      streamTitle={listening.streamSession.title}
+                      userId={user.uid}
+                      userName={userProfile.displayName || userProfile.email || ""}
+                      userEmail={userProfile.email}
+                      allowChat={userProfile.allowChat === true}
+                    />
+                  ) : null}
+                </div>
+              ) : isMobile && !listening ? (
+                <div className="lg:col-span-3">{roomsColumn}</div>
+              ) : (
+                <>
+                  <div className="min-h-0 lg:col-span-1 lg:max-h-[min(75vh,640px)] lg:overflow-y-auto lg:pr-1">
+                    {roomsColumn}
+                  </div>
+                  <div className="space-y-4 lg:col-span-2">
+                    {listening ? (
+                      <>
+                        <StreamViewer
+                          ref={streamViewerRef}
+                          key={listening.streamSession?.id || listening.id}
+                          permission={listening}
+                          onLeaveStream={() => setListening(null)}
+                          autoJoin={true}
+                          layout="standard"
+                        />
+                        {user && userProfile && listening.streamSession?.id ? (
+                          <SubscriberFloatingChat
+                            streamSessionId={listening.streamSession.id}
+                            streamTitle={listening.streamSession.title}
+                            userId={user.uid}
+                            userName={userProfile.displayName || userProfile.email || ""}
+                            userEmail={userProfile.email}
+                            allowChat={userProfile.allowChat === true}
+                          />
+                        ) : null}
+                      </>
+                    ) : (
+                      emptyViewerPane
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
-        </div>
-      )}
-
-      <div className="border border-border rounded-lg px-4 py-3 bg-secondary/30">
-        <p className="text-[10px] font-mono text-muted-foreground tracking-wider">
-          NOTE: Publisher-started feeds (not tied to a scheduled room) are under the STREAMS tab. Today is {dateKey}.
-        </p>
-      </div>
+          <Alert>
+            <AlertDescription className="text-xs sm:text-sm">
+              <strong>Audio Streams</strong> lists only publisher-started feeds (not scheduled game rooms).
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
     </div>
   )
 }

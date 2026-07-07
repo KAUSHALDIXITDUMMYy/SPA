@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { signIn, signOut, getUserProfile, type UserProfile } from "@/lib/auth"
 import { useAuth } from "@/hooks/use-auth"
@@ -96,40 +97,40 @@ export function LoginForm() {
 
   if (authLoading) {
     return (
-      <div className="w-full max-w-md mx-auto border border-accent/40 rounded-lg p-8">
-        <div className="space-y-2 mb-6">
-          <p className="text-sm font-medium text-foreground">Access Hub</p>
-          <h2 className="font-mono text-xl tracking-tight uppercase text-muted-foreground">Checking Session</h2>
-        </div>
-        <div className="flex justify-center py-8">
+      <Card className="w-full max-w-md mx-auto">
+        <CardHeader>
+          <CardTitle>Sign In</CardTitle>
+          <CardDescription>Checking your session…</CardDescription>
+        </CardHeader>
+        <CardContent className="flex justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" aria-hidden />
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     )
   }
 
   if (user && userProfile) {
     return (
-      <div className="w-full max-w-md mx-auto border border-accent/40 rounded-lg p-8">
-        <div className="space-y-2 mb-6">
-          <p className="text-sm font-medium text-foreground">Access Hub</p>
-          <h2 className="font-mono text-xl tracking-tight uppercase text-muted-foreground">Opening Account</h2>
-        </div>
-        <div className="flex justify-center py-8">
+      <Card className="w-full max-w-md mx-auto">
+        <CardHeader>
+          <CardTitle>Sign In</CardTitle>
+          <CardDescription>Opening your account…</CardDescription>
+        </CardHeader>
+        <CardContent className="flex justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" aria-hidden />
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     )
   }
 
   if (user && !userProfile) {
     return (
-      <div className="w-full max-w-md mx-auto border border-accent/40 rounded-lg p-8">
-        <div className="space-y-2 mb-6">
-          <p className="text-sm font-medium text-foreground">Access Hub</p>
-          <h2 className="font-mono text-xl tracking-tight uppercase text-muted-foreground">Profile Error</h2>
-        </div>
-        <div className="space-y-4">
+      <Card className="w-full max-w-md mx-auto">
+        <CardHeader>
+          <CardTitle>Sign In</CardTitle>
+          <CardDescription>We couldn&apos;t load your account profile.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
           <Alert variant="destructive">
             <AlertDescription>
               Try signing out and signing in again. If this keeps happening, contact your administrator.
@@ -138,63 +139,51 @@ export function LoginForm() {
           <Button
             type="button"
             variant="outline"
-            className="w-full font-mono uppercase tracking-wider"
+            className="w-full"
             onClick={() => signOut().then(() => router.refresh())}
           >
             Sign out and try again
           </Button>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     )
   }
 
   return (
-    <div className="w-full max-w-md mx-auto border border-accent/40 rounded-lg p-8">
-      <div className="space-y-2 mb-8">
-        <p className="text-sm font-medium text-foreground">Access Hub</p>
-        <h2 className="font-mono text-xl tracking-tight uppercase text-muted-foreground">Initialize Creator Session</h2>
-      </div>
+    <Card className="w-full max-w-md mx-auto">
+      <CardHeader>
+        <CardTitle>Sign In</CardTitle>
+        <CardDescription>Enter your credentials to access Sportsmagician Audio</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {error && (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="email" className="font-mono text-xs tracking-widest uppercase text-muted-foreground">Identity</Label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">@</span>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
             <Input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               required
-              placeholder="CREATOR_ID"
-              className="pl-8 bg-secondary border-border font-mono placeholder:text-muted-foreground/50"
             />
           </div>
-        </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="password" className="font-mono text-xs tracking-widest uppercase text-muted-foreground">Passcode</Label>
-          <Input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            placeholder="••••••••"
-            className="bg-secondary border-border font-mono placeholder:text-muted-foreground/50"
-          />
-        </div>
-
-        <Button type="submit" className="w-full font-mono uppercase tracking-wider text-sm font-bold" disabled={loading}>
-          {loading ? "Authenticating..." : "Sign In"}
-        </Button>
-      </form>
-    </div>
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? "Signing in..." : "Sign In"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   )
 }

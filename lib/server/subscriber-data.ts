@@ -91,7 +91,7 @@ export async function getSubscriberPermissions(subscriberId: string): Promise<Su
 
   const assignmentSessionSnaps =
     assignmentSessionIds.length > 0
-      ? await db.getAll(...assignmentSessionIds.map((id: string) => db.collection("streamSessions").doc(id)))
+      ? await db.getAll(...assignmentSessionIds.map((id) => db.collection("streamSessions").doc(id)))
       : []
 
   assignmentSessionSnaps.forEach((snap: any) => {
@@ -254,16 +254,7 @@ function filterPermissionsForAdmin(
   })
 }
 
-// Cache the (whole-collection) tenant map so admin permission polls don't re-read
-// every user document each time. Tenant rarely changes; a short TTL is plenty.
-let tenantMapCache: { map: Map<string, UserTenant>; at: number } | null = null
-const TENANT_MAP_TTL_MS = 60_000
-
 async function loadTenantMapForPermissions(db: Firestore) {
-  const now = Date.now()
-  if (tenantMapCache && now - tenantMapCache.at < TENANT_MAP_TTL_MS) {
-    return tenantMapCache.map
-  }
   const usersSnap = await db.collection("users").get()
   const tenantByUserId = new Map<string, UserTenant>()
   usersSnap.docs.forEach((doc) => {
@@ -272,7 +263,6 @@ async function loadTenantMapForPermissions(db: Firestore) {
     tenantByUserId.set(doc.id, tenant)
     if (data.uid) tenantByUserId.set(data.uid, tenant)
   })
-  tenantMapCache = { map: tenantByUserId, at: now }
   return tenantByUserId
 }
 

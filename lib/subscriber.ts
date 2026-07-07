@@ -1,5 +1,4 @@
 import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
-import { startPoll } from "@/lib/client/poll"
 import type { StreamPermission } from "./admin"
 import type { StreamSession } from "./streaming"
 
@@ -140,12 +139,14 @@ export const subscribeSubscriberAssignmentEligibility = (
   onEligible: (eligible: boolean) => void,
 ): (() => void) => {
   let active = true
-  const stop = startPoll(async () => {
+  const poll = async () => {
     const eligible = await subscriberHasAnyAssignment(subscriberId)
     if (active) onEligible(eligible)
-  }, 12000)
+  }
+  void poll()
+  const interval = setInterval(poll, 8000)
   return () => {
     active = false
-    stop()
+    clearInterval(interval)
   }
 }

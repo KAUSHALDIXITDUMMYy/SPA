@@ -1,5 +1,4 @@
 import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
-import { startPoll } from "@/lib/client/poll"
 
 const ENDPOINT = "/api/chat"
 
@@ -69,7 +68,7 @@ export function subscribeToStreamChat(
 ): () => void {
   const cap = Math.min(500, Math.max(1, maxMessages))
   let active = true
-  const stop = startPoll(async () => {
+  const poll = async () => {
     try {
       const res = await fetchWithAuth(
         `${ENDPOINT}?streamSessionId=${encodeURIComponent(streamSessionId)}&limit=${cap}`,
@@ -81,9 +80,11 @@ export function subscribeToStreamChat(
     } catch (error) {
       console.error("Error loading chat:", error)
     }
-  }, 8000)
+  }
+  void poll()
+  const interval = setInterval(poll, 8000)
   return () => {
     active = false
-    stop()
+    clearInterval(interval)
   }
 }
