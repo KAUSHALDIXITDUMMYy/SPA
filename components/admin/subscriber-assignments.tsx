@@ -9,6 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { getUsersByRole, getUsersByRolePage, getStreamPermissionsForSubscriberIds, createStreamPermission, deleteStreamPermission, updateStreamPermission, type StreamPermission } from "@/lib/admin"
+import { startPoll } from "@/lib/client/poll"
 import type { UserProfile } from "@/lib/auth"
 import { PAGE_SIZE } from "@/lib/pagination"
 import { Video, Volume2, X, Users, Link2, Unlink, CheckSquare, Square, Grid3x3, List, ArrowRightLeft, Loader2, CheckCircle2 } from "lucide-react"
@@ -84,9 +85,7 @@ export function SubscriberAssignments() {
       setAllPermissions(new Map())
       return
     }
-    void loadPermissionsForSubscribers(subscribers)
-    const interval = setInterval(() => void loadPermissionsForSubscribers(subscribers), 15000)
-    return () => clearInterval(interval)
+    return startPoll(() => void loadPermissionsForSubscribers(subscribers), 15000)
   }, [subscribers])
 
   useEffect(() => {

@@ -51,6 +51,7 @@
     "@zoom/meetingsdk": "^4.0.7",
     "agora-access-token": "^2.0.4",
     "agora-rtc-sdk-ng": "^4.24.0",
+    "agora-token": "^2.0.5",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

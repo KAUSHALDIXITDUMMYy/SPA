@@ -8,6 +8,7 @@
 
 import { FieldValue } from "firebase-admin/firestore"
 import { getAdminDb } from "@/lib/firebase-admin"
+import { markSessionViewersInactive } from "@/lib/server/analytics-data"
 
 function toIso(value: any): string | null {
   if (!value) return null
@@ -46,6 +47,7 @@ export async function deactivatePublisherBroadcastSessions(
       if (data.scheduledCallId && data.awaitingBroadcast === true) return
       try {
         await activeDoc.ref.update({ isActive: false, endedAt: new Date() })
+        await markSessionViewersInactive(activeDoc.id)
       } catch {
         // best-effort
       }
@@ -85,9 +87,10 @@ export async function removeStreamSessionsForScheduledCall(scheduledCallId: stri
     .where("scheduledCallId", "==", scheduledCallId)
     .get()
   await Promise.all(
-    snap.docs.map((d: any) =>
-      d.ref.update({ isActive: false, awaitingBroadcast: true, endedAt: new Date() }),
-    ),
+    snap.docs.map(async (d: any) => {
+      await d.ref.update({ isActive: false, awaitingBroadcast: true, endedAt: new Date() })
+      await markSessionViewersInactive(d.id)
+    }),
   )
 }
 
@@ -97,6 +100,7 @@ export async function endStreamSession(sessionId: string) {
     isActive: false,
     endedAt: new Date(),
   })
+  await markSessionViewersInactive(sessionId)
   return { success: true }
 }
 
@@ -196,6 +200,18 @@ export async function getActiveStreams() {
 export async function getPublisherStreams(publisherId: string) {
   const db = await getAdminDb()
   const snap = await db.collection("streamSessions").where("publisherId", "==", publisherId).get()
+  return snap.docs.map((d: any) => serializeSession(d.id, d.data()))
+}
+
+/** Active-only sessions for a publisher. Used by the frequent (5s) rejoin poll so it
+ * never scans the publisher's full historical session list. */
+export async function getPublisherActiveStreams(publisherId: string) {
+  const db = await getAdminDb()
+  const snap = await db
+    .collection("streamSessions")
+    .where("publisherId", "==", publisherId)
+    .where("isActive", "==", true)
+    .get()
   return snap.docs.map((d: any) => serializeSession(d.id, d.data()))
 }
 

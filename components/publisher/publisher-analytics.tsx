@@ -62,20 +62,17 @@ export function PublisherAnalytics() {
     if (!user?.uid) return
 
     loadAnalytics()
-    
-    // Set up real-time subscription
+
+    // Real-time subscription (visibility-aware polling under the hood). The previous
+    // 30s backup setInterval was a duplicate of this and doubled the read cost — removed.
     const unsubscribe = subscribeToAnalytics(user.uid, (data) => {
       setAnalytics(data.analytics)
       setCurrentViewers(data.currentViewers)
       setLastUpdated(new Date())
     })
 
-    // Auto-refresh every 30 seconds as backup
-    const interval = setInterval(loadAnalytics, 30000)
-    
     return () => {
       unsubscribe()
-      clearInterval(interval)
     }
   }, [user?.uid])
 

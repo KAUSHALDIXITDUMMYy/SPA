@@ -23,6 +23,10 @@ export async function GET(req: NextRequest) {
       if (profile.role !== "admin" && profile.uid !== publisherId) return forbidden()
       return NextResponse.json({ streams: await streaming.getPublisherStreams(publisherId) })
     }
+    if (type === "publisherActive") {
+      if (profile.role !== "admin" && profile.uid !== publisherId) return forbidden()
+      return NextResponse.json({ streams: await streaming.getPublisherActiveStreams(publisherId) })
+    }
     return NextResponse.json({ error: "Invalid type" }, { status: 400 })
   } catch (error: any) {
     console.error(`[api/streaming] GET type=${type} failed:`, error)

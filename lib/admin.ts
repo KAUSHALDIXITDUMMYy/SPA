@@ -1,4 +1,5 @@
 import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
+import { startPoll } from "@/lib/client/poll"
 import { type UserProfile, type UserRole } from "./auth"
 import { type PaginatedResult, PAGE_SIZE } from "./pagination"
 import { parseStreamSessions, type StreamSession as StreamingSession } from "./streaming"
@@ -435,15 +436,13 @@ export const subscribeAdminBroadcasts = (
   onUpdate: (items: AdminBroadcast[]) => void,
 ): (() => void) => {
   let active = true
-  const poll = async () => {
+  const stop = startPoll(async () => {
     const items = await getAdminBroadcasts()
     if (active) onUpdate(items)
-  }
-  void poll()
-  const interval = setInterval(poll, 15000)
+  }, 15000)
   return () => {
     active = false
-    clearInterval(interval)
+    stop()
   }
 }
 

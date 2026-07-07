@@ -1,4 +1,5 @@
 import { fetchWithAuth } from "@/lib/client/authenticated-fetch"
+import { startPoll } from "@/lib/client/poll"
 
 const ENDPOINT = "/api/streaming"
 
@@ -185,10 +186,16 @@ export const getActiveStreams = async (): Promise<StreamSession[]> => getStreams
 export const getPublisherStreams = async (publisherId: string): Promise<StreamSession[]> =>
   getStreams("publisher", publisherId)
 
+/** Active-only sessions for a publisher (bounded read; used by frequent polls). */
+export const getPublisherActiveStreamsList = async (
+  publisherId: string,
+): Promise<StreamSession[]> => getStreams("publisherActive", publisherId)
+
 export const getPublisherActiveStream = async (
   publisherId: string,
 ): Promise<StreamSession | null> => {
-  const streams = await getPublisherStreams(publisherId)
+  // Active-only read (not the publisher's full session history) — this runs on a 5s poll.
+  const streams = await getStreams("publisherActive", publisherId)
   return pickPublisherRejoinStream(streams)
 }
 
@@ -197,15 +204,13 @@ export const getAllStreams = async (): Promise<StreamSession[]> => getStreams("a
 // ── Live updates (Firestore realtime replaced with short polling) ───────────────
 export function subscribeToActiveStreams(callback: (streams: StreamSession[]) => void): () => void {
   let active = true
-  const poll = async () => {
+  const stop = startPoll(async () => {
     const streams = await getActiveStreams()
     if (active) callback(streams)
-  }
-  void poll()
-  const interval = setInterval(poll, 5000)
+  }, 8000)
   return () => {
     active = false
-    clearInterval(interval)
+    stop()
   }
 }
 
@@ -214,14 +219,12 @@ export function subscribeToPublisherActiveStream(
   onActiveStream: (session: StreamSession | null) => void,
 ): () => void {
   let active = true
-  const poll = async () => {
+  const stop = startPoll(async () => {
     const session = await getPublisherActiveStream(publisherId)
     if (active) onActiveStream(session)
-  }
-  void poll()
-  const interval = setInterval(poll, 5000)
+  }, 8000)
   return () => {
     active = false
-    clearInterval(interval)
+    stop()
   }
 }
