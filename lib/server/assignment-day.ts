@@ -1,6 +1,6 @@
 /**
  * Stream assignments are scoped to the current schedule day. When the operational
- * day advances (6:00 PM US Eastern from 2026-07-10 onward, midnight before that),
+ * day advances (6:00 PM IST from 2026-07-10 onward, midnight IST before that),
  * all prior streamAssignments are wiped. Rollover runs automatically on the VPS and
  * also when an admin saves scheduled calls for a later day.
  */
@@ -18,16 +18,16 @@ export function normalizeDateKey(value: string): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
 }
 
-const SCHEDULE_TIMEZONE = "America/New_York"
-/** Operational day flips at this hour (US Eastern) once 6 PM rollover is active. */
-export const ASSIGNMENT_ROLLOVER_HOUR_ET = 18
+const SCHEDULE_TIMEZONE = "Asia/Kolkata"
+/** Operational day flips at this hour (IST) once 6 PM rollover is active. */
+export const ASSIGNMENT_ROLLOVER_HOUR_IST = 18
 /**
- * First US-Eastern calendar date when the 6 PM boundary applies.
- * Before this date, midnight Eastern is still used (so today's 6 PM does not wipe).
+ * First IST calendar date when the 6 PM boundary applies.
+ * Before this date, midnight IST is still used (so today's 6 PM does not wipe).
  */
 export const ASSIGNMENT_ROLLOVER_EFFECTIVE_FROM = "2026-07-10"
 
-function getEasternCalendarDateKey(d: Date): string {
+function getLocalCalendarDateKey(d: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: SCHEDULE_TIMEZONE,
     year: "numeric",
@@ -36,7 +36,7 @@ function getEasternCalendarDateKey(d: Date): string {
   }).format(d)
 }
 
-function getEasternHour(d: Date): number {
+function getLocalHour(d: Date): number {
   const h = Number(
     new Intl.DateTimeFormat("en-US", {
       timeZone: SCHEDULE_TIMEZONE,
@@ -55,18 +55,18 @@ function previousDateKey(dateKey: string): string {
 }
 
 /**
- * Operational schedule day (US Eastern).
- * - Before ASSIGNMENT_ROLLOVER_EFFECTIVE_FROM: calendar midnight (legacy).
- * - On/after that date: day flips at 6:00 PM ET (e.g. Jul 10 5:59 PM → Jul 9, Jul 10 6:00 PM → Jul 10).
+ * Operational schedule day (IST).
+ * - Before ASSIGNMENT_ROLLOVER_EFFECTIVE_FROM: calendar midnight IST (legacy 12 AM wipe).
+ * - On/after that date: day flips at 6:00 PM IST (e.g. Jul 10 5:59 PM → Jul 9, Jul 10 6:00 PM → Jul 10).
  */
 export function getScheduleDateKey(d = new Date()): string {
-  const calendarToday = getEasternCalendarDateKey(d)
+  const calendarToday = getLocalCalendarDateKey(d)
 
   if (calendarToday < ASSIGNMENT_ROLLOVER_EFFECTIVE_FROM) {
     return calendarToday
   }
 
-  if (getEasternHour(d) < ASSIGNMENT_ROLLOVER_HOUR_ET) {
+  if (getLocalHour(d) < ASSIGNMENT_ROLLOVER_HOUR_IST) {
     return previousDateKey(calendarToday)
   }
   return calendarToday

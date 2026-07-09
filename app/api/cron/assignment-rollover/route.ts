@@ -4,7 +4,7 @@ import { getScheduleDateKey, rollAssignmentDayOnScheduleSave } from "@/lib/serve
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-/** Internal VPS cron: wipe streamAssignments when the operational day advances (6 PM ET). */
+/** Internal VPS cron: wipe streamAssignments when the operational day advances (6 PM IST). */
 export async function GET(req: NextRequest) {
   const peer = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || ""
   if (peer && peer !== "127.0.0.1" && peer !== "::1") {

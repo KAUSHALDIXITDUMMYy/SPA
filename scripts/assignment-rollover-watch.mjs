@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Polls the local backend every 60s to run assignment-day rollover (6 PM ET). VPS only. */
+/** Polls the local backend every 60s to run assignment-day rollover (6 PM IST). VPS only. */
 const URL = process.env.ASSIGNMENT_ROLLOVER_URL || "http://127.0.0.1:3000/api/cron/assignment-rollover"
 const MS = 60_000
 
