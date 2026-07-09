@@ -21,5 +21,19 @@ module.exports = {
       autorestart: true,
       max_memory_restart: "800M",
     },
+    {
+      name: "spa-assignment-rollover",
+      cwd: __dirname,
+      script: "scripts/assignment-rollover-watch.mjs",
+      interpreter: "node",
+      env: {
+        ...process.env,
+        NODE_ENV: "production",
+      },
+      instances: 1,
+      exec_mode: "fork",
+      autorestart: true,
+      max_memory_restart: "64M",
+    },
   ],
 }
