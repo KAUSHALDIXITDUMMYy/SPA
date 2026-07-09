@@ -1,7 +1,8 @@
 /**
- * Stream assignments are scoped to the current schedule day. When an admin saves
- * scheduled calls for a later calendar day, all prior streamAssignments are removed
- * in the background so the admin UI never has to load historical rows.
+ * Stream assignments are scoped to the current schedule day. When the operational
+ * day advances (6:00 PM US Eastern from 2026-07-10 onward, midnight before that),
+ * all prior streamAssignments are wiped. Rollover runs automatically on the VPS and
+ * also when an admin saves scheduled calls for a later day.
  */
 
 import type { Firestore } from "firebase-admin/firestore"
@@ -17,14 +18,58 @@ export function normalizeDateKey(value: string): string | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
 }
 
-/** Calendar day for schedule rollover (US Eastern — matches typical game-day ops). */
-export function getScheduleDateKey(d = new Date()): string {
+const SCHEDULE_TIMEZONE = "America/New_York"
+/** Operational day flips at this hour (US Eastern) once 6 PM rollover is active. */
+export const ASSIGNMENT_ROLLOVER_HOUR_ET = 18
+/**
+ * First US-Eastern calendar date when the 6 PM boundary applies.
+ * Before this date, midnight Eastern is still used (so today's 6 PM does not wipe).
+ */
+export const ASSIGNMENT_ROLLOVER_EFFECTIVE_FROM = "2026-07-10"
+
+function getEasternCalendarDateKey(d: Date): string {
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
+    timeZone: SCHEDULE_TIMEZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).format(d)
+}
+
+function getEasternHour(d: Date): number {
+  const h = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: SCHEDULE_TIMEZONE,
+      hour: "numeric",
+      hour12: false,
+    }).format(d),
+  )
+  return h === 24 ? 0 : h
+}
+
+function previousDateKey(dateKey: string): string {
+  const [y, m, day] = dateKey.split("-").map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, day))
+  dt.setUTCDate(dt.getUTCDate() - 1)
+  return dt.toISOString().slice(0, 10)
+}
+
+/**
+ * Operational schedule day (US Eastern).
+ * - Before ASSIGNMENT_ROLLOVER_EFFECTIVE_FROM: calendar midnight (legacy).
+ * - On/after that date: day flips at 6:00 PM ET (e.g. Jul 10 5:59 PM → Jul 9, Jul 10 6:00 PM → Jul 10).
+ */
+export function getScheduleDateKey(d = new Date()): string {
+  const calendarToday = getEasternCalendarDateKey(d)
+
+  if (calendarToday < ASSIGNMENT_ROLLOVER_EFFECTIVE_FROM) {
+    return calendarToday
+  }
+
+  if (getEasternHour(d) < ASSIGNMENT_ROLLOVER_HOUR_ET) {
+    return previousDateKey(calendarToday)
+  }
+  return calendarToday
 }
 
 export async function getAssignmentDayMeta(db: Firestore) {
