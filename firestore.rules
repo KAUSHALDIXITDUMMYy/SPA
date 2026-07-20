@@ -150,6 +150,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Server-only immutable billing ledger (written at Agora-token-mint time).
+    match /streamUsage/{docId} {
+      allow read, write: if false;
+    }
+
     // Mobile apps may write join/leave heartbeats directly (web uses API).
     match /activeViewers/{docId} {
       allow read: if signedIn() && (

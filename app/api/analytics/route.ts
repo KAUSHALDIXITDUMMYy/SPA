@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireUserProfile, forbidden } from "@/lib/server/api-auth"
 import { resolveUserTenant } from "@/lib/tenant"
+import { getRequestContextSync } from "@/lib/server/request-context"
 import * as analytics from "@/lib/server/analytics-data"
 
 /**
  * POST — track subscriber activity (a subscriber can only track itself; admins any).
  *        action: "cleanup" (admin only) prunes old analytics.
+ *        action: "heartbeat" refreshes a viewer's presence row (analytics-only;
+ *                never affects the Agora token).
  */
 export async function POST(request: NextRequest) {
   const profile = await requireUserProfile(request)
@@ -33,6 +36,21 @@ export async function POST(request: NextRequest) {
   }
   if (profile.uid !== subscriberId && profile.role !== "admin") {
     return forbidden()
+  }
+
+  // Heartbeat: analytics-only presence refresh. We always return ok so the client
+  // never errors out — a missing heartbeat just lets the row go stale later.
+  if (action === "heartbeat") {
+    try {
+      await analytics.recordViewerHeartbeat({
+        streamSessionId,
+        subscriberId,
+        context: getRequestContextSync(request),
+      })
+    } catch (err: any) {
+      console.warn("[analytics] heartbeat failed (non-fatal):", err?.message)
+    }
+    return NextResponse.json({ success: true })
   }
 
   try {
@@ -75,6 +93,12 @@ export async function GET(request: NextRequest) {
           tenant: resolveUserTenant(profile),
         }),
       )
+    }
+
+    if (type === "usage") {
+      if (profile.role !== "admin") return forbidden()
+      const windowDays = Math.min(Math.max(parseInt(searchParams.get("windowDays") || "30"), 1), 365)
+      return NextResponse.json({ usage: await analytics.getSubscriberUsage(windowDays) })
     }
 
     if (type === "publisher" && publisherId) {

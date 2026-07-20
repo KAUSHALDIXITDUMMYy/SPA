@@ -9,7 +9,7 @@ import { agoraManager } from "@/lib/agora"
 import { startSilentAudio, stopSilentAudio } from "@/lib/silent-audio"
 import type { SubscriberPermission } from "@/lib/subscriber"
 import { isAwaitingBroadcastSession } from "@/lib/streaming"
-import { trackSubscriberActivity } from "@/lib/analytics"
+import { trackSubscriberActivity, heartbeatViewerPresence } from "@/lib/analytics"
 import { fetchApproximateViewerLocation } from "@/lib/viewer-location"
 import { useAuth } from "@/hooks/use-auth"
 import { resolveUserTenant } from "@/lib/tenant"
@@ -24,6 +24,13 @@ export type StreamViewerLayout = "standard" | "mobileInline"
 export type StreamViewerHandle = {
   leaveStream: () => Promise<void>
 }
+
+/**
+ * Presence heartbeat cadence. Analytics-only: it refreshes the viewer's "lastSeen"
+ * on the server so the admin dashboard stays accurate. It never affects the Agora
+ * token, so a missed/transient heartbeat can never interrupt audio.
+ */
+const VIEWER_HEARTBEAT_MS = 20_000
 
 interface StreamViewerProps {
   permission: SubscriberPermission
@@ -60,6 +67,26 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
   const isJoiningRef = useRef(false)
   const switchGenerationRef = useRef(0)
   const isMountedRef = useRef(true)
+  /** Analytics-only presence heartbeat interval handle (never affects audio). */
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current)
+      heartbeatRef.current = null
+    }
+  }, [])
+
+  const startHeartbeat = useCallback(
+    (streamSessionId: string) => {
+      stopHeartbeat()
+      heartbeatRef.current = setInterval(() => {
+        // Fire-and-forget; failures are swallowed inside the helper.
+        void heartbeatViewerPresence(streamSessionId, user?.uid || "")
+      }, VIEWER_HEARTBEAT_MS)
+    },
+    [stopHeartbeat, user?.uid],
+  )
 
   useEffect(() => {
     isMountedRef.current = true
@@ -116,6 +143,9 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
           subscriberTenant: resolveUserTenant(userProfile),
           location: approxLocation ?? undefined,
         })
+        // Start the analytics-only presence heartbeat. Best-effort: any failure
+        // is swallowed and never affects the live audio stream.
+        startHeartbeat(permission.streamSession.id!)
       }
     } catch (err: any) {
       if (isMountedRef.current) {
@@ -151,6 +181,7 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
 
       await agoraManager.leave()
       stopSilentAudio()
+      stopHeartbeat()
       setIsConnected(false)
       setLoading(false)
       setJoinTime(null)
@@ -158,7 +189,7 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
       currentStreamIdRef.current = null
       onLeaveStream?.()
     },
-    [user, userProfile, permission, joinTime, onLeaveStream, skipActivityAnalytics],
+    [user, userProfile, permission, joinTime, onLeaveStream, skipActivityAnalytics, stopHeartbeat],
   )
 
   useImperativeHandle(
@@ -235,12 +266,13 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
     return () => {
       if (currentStreamIdRef.current) {
         stopSilentAudio()
+        stopHeartbeat()
         agoraManager.leave()
         currentStreamIdRef.current = null
         currentPermissionRef.current = null
       }
     }
-  }, [])
+  }, [stopHeartbeat])
 
   const isMobileInline = layout === "mobileInline"
 

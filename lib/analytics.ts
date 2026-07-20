@@ -53,6 +53,20 @@ export interface AnalyticsSummary {
   averageViewDuration: number
 }
 
+export interface SubscriberUsageRow {
+  subscriberId: string
+  name: string
+  email: string | null
+  tenant: string | null
+  streamJoins: number
+  uniqueStreams: number
+  publishers: string[]
+  firstSeen: string | null
+  lastSeen: string | null
+  recentIps: string[]
+  recentDevices: string[]
+}
+
 function toAnalytics(o: any): StreamAnalytics {
   return { ...o, timestamp: toDate(o.timestamp) }
 }
@@ -79,7 +93,7 @@ export const trackSubscriberActivity = async (data: {
   subscriberName: string
   publisherId: string
   publisherName: string
-  action: "join" | "leave" | "viewing"
+  action: "join" | "leave" | "viewing" | "heartbeat"
   duration?: number
   subscriberTenant?: UserTenant
   location?: ViewerLocation | null
@@ -92,6 +106,22 @@ export const trackSubscriberActivity = async (data: {
   } catch (error: any) {
     console.error("Error tracking analytics:", error)
     return { success: false, error: error.message }
+  }
+}
+
+/**
+ * Refresh this viewer's presence row. Analytics-only — the server uses this to keep
+ * "watching now" accurate and to detect stale clients. It never affects the Agora
+ * token, so a transient failure here is swallowed and audio is never impacted.
+ */
+export const heartbeatViewerPresence = async (streamSessionId: string, subscriberId: string) => {
+  try {
+    await fetchWithAuth(ENDPOINT, {
+      method: "POST",
+      body: JSON.stringify({ streamSessionId, subscriberId, action: "heartbeat" }),
+    })
+  } catch {
+    // intentionally swallowed — heartbeat is best-effort
   }
 }
 
@@ -144,6 +174,20 @@ export const getStreamAnalytics = async (streamSessionId: string) => {
   } catch (error: any) {
     console.error("Error fetching stream analytics:", error)
     return { analytics: [] }
+  }
+}
+
+export const getSubscriberUsage = async (windowDays = 30): Promise<SubscriberUsageRow[]> => {
+  try {
+    const res = await fetchWithAuth(`${ENDPOINT}?type=usage&windowDays=${windowDays}`, {
+      method: "GET",
+    })
+    if (!res.ok) throw new Error(`Request failed: ${res.status}`)
+    const json = await res.json()
+    return (json.usage || []) as SubscriberUsageRow[]
+  } catch (error: any) {
+    console.error("Error fetching subscriber usage:", error)
+    return []
   }
 }
 
