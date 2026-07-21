@@ -56,9 +56,9 @@ export function classifyDevice(ua: string | null): DeviceClass {
 }
 
 function geoFromHeaders(req: Request): ViewerGeo | null {
-  const country = req.headers.get("x-vercel-ip-country")
-  const city = req.headers.get("x-vercel-ip-city")
-  const region = req.headers.get("x-vercel-ip-country-region")
+  const country = req.headers.get("x-vercel-ip-country") ?? undefined
+  const city = req.headers.get("x-vercel-ip-city") ?? undefined
+  const region = req.headers.get("x-vercel-ip-country-region") ?? undefined
   if (country || city || region) {
     return {
       country,

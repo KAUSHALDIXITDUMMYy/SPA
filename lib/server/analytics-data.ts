@@ -630,3 +630,15 @@ export async function getSubscriberUsage(windowDays = 30): Promise<SubscriberUsa
     })
     .sort((a, b) => b.streamJoins - a.streamJoins)
 }
+
+// Opportunistic, throttled cleanup. Runs at most once per 24h per warm server
+// instance so old analytics can't pile up again (there is no external cron).
+let lastCleanupAt = 0
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000
+function maybeCleanupOldAnalytics() {
+  const now = Date.now()
+  if (now - lastCleanupAt < CLEANUP_INTERVAL_MS) return
+  lastCleanupAt = now
+  // Fire-and-forget; never block or fail the analytics response.
+  void cleanupOldAnalytics(30).catch(() => {})
+}

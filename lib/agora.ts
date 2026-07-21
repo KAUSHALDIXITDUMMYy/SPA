@@ -162,6 +162,57 @@ export class AgoraManager {
   }
 
   /**
+   * Fetch a fresh token and renew it on the active channel. Agora fires
+   * `token-privilege-will-expire` ~30s before expiry and `token-privilege-did-expire`
+   * once it has expired; both call this so the audience stream never drops mid-way.
+   * The new token route re-validates auth + access and re-records presence, but
+   * never gates audio (so a transient renewal hiccup can't cut the listener).
+   *
+   * Re-entry guard: if a renewal is already in flight for this client, the second
+   * caller awaits the same promise instead of minting two tokens.
+   */
+  private renewTokenPromise: Promise<void> | null = null
+  private async renewActiveToken(clientInstance: IAgoraRTCClient): Promise<void> {
+    if (this.client !== clientInstance) return
+    const cfg = this.lastJoinConfig
+    if (!cfg) return
+    if (this.renewTokenPromise) return this.renewTokenPromise
+    this.renewTokenPromise = (async () => {
+      try {
+        const fresh = await this.fetchToken(
+          cfg.channelName,
+          cfg.role,
+          cfg.uid,
+          cfg.streamSessionId,
+        )
+        // Guard again inside the async body — the client may have been swapped
+        // (channel switch / leave) while we were fetching.
+        if (this.client !== clientInstance) return
+        await clientInstance.renewToken(fresh.token)
+        if (typeof console !== "undefined") {
+          console.log("[Agora] audience token renewed")
+        }
+      } catch (e) {
+        console.warn("[Agora] token renewal failed:", e)
+        // Last resort: full re-join on the same config (the network path that
+        // already works for connection-state DISCONNECTED). This keeps audio
+        // alive even if renewToken itself is unavailable.
+        if (this.client === clientInstance && this.lastJoinConfig) {
+          setTimeout(() => {
+            if (this.client !== clientInstance || !this.lastJoinConfig) return
+            void this.join(this.lastJoinConfig).catch((err) =>
+              console.warn("[Agora] renewal fallback re-join failed", err),
+            )
+          }, 1500)
+        }
+      } finally {
+        this.renewTokenPromise = null
+      }
+    })()
+    return this.renewTokenPromise
+  }
+
+  /**
    * Run join/leave one at a time. Without this, React unmount can call leave() while join() is still
    * awaiting client.join(); the next open then creates a second client and hits SDK errors until refresh.
    */
@@ -1252,6 +1303,19 @@ export class AgoraManager {
           })()
         }, 2000)
       }
+    })
+
+    // ── Token renewal (audience seamless-listen) ─────────────────────────────
+    // Without these, a long listening session drops dead the moment the token
+    // expires. Fires ~30s before expiry → silent renewal; never cuts audio.
+    clientInstance.on("token-privilege-will-expire", () => {
+      if (this.client !== clientInstance) return
+      void this.renewActiveToken(clientInstance)
+    })
+    // Safety net: if we somehow missed the will-expire event, renew now.
+    clientInstance.on("token-privilege-did-expire", () => {
+      if (this.client !== clientInstance) return
+      void this.renewActiveToken(clientInstance)
     })
   }
 }

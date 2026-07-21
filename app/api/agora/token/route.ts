@@ -21,12 +21,13 @@ type TokenRequestBody = {
 }
 
 /**
- * Audience token TTL. Sized at 30 minutes so silent renewal (via the existing
- * renewToken path) happens infrequently and a renewal-time network blip can
- * never drop audio mid-stream. Renewal re-records presence but never gates audio.
+ * Audience token TTL. Sized at 4 hours so a typical listening session is covered
+ * by a single token and never depends on a renewal succeeding. Renewal handlers
+ * (token-privilege-will-expire / did-expire) still run as a safety net and never
+ * gate audio — a transient renewal failure cannot cut a legit subscriber's stream.
  */
-const AUDIENCE_TTL_SECONDS = 30 * 60
-const PUBLISHER_TTL_SECONDS = 60 * 60 * 24
+const AUDIENCE_TTL_SECONDS = 4 * 60 * 60
+const PUBLISHER_TTL_SECONDS = 24 * 60 * 60
 
 export async function POST(req: NextRequest) {
   try {
