@@ -158,58 +158,122 @@ export class AgoraManager {
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data?.error || "Failed to fetch Agora token")
-    return data as { token: string; uid: number; appId: string }
+    return data as { token: string; uid: number; appId: string; expiresAt?: number }
   }
 
   /**
-   * Fetch a fresh token and renew it on the active channel. Agora fires
-   * `token-privilege-will-expire` ~30s before expiry and `token-privilege-did-expire`
-   * once it has expired; both call this so the audience stream never drops mid-way.
-   * The new token route re-validates auth + access and re-records presence, but
-   * never gates audio (so a transient renewal hiccup can't cut the listener).
+   * Token renewal — designed so an audience stream can run indefinitely without
+   * ever dropping, regardless of total duration (1h, 4h, 8h, 24h+).
    *
-   * Re-entry guard: if a renewal is already in flight for this client, the second
-   * caller awaits the same promise instead of minting two tokens.
+   * Three layers of defense, none of which cut audio on their own:
+   *
+   *   1. PROACTIVE timer — scheduled to mint the next token ~5 min before the
+   *      current one expires (well ahead of Agora's ~30s will-expire event).
+   *      This is the primary path: the new token is in place long before the
+   *      old one dies, so a slow network has plenty of runway.
+   *
+   *   2. Agora SDK events — `token-privilege-will-expire` (~30s out) and
+   *      `token-privilege-did-expire` both invoke renewal as a safety net.
+   *
+   *   3. RETRIES with exponential backoff — a transient failure doesn't sink
+   *      the renewal; we retry up to 4 times across ~30s before giving up.
+   *
+   * Only if all three layers fail (no network for >5 minutes straddling expiry)
+   * does the renewal fall back to a full re-join — and even that recovers audio
+   * within a couple of seconds via the existing reconnect path.
    */
   private renewTokenPromise: Promise<void> | null = null
+  private proactiveRenewTimer: ReturnType<typeof setTimeout> | null = null
+  /** Renew this far ahead of the actual expiry (ms). Comfortable runway. */
+  private static readonly RENEW_BEFORE_EXPIRY_MS = 5 * 60 * 1000
+  /** Renewal retry attempts with exponential backoff. */
+  private static readonly RENEW_MAX_ATTEMPTS = 4
+
+  private clearProactiveRenewTimer() {
+    if (this.proactiveRenewTimer) {
+      clearTimeout(this.proactiveRenewTimer)
+      this.proactiveRenewTimer = null
+    }
+  }
+
+  /**
+   * Schedule the next proactive renewal based on the freshly-issued token's
+   * expiry. Called after every successful token fetch (initial join + renewals),
+   * so the timer always tracks the *current* token, not a stale one.
+   */
+  private scheduleProactiveRenew(clientInstance: IAgoraRTCClient, expiresAtSec?: number) {
+    this.clearProactiveRenewTimer()
+    if (this.client !== clientInstance) return
+    if (!expiresAtSec || expiresAtSec <= 0) return
+
+    const expiresAtMs = expiresAtSec * 1000
+    const fireAtMs = expiresAtMs - AgoraManager.RENEW_BEFORE_EXPIRY_MS
+    const delayMs = fireAtMs - Date.now()
+    // If we're already inside the renewal window (e.g. clock skew, or a token
+    // issued with a short TTL), fire soon but not instantly — give Agora's own
+    // will-expire event room to coalesce with us via the re-entry guard.
+    const safeDelayMs = Math.max(10_000, delayMs)
+    this.proactiveRenewTimer = setTimeout(() => {
+      if (this.client !== clientInstance) return
+      void this.renewActiveToken(clientInstance)
+    }, safeDelayMs)
+  }
+
   private async renewActiveToken(clientInstance: IAgoraRTCClient): Promise<void> {
     if (this.client !== clientInstance) return
     const cfg = this.lastJoinConfig
     if (!cfg) return
+    // Re-entry guard: if a renewal is already in flight, piggy-back on it.
     if (this.renewTokenPromise) return this.renewTokenPromise
+
     this.renewTokenPromise = (async () => {
-      try {
-        const fresh = await this.fetchToken(
-          cfg.channelName,
-          cfg.role,
-          cfg.uid,
-          cfg.streamSessionId,
-        )
-        // Guard again inside the async body — the client may have been swapped
-        // (channel switch / leave) while we were fetching.
-        if (this.client !== clientInstance) return
-        await clientInstance.renewToken(fresh.token)
-        if (typeof console !== "undefined") {
-          console.log("[Agora] audience token renewed")
+      let lastErr: unknown = null
+      for (let attempt = 1; attempt <= AgoraManager.RENEW_MAX_ATTEMPTS; attempt++) {
+        // Stale-client guard between attempts — a channel switch / leave must abort.
+        if (this.client !== clientInstance || !this.lastJoinConfig) return
+        try {
+          const fresh = await this.fetchToken(
+            cfg.channelName,
+            cfg.role,
+            cfg.uid,
+            cfg.streamSessionId,
+          )
+          if (this.client !== clientInstance) return
+          await clientInstance.renewToken(fresh.token)
+          // Schedule the next proactive renewal from this token's own expiry so
+          // the chain continues indefinitely.
+          this.scheduleProactiveRenew(clientInstance, fresh.expiresAt)
+          if (typeof console !== "undefined") {
+            console.log(`[Agora] audience token renewed (attempt ${attempt})`)
+          }
+          return
+        } catch (e) {
+          lastErr = e
+          console.warn(`[Agora] token renewal attempt ${attempt} failed:`, e)
+          if (attempt < AgoraManager.RENEW_MAX_ATTEMPTS) {
+            // Exponential backoff: 2s, 4s, 8s between attempts.
+            await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)))
+          }
         }
-      } catch (e) {
-        console.warn("[Agora] token renewal failed:", e)
-        // Last resort: full re-join on the same config (the network path that
-        // already works for connection-state DISCONNECTED). This keeps audio
-        // alive even if renewToken itself is unavailable.
-        if (this.client === clientInstance && this.lastJoinConfig) {
-          setTimeout(() => {
-            if (this.client !== clientInstance || !this.lastJoinConfig) return
-            void this.join(this.lastJoinConfig).catch((err) =>
-              console.warn("[Agora] renewal fallback re-join failed", err),
-            )
-          }, 1500)
-        }
-      } finally {
-        this.renewTokenPromise = null
+      }
+      // All retries exhausted — LAST RESORT only. A full re-join briefly interrupts
+      // audio, but it's strictly better than a dead stream. This path only triggers
+      // after ~30s of consecutive failures straddling the expiry window.
+      console.error("[Agora] renewal exhausted; falling back to full re-join:", lastErr)
+      if (this.client === clientInstance && this.lastJoinConfig) {
+        setTimeout(() => {
+          if (this.client !== clientInstance || !this.lastJoinConfig) return
+          void this.join(this.lastJoinConfig).catch((err) =>
+            console.error("[Agora] renewal fallback re-join failed", err),
+          )
+        }, 1500)
       }
     })()
-    return this.renewTokenPromise
+    try {
+      await this.renewTokenPromise
+    } finally {
+      this.renewTokenPromise = null
+    }
   }
 
   /**
@@ -292,6 +356,9 @@ export class AgoraManager {
       await this.enableMic()
     } else {
       await this.subscribeExistingRemoteAudio(clientInstance, container)
+      // Start the proactive token-renewal chain. Each renewed token reschedules
+      // itself, so the audience stream can run for any duration without dropping.
+      this.scheduleProactiveRenew(clientInstance, tokenInfo.expiresAt)
     }
   }
 
@@ -480,6 +547,9 @@ export class AgoraManager {
     const clientToLeave = this.client
     this.client = null
     this.resetAudiencePlaybackAssist()
+    // Cancel any pending proactive token renewal so it can't fire after teardown.
+    this.clearProactiveRenewTimer()
+    this.renewTokenPromise = null
 
     try {
       // Clear network monitoring
