@@ -52,23 +52,38 @@ import {
 } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 import { useDebouncedUserSearch } from "@/hooks/use-debounced-user-search"
+import { cn } from "@/lib/utils"
+
+/** High-contrast checkboxes for the dark matrix — empty boxes must stay visible on black. */
+const MATRIX_CHECKBOX_CLASS =
+  "h-5 w-5 border-2 border-foreground/70 bg-background shadow-sm " +
+  "hover:border-primary hover:bg-muted " +
+  "data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground " +
+  "dark:border-foreground/80 dark:bg-card dark:hover:bg-muted " +
+  "dark:data-[state=checked]:bg-primary dark:data-[state=checked]:border-primary"
 
 // Memoized matrix cell to prevent unnecessary re-renders
-const MatrixCell = memo(({ 
-  assigned, 
+const MatrixCell = memo(({
+  assigned,
   disabled,
   onToggle,
-}: { 
+}: {
   assigned: boolean
   disabled?: boolean
   onToggle: (nextAssigned: boolean) => void
 }) => (
-  <td className="border p-1 text-center">
+  <td
+    className={cn(
+      "border border-border p-2 text-center align-middle",
+      assigned ? "bg-primary/10" : "bg-card",
+    )}
+  >
     <Checkbox
       checked={assigned}
       disabled={disabled}
       onCheckedChange={(checked) => onToggle(checked === true)}
-      className="h-4 w-4"
+      className={MATRIX_CHECKBOX_CLASS}
+      aria-label={assigned ? "Assigned — click to remove" : "Not assigned — click to assign"}
     />
   </td>
 ))
@@ -1013,7 +1028,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                   </div>
                 </div>
 
-                <div className="border rounded-lg overflow-hidden">
+                <div className="border border-border rounded-lg overflow-hidden bg-card">
                   <div
                     onScroll={handleMatrixScroll}
                     className="overflow-auto max-h-[500px]"
@@ -1021,9 +1036,9 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                   >
                     <div className="inline-block min-w-full">
                       <table className="w-full border-collapse">
-                        <thead className="sticky top-0 bg-background z-10">
+                        <thead className="sticky top-0 bg-muted z-10">
                           <tr>
-                            <th className="border p-2 text-left bg-muted font-semibold min-w-[200px] sticky left-0 z-20 bg-muted">
+                            <th className="border border-border p-2 text-left bg-muted font-semibold min-w-[200px] sticky left-0 z-20">
                               <div className="flex flex-col gap-2">
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="truncate text-xs sm:text-sm">Subscriber \ Stream</span>
@@ -1031,6 +1046,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                                     checked={allFilteredSubscribersSelected}
                                     onCheckedChange={toggleAllSubscribers}
                                     title="Select or deselect all subscribers matching the search"
+                                    className={MATRIX_CHECKBOX_CLASS}
                                   />
                                 </div>
                                 <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/70">
@@ -1042,6 +1058,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                                     onCheckedChange={toggleAllStreams}
                                     disabled={filteredStreamIds.length === 0}
                                     title="Select or deselect all live streams matching the stream search"
+                                    className={MATRIX_CHECKBOX_CLASS}
                                   />
                                 </div>
                               </div>
@@ -1049,17 +1066,17 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                             {streamsForMatrix.map((stream) => (
                               <th
                                 key={stream.id}
-                                className="border p-2 text-left bg-muted font-medium min-w-[150px]"
+                                className="border border-border p-2 text-left bg-muted font-medium min-w-[150px]"
                               >
                                 <div className="flex flex-col gap-1">
-                                  <div className="flex items-center justify-between">
+                                  <div className="flex items-center justify-between gap-2">
                                     <div className="truncate text-xs" title={stream.title || stream.publisherName}>
                                       {stream.title || stream.publisherName}
                                     </div>
                                     <Checkbox
                                       checked={selectedStreams.has(stream.id!)}
                                       onCheckedChange={() => toggleStreamSelection(stream.id!)}
-                                      className="h-3 w-3"
+                                      className={MATRIX_CHECKBOX_CLASS}
                                     />
                                   </div>
                                   <div className="text-xs text-muted-foreground">
@@ -1075,9 +1092,15 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                           </tr>
                         </thead>
                         <tbody>
-                          {subsForMatrix.map((sub) => (
-                            <tr key={sub.id} className="hover:bg-muted/50">
-                              <td className="border p-2 font-medium bg-muted/50 sticky left-0 z-10 bg-muted/50">
+                          {subsForMatrix.map((sub, rowIndex) => (
+                            <tr
+                              key={sub.id}
+                              className={cn(
+                                "hover:bg-muted/40",
+                                rowIndex % 2 === 1 && "bg-muted/15",
+                              )}
+                            >
+                              <td className="border border-border p-2 font-medium bg-muted/60 sticky left-0 z-10">
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="truncate text-xs sm:text-sm" title={sub.displayName || sub.email}>
                                     {sub.displayName || sub.email}
@@ -1085,7 +1108,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                                   <Checkbox
                                     checked={selectedSubscribers.has(sub.id)}
                                     onCheckedChange={() => toggleSubscriberSelection(sub.id)}
-                                    className="h-4 w-4"
+                                    className={MATRIX_CHECKBOX_CLASS}
                                   />
                                 </div>
                               </td>
