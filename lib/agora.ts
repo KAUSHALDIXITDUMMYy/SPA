@@ -466,6 +466,18 @@ export class AgoraManager {
     }
   }
 
+  /** Mute/unmute remote audience playback (volume 0 / 100). */
+  setAudiencePlaybackMuted(muted: boolean) {
+    const volume = muted ? 0 : 100
+    for (const track of this.audienceRemoteTracks.values()) {
+      try {
+        track.setVolume(volume)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   /** Attach user-published listeners before join (audience). */
   private attachSubscriberAudioListeners(clientInstance: IAgoraRTCClient, _container: HTMLElement) {
     clientInstance.on("user-published", async (user, mediaType) => {

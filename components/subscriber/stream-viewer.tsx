@@ -23,6 +23,9 @@ export type StreamViewerLayout = "standard" | "mobileInline"
 /** Imperative API so parents can run the same cleanup as the Stop button before switching streams or going back. */
 export type StreamViewerHandle = {
   leaveStream: () => Promise<void>
+  /** Toggle playback mute; returns whether audio is enabled after the toggle. */
+  toggleAudio: () => boolean
+  getAudioEnabled: () => boolean
 }
 
 /**
@@ -41,6 +44,8 @@ interface StreamViewerProps {
   layout?: StreamViewerLayout
   /** When true, do not record join/leave in stream analytics (e.g. admin preview listen). */
   skipActivityAnalytics?: boolean
+  /** Hide Mute/Stop inside the player — parent renders those controls. */
+  hideBuiltInControls?: boolean
 }
 
 export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(function StreamViewer(
@@ -51,6 +56,7 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
     autoJoin = true,
     layout = "standard",
     skipActivityAnalytics = false,
+    hideBuiltInControls = false,
   },
   ref,
 ) {
@@ -61,6 +67,7 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
   const [audioEnabled, setAudioEnabled] = useState(true) // Audio enabled by default for audio-only streams
   const [joinTime, setJoinTime] = useState<Date | null>(null)
   const audioContainerRef = useRef<HTMLDivElement>(null)
+  const audioEnabledRef = useRef(true)
   const currentStreamIdRef = useRef<string | null>(null)
   /** Permission for the stream we're currently in (for correct leave analytics when switching) */
   const currentPermissionRef = useRef<SubscriberPermission | null>(null)
@@ -129,6 +136,12 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
       onJoinStream?.(permission)
 
       setAudioEnabled(true) // Audio is enabled by default for audio streams
+      audioEnabledRef.current = true
+      try {
+        agoraManager.setAudiencePlaybackMuted(false)
+      } catch {
+        /* ignore */
+      }
       // Start silent audio to reduce tab throttling when backgrounded (minimized)
       startSilentAudio()
 
@@ -196,18 +209,31 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
     ref,
     () => ({
       leaveStream: () => handleLeaveStream(),
+      toggleAudio: () => {
+        if (!permission.allowAudio) return audioEnabledRef.current
+        const next = !audioEnabledRef.current
+        audioEnabledRef.current = next
+        setAudioEnabled(next)
+        try {
+          agoraManager.setAudiencePlaybackMuted(!next)
+        } catch {
+          /* ignore */
+        }
+        return next
+      },
+      getAudioEnabled: () => audioEnabledRef.current,
     }),
-    [handleLeaveStream],
+    [handleLeaveStream, permission.allowAudio],
   )
 
   const handleToggleAudio = async () => {
     if (!permission.allowAudio) return
 
     try {
-      // For audio-only streams, we can mute/unmute the audio playback
-      // This is handled by the browser's audio context, not Agora directly
-      setAudioEnabled(!audioEnabled)
-      // Note: Actual audio muting would need to be implemented via Agora's remote audio track controls
+      const next = !audioEnabled
+      setAudioEnabled(next)
+      audioEnabledRef.current = next
+      agoraManager.setAudiencePlaybackMuted(!next)
     } catch (err: any) {
       setError("Failed to toggle audio")
     }
@@ -332,25 +358,27 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
               </p>
             </>
           )}
-          <Button
-            variant={audioEnabled ? "default" : "outline"}
-            size="sm"
-            onClick={handleToggleAudio}
-            className={`text-sm sm:text-base ${isMobileInline ? "mt-1 w-full" : "mt-3 w-full sm:mt-4 sm:w-auto"}`}
-            disabled={!permission.allowAudio}
-          >
-            {audioEnabled ? (
-              <>
-                <Volume2 className="mr-2 h-4 w-4 shrink-0" />
-                <span className="truncate">Mute</span>
-              </>
-            ) : (
-              <>
-                <VolumeX className="mr-2 h-4 w-4 shrink-0" />
-                <span className="truncate">Unmute</span>
-              </>
-            )}
-          </Button>
+          {!hideBuiltInControls && (
+            <Button
+              variant={audioEnabled ? "default" : "outline"}
+              size="sm"
+              onClick={handleToggleAudio}
+              className={`text-sm sm:text-base ${isMobileInline ? "mt-1 w-full" : "mt-3 w-full sm:mt-4 sm:w-auto"}`}
+              disabled={!permission.allowAudio}
+            >
+              {audioEnabled ? (
+                <>
+                  <Volume2 className="mr-2 h-4 w-4 shrink-0" />
+                  <span className="truncate">Mute</span>
+                </>
+              ) : (
+                <>
+                  <VolumeX className="mr-2 h-4 w-4 shrink-0" />
+                  <span className="truncate">Unmute</span>
+                </>
+              )}
+            </Button>
+          )}
         </div>
       )}
     </>
@@ -379,16 +407,18 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
                 <span className="truncate">{permission.publisherName}</span>
               </p>
             </div>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              className="shrink-0 gap-1"
-              onClick={() => void handleLeaveStream()}
-            >
-              <Square className="h-3.5 w-3.5" />
-              Stop
-            </Button>
+            {!hideBuiltInControls && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="shrink-0 gap-1"
+                onClick={() => void handleLeaveStream()}
+              >
+                <Square className="h-3.5 w-3.5" />
+                Stop
+              </Button>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {loading && (

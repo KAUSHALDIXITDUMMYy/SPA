@@ -25,6 +25,8 @@ import {
   Flag,
   Headphones,
   MessageSquare,
+  Volume2,
+  VolumeX,
 } from "lucide-react"
 import {
   getAdminAnalytics,
@@ -40,7 +42,7 @@ import { getUsersByRole, updateUserStatus } from "@/lib/admin"
 import { useAuth } from "@/hooks/use-auth"
 import { useToast } from "@/hooks/use-toast"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
-import { StreamViewer as SubscriberStreamPlayer } from "@/components/subscriber/stream-viewer"
+import { StreamViewer as SubscriberStreamPlayer, type StreamViewerHandle } from "@/components/subscriber/stream-viewer"
 import type { SubscriberPermission } from "@/lib/subscriber"
 import type { StreamSession } from "@/lib/streaming"
 
@@ -150,10 +152,12 @@ export function AdminAnalytics() {
   const [usageLoading, setUsageLoading] = useState(false)
   const [adminListeningStreamId, setAdminListeningStreamId] = useState<string | null>(null)
   const [monitorStreamId, setMonitorStreamId] = useState<string | null>(null)
+  const [previewAudioEnabled, setPreviewAudioEnabled] = useState(true)
   const [activeTab, setActiveTab] = useState("live")
   const { user, userProfile } = useAuth()
   const { toast } = useToast()
   const unmountRef = useRef(false)
+  const previewPlayerRef = useRef<StreamViewerHandle>(null)
 
   const fetchDashboard = useCallback(
     async (options?: { manual?: boolean }) => {
@@ -296,10 +300,28 @@ export function AdminAnalytics() {
   const selectStream = useCallback((streamId: string) => {
     setMonitorStreamId(streamId)
     setAdminListeningStreamId(streamId)
+    setPreviewAudioEnabled(true)
     setActiveTab("live")
     requestAnimationFrame(() => {
       detailPaneRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
     })
+  }, [])
+
+  const stopPreviewListen = useCallback(() => {
+    void previewPlayerRef.current?.leaveStream()
+    setAdminListeningStreamId(null)
+    setPreviewAudioEnabled(true)
+  }, [])
+
+  const startPreviewListen = useCallback(() => {
+    if (!monitorStreamId) return
+    setAdminListeningStreamId(monitorStreamId)
+    setPreviewAudioEnabled(true)
+  }, [monitorStreamId])
+
+  const togglePreviewMute = useCallback(() => {
+    const next = previewPlayerRef.current?.toggleAudio()
+    if (typeof next === "boolean") setPreviewAudioEnabled(next)
   }, [])
 
   const handleDeactivate = useCallback(
@@ -572,6 +594,7 @@ export function AdminAnalytics() {
                             {isListening ? (
                               <div className="space-y-3">
                                 <SubscriberStreamPlayer
+                                  ref={previewPlayerRef}
                                   key={monitorStream.id}
                                   permission={activeStreamToAdminListenPermission(
                                     monitorStream,
@@ -580,22 +603,57 @@ export function AdminAnalytics() {
                                   layout="mobileInline"
                                   autoJoin
                                   skipActivityAnalytics
+                                  hideBuiltInControls
                                 />
+                                <div className="flex gap-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="flex-1 gap-2"
+                                    onClick={togglePreviewMute}
+                                  >
+                                    {previewAudioEnabled ? (
+                                      <>
+                                        <Volume2 className="h-3.5 w-3.5" />
+                                        Mute
+                                      </>
+                                    ) : (
+                                      <>
+                                        <VolumeX className="h-3.5 w-3.5" />
+                                        Unmute
+                                      </>
+                                    )}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    className="flex-1 gap-2 bg-primary text-primary-foreground hover:bg-primary/90"
+                                    onClick={stopPreviewListen}
+                                  >
+                                    <Headphones className="h-3.5 w-3.5" />
+                                    Stop
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-6 text-center">
+                                  <p className="text-sm text-muted-foreground">
+                                    Audio stopped. Press Listen to hear this stream again, or pick
+                                    another from the list.
+                                  </p>
+                                </div>
                                 <Button
                                   type="button"
                                   size="sm"
                                   className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90"
-                                  onClick={() => setAdminListeningStreamId(null)}
+                                  onClick={startPreviewListen}
+                                  disabled={!monitorStream}
                                 >
                                   <Headphones className="h-3.5 w-3.5" />
-                                  Stop
+                                  Listen
                                 </Button>
-                              </div>
-                            ) : (
-                              <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-6 text-center">
-                                <p className="text-sm text-muted-foreground">
-                                  Click a stream in the list to start listening.
-                                </p>
                               </div>
                             )}
                           </section>
