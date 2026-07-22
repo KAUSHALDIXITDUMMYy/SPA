@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/collapsible"
 import {
   createStreamAssignment,
+  bulkCreateStreamAssignments,
   deleteStreamAssignment,
   updateStreamAssignment,
   getStreamAssignments,
@@ -327,11 +328,54 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
       setSubscribersCursor(page.nextCursor ?? null)
       setSubscribersHasMore(Boolean(page.hasMore))
     } catch (err: any) {
-      setError(err.message || "Failed to load more subscribers")
+      setError(err?.message || "Failed to load more subscribers")
     } finally {
       setLoadingMoreSubscribers(false)
     }
   }, [subscribersHasMore, subscribersCursor, loadingMoreSubscribers])
+
+  /** Pull every subscriber page so "select all / assign all" is not capped at 100. */
+  const ensureAllSubscribersLoaded = useCallback(async (): Promise<(UserProfile & { id: string })[]> => {
+    let all = [...subscribers]
+    let cursor = subscribersCursor
+    let hasMore = subscribersHasMore
+    let guard = 0
+    while (hasMore && cursor && guard < 200) {
+      guard++
+      const page = await getStreamAssignmentsBootstrapPage(cursor)
+      const seen = new Set(all.map((s) => s.id))
+      for (const sub of page.subscribers) {
+        if (!seen.has(sub.id)) {
+          all.push(sub)
+          seen.add(sub.id)
+        }
+      }
+      setAllAssignments((prev) => {
+        const next = new Map(prev)
+        page.assignments.forEach((assignment) => {
+          const existing = next.get(assignment.subscriberId) || []
+          const list = [...existing]
+          const idx = list.findIndex(
+            (a) =>
+              (a.id && assignment.id && a.id === assignment.id) ||
+              a.streamSessionId === assignment.streamSessionId,
+          )
+          if (idx >= 0) list[idx] = assignment
+          else list.push(assignment)
+          next.set(assignment.subscriberId, list)
+        })
+        return next
+      })
+      if (page.streams.length) setStreams(page.streams)
+      cursor = page.nextCursor ?? null
+      hasMore = Boolean(page.hasMore)
+    }
+    setSubscribers(all)
+    setSubscribersCursor(cursor)
+    setSubscribersHasMore(hasMore)
+    setMatrixRowsVisible(all.length)
+    return all
+  }, [subscribers, subscribersCursor, subscribersHasMore])
 
   const handleMatrixScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
@@ -546,7 +590,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
     }
   }, [bulkEmailSearch, bulkEmailSelectedStreams, parseBulkEmails, findSubscribersByEmails, getAssignment, refreshAssignments])
 
-  // Bulk assign selected subscribers to selected streams
+  // Bulk assign selected subscribers to selected streams (server-side batch)
   const bulkAssign = useCallback(async () => {
     if (selectedSubscribers.size === 0 || selectedStreams.size === 0) {
       setError("Please select at least one subscriber and one stream")
@@ -558,50 +602,73 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
     setSuccess("")
 
     try {
-      const promises: Promise<any>[] = []
-      let newAssignments = 0
-      let reactivated = 0
-      let alreadyAssigned = 0
-
-      selectedSubscribers.forEach((subId) => {
-        selectedStreams.forEach((streamId) => {
-          const assignment = getAssignment(subId, streamId)
-          if (!assignment) {
-            promises.push(
-              createStreamAssignment({
-                subscriberId: subId,
-                streamSessionId: streamId,
-                isActive: true,
-              })
-            )
-            newAssignments++
-          } else if (!assignment.isActive) {
-            promises.push(updateStreamAssignment(assignment.id!, { isActive: true }))
-            reactivated++
-          } else {
-            alreadyAssigned++
-          }
-        })
+      const result = await bulkCreateStreamAssignments({
+        subscriberIds: Array.from(selectedSubscribers),
+        streamSessionIds: Array.from(selectedStreams),
       })
-
-      await Promise.all(promises)
-
+      invalidateStreamAssignmentsBootstrap()
       let successMsg = ""
-      if (newAssignments > 0) successMsg += `Created ${newAssignments} new assignment(s). `
-      if (reactivated > 0) successMsg += `Reactivated ${reactivated} assignment(s). `
-      if (alreadyAssigned > 0) successMsg += `Skipped ${alreadyAssigned} already active assignment(s).`
-
-      setSuccess(successMsg || "No changes needed - all already assigned!")
+      if (result.created > 0) successMsg += `Created ${result.created} new assignment(s). `
+      if (result.reactivated > 0) successMsg += `Reactivated ${result.reactivated} assignment(s). `
+      if (result.skipped > 0) successMsg += `Skipped ${result.skipped} already active.`
+      setSuccess(
+        successMsg ||
+          `No changes needed — all ${result.subscriberCount ?? selectedSubscribers.size} × ${result.streamCount ?? selectedStreams.size} already assigned.`,
+      )
       setSelectedSubscribers(new Set())
       setSelectedStreams(new Set())
-      
       await refreshAssignments()
     } catch (e: any) {
       setError(e?.message || "Bulk assignment failed")
     } finally {
       setBulkLoading(false)
     }
-  }, [selectedSubscribers, selectedStreams, getAssignment, refreshAssignments])
+  }, [selectedSubscribers, selectedStreams, refreshAssignments])
+
+  /** Load every subscriber, select all live streams, assign the full cross-product. */
+  const assignAllToAll = useCallback(async () => {
+    setBulkLoading(true)
+    setError("")
+    setSuccess("")
+    try {
+      const allSubs = await ensureAllSubscribersLoaded()
+      const q = searchSubs.trim().toLowerCase()
+      const scopedSubs = q
+        ? allSubs.filter((s) => {
+            const name = (s.displayName || "").toLowerCase()
+            const email = (s.email || "").toLowerCase()
+            return name.includes(q) || email.includes(q)
+          })
+        : allSubs
+      const streamIds = filteredStreamIds
+      if (!scopedSubs.length || !streamIds.length) {
+        setError("Need at least one subscriber and one live stream")
+        return
+      }
+      setSelectedSubscribers(new Set(scopedSubs.map((s) => s.id)))
+      setSelectedStreams(new Set(streamIds))
+      const result = await bulkCreateStreamAssignments({
+        subscriberIds: scopedSubs.map((s) => s.id),
+        streamSessionIds: streamIds,
+      })
+      invalidateStreamAssignmentsBootstrap()
+      setSuccess(
+        `Assigned ${result.subscriberCount ?? scopedSubs.length} subscriber(s) to ${result.streamCount ?? streamIds.length} stream(s): ${result.created} created, ${result.reactivated} reactivated, ${result.skipped} already active.`,
+      )
+      setSelectedSubscribers(new Set())
+      setSelectedStreams(new Set())
+      await refreshAssignments()
+    } catch (e: any) {
+      setError(e?.message || "Assign all failed")
+    } finally {
+      setBulkLoading(false)
+    }
+  }, [
+    ensureAllSubscribersLoaded,
+    searchSubs,
+    filteredStreamIds,
+    refreshAssignments,
+  ])
 
   // Bulk unassign
   const bulkUnassign = useCallback(async () => {
@@ -664,15 +731,29 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
     })
   }, [])
 
-  const toggleAllSubscribers = useCallback(() => {
-    if (filteredSubscribers.length === 0) return
-    const ids = filteredSubscribers.map((s) => s.id)
+  const toggleAllSubscribers = useCallback(async () => {
     if (allFilteredSubscribersSelected) {
       setSelectedSubscribers(new Set())
-    } else {
-      setSelectedSubscribers(new Set(ids))
+      return
     }
-  }, [filteredSubscribers, allFilteredSubscribersSelected])
+    setBulkLoading(true)
+    try {
+      const allSubs = await ensureAllSubscribersLoaded()
+      const q = searchSubs.trim().toLowerCase()
+      const scoped = q
+        ? allSubs.filter((s) => {
+            const name = (s.displayName || "").toLowerCase()
+            const email = (s.email || "").toLowerCase()
+            return name.includes(q) || email.includes(q)
+          })
+        : allSubs
+      setSelectedSubscribers(new Set(scoped.map((s) => s.id)))
+    } catch (e: any) {
+      setError(e?.message || "Failed to load all subscribers")
+    } finally {
+      setBulkLoading(false)
+    }
+  }, [allFilteredSubscribersSelected, ensureAllSubscribersLoaded, searchSubs])
 
   const toggleAllStreams = useCallback(() => {
     if (filteredStreamIds.length === 0) return
@@ -904,8 +985,8 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                   variant="outline"
                   size="sm"
                   className="flex-1 min-w-[140px] sm:flex-initial"
-                  onClick={toggleAllSubscribers}
-                  disabled={filteredSubscribers.length === 0}
+                  onClick={() => void toggleAllSubscribers()}
+                  disabled={filteredSubscribers.length === 0 || bulkLoading}
                 >
                   {allFilteredSubscribersSelected ? (
                     <>
@@ -945,6 +1026,20 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
             <div className="flex-1 hidden sm:block" />
 
             <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <Button
+                onClick={() => void assignAllToAll()}
+                disabled={bulkLoading || filteredStreamIds.length === 0}
+                className="bg-primary text-primary-foreground hover:bg-primary/90 flex-1 sm:flex-initial"
+                size="sm"
+                title="Load every subscriber, then assign them all to every live stream"
+              >
+                {bulkLoading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <CheckSquare className="h-4 w-4 mr-2" />
+                )}
+                Assign all → all streams
+              </Button>
               <Button
                 onClick={bulkAssign}
                 disabled={bulkLoading || selectedSubscribers.size === 0 || selectedStreams.size === 0}
@@ -1044,7 +1139,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                                   <span className="truncate text-xs sm:text-sm">Subscriber \ Stream</span>
                                   <Checkbox
                                     checked={allFilteredSubscribersSelected}
-                                    onCheckedChange={toggleAllSubscribers}
+                                    onCheckedChange={() => void toggleAllSubscribers()}
                                     title="Select or deselect all subscribers matching the search"
                                     className={MATRIX_CHECKBOX_CLASS}
                                   />

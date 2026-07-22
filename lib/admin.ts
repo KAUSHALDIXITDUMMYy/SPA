@@ -255,6 +255,23 @@ export const createStreamAssignment = async (
   return ok ? { success: true, id: json.id } : { success: false, error: json.error }
 }
 
+export const bulkCreateStreamAssignments = async (input: {
+  subscriberIds: string[]
+  streamSessionIds: string[]
+}) => {
+  const { ok, json } = await postAdmin("bulkCreateStreamAssignments", input)
+  if (!ok) throw new Error(json.error || "Bulk assignment failed")
+  return json as {
+    success: boolean
+    created: number
+    reactivated: number
+    skipped: number
+    totalPairs: number
+    subscriberCount?: number
+    streamCount?: number
+  }
+}
+
 export const getStreamAssignments = async () => {
   const { ok, json } = await postAdmin("getStreamAssignments")
   if (!ok) return []

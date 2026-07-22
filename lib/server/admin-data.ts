@@ -367,6 +367,96 @@ export async function createStreamAssignment(assignment: Record<string, any>) {
   return { success: true, id: ref.id }
 }
 
+/**
+ * Assign many subscribers to many streams in one server call.
+ * Creates missing rows and reactivates inactive ones; skips already-active pairs.
+ */
+export async function bulkCreateStreamAssignments(input: {
+  subscriberIds: string[]
+  streamSessionIds: string[]
+}) {
+  const subscriberIds = Array.from(
+    new Set((input.subscriberIds || []).map((id) => String(id || "").trim()).filter(Boolean)),
+  )
+  const streamSessionIds = Array.from(
+    new Set((input.streamSessionIds || []).map((id) => String(id || "").trim()).filter(Boolean)),
+  )
+  if (!subscriberIds.length || !streamSessionIds.length) {
+    return {
+      success: true,
+      created: 0,
+      reactivated: 0,
+      skipped: 0,
+      totalPairs: 0,
+    }
+  }
+
+  const db = await getAdminDb()
+  const dateKey = await resolveAssignmentDateKey(db)
+  const existingDocs = await getStreamAssignmentDocsForStreamIds(db, streamSessionIds)
+  const byPair = new Map<string, { ref: any; isActive: boolean }>()
+  for (const doc of existingDocs) {
+    const data = doc.data() || {}
+    const subId = String(data.subscriberId || "")
+    const streamId = String(data.streamSessionId || "")
+    if (!subId || !streamId) continue
+    byPair.set(`${subId}::${streamId}`, {
+      ref: doc.ref,
+      isActive: data.isActive === true,
+    })
+  }
+
+  let created = 0
+  let reactivated = 0
+  let skipped = 0
+  let batch = db.batch()
+  let batchOps = 0
+
+  const commitBatch = async () => {
+    if (batchOps === 0) return
+    await batch.commit()
+    batch = db.batch()
+    batchOps = 0
+  }
+
+  for (const subscriberId of subscriberIds) {
+    for (const streamSessionId of streamSessionIds) {
+      const key = `${subscriberId}::${streamSessionId}`
+      const existing = byPair.get(key)
+      if (!existing) {
+        const ref = db.collection("streamAssignments").doc()
+        batch.set(ref, {
+          subscriberId,
+          streamSessionId,
+          isActive: true,
+          dateKey,
+          createdAt: new Date(),
+        })
+        created++
+        batchOps++
+      } else if (!existing.isActive) {
+        batch.update(existing.ref, { isActive: true })
+        reactivated++
+        batchOps++
+      } else {
+        skipped++
+      }
+      if (batchOps >= 400) await commitBatch()
+    }
+  }
+  await commitBatch()
+
+  return {
+    success: true,
+    created,
+    reactivated,
+    skipped,
+    totalPairs: subscriberIds.length * streamSessionIds.length,
+    subscriberCount: subscriberIds.length,
+    streamCount: streamSessionIds.length,
+  }
+}
+
 async function loadAssignmentsForActiveStreams(adminViewer?: AdminViewer) {
   const db = await getAdminDb()
   const [tenantByUserId, streams] = await Promise.all([

@@ -92,6 +92,13 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(await adminData.deleteStreamPermission(payload.permissionId))
       case "createStreamAssignment":
         return NextResponse.json(await adminData.createStreamAssignment(payload.assignment))
+      case "bulkCreateStreamAssignments":
+        return NextResponse.json(
+          await adminData.bulkCreateStreamAssignments({
+            subscriberIds: payload.subscriberIds || [],
+            streamSessionIds: payload.streamSessionIds || [],
+          }),
+        )
       case "getStreamAssignments":
         return NextResponse.json({ assignments: await adminData.getStreamAssignments(viewer) })
       case "getStreamAssignmentsForSubscriberIds":
