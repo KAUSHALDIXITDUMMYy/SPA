@@ -288,10 +288,16 @@ export function AdminAnalytics() {
     [validActiveViewers, monitorStream],
   )
 
+  const detailPaneRef = useRef<HTMLDivElement>(null)
+
   const selectStream = useCallback((streamId: string, listen = false) => {
     setMonitorStreamId(streamId)
     setActiveTab("live")
     if (listen) setAdminListeningStreamId(streamId)
+    // Keep Listen controls in view — don't leave the user scrolled down the stream list.
+    requestAnimationFrame(() => {
+      detailPaneRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+    })
   }, [])
 
   const handleDeactivate = useCallback(
@@ -456,7 +462,7 @@ export function AdminAnalytics() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ── Live: stream list + listen/chat in one card ─────────────── */}
+        {/* ── Live: fixed-height split so Listen stays at the top ─────── */}
         <TabsContent value="live" className="mt-0">
           <Card className="overflow-hidden">
             {activeStreams.length === 0 ? (
@@ -468,15 +474,15 @@ export function AdminAnalytics() {
                 />
               </CardContent>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)] lg:min-h-[520px]">
-                {/* Contained stream list */}
-                <aside className="border-b lg:border-b-0 lg:border-r border-border bg-muted/20 flex flex-col min-h-0 max-h-[220px] lg:max-h-none">
-                  <div className="px-3 py-2.5 border-b border-border shrink-0">
+              <div className="flex flex-col lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:h-[560px]">
+                {/* Stream list — own scroll, capped height; never stretches the Listen pane */}
+                <aside className="order-2 lg:order-1 border-t lg:border-t-0 lg:border-r border-border bg-muted/20 flex flex-col h-[160px] lg:h-full min-h-0 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-border shrink-0">
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                       On air · {activeStreams.length}
                     </p>
                   </div>
-                  <div className="overflow-y-auto flex-1 min-h-0 p-2 space-y-1">
+                  <div className="overflow-y-auto overscroll-contain flex-1 min-h-0 p-2 space-y-1">
                     {activeStreams.map((stream) => {
                       const count = validActiveViewers.filter(
                         (v) => v.streamSessionId === stream.id,
@@ -523,11 +529,14 @@ export function AdminAnalytics() {
                   </div>
                 </aside>
 
-                {/* Detail pane */}
-                <div className="flex flex-col min-w-0 min-h-0">
+                {/* Detail — Listen header always first / sticky; body scrolls separately */}
+                <div
+                  ref={detailPaneRef}
+                  className="order-1 lg:order-2 flex flex-col min-w-0 min-h-0 lg:h-full overflow-hidden"
+                >
                   {monitorStream && user ? (
                     <>
-                      <div className="px-4 py-3 border-b border-border flex flex-col sm:flex-row sm:items-center gap-3 shrink-0">
+                      <div className="sticky top-0 z-10 bg-card px-4 py-3 border-b border-border flex flex-col sm:flex-row sm:items-center gap-3 shrink-0">
                         <div className="min-w-0 flex-1">
                           <h3 className="font-semibold truncate">
                             {monitorStream.title || "Untitled stream"}
@@ -547,7 +556,7 @@ export function AdminAnalytics() {
                           type="button"
                           size="sm"
                           variant={isListening ? "default" : "outline"}
-                          className="gap-2 shrink-0"
+                          className="gap-2 shrink-0 w-full sm:w-auto"
                           onClick={() =>
                             setAdminListeningStreamId((prev) =>
                               prev === monitorStream.id ? null : monitorStream.id,
@@ -559,44 +568,48 @@ export function AdminAnalytics() {
                         </Button>
                       </div>
 
-                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-0 xl:divide-x divide-border flex-1 min-h-0">
-                        <section className="p-4 flex flex-col gap-3 border-b xl:border-b-0 border-border">
-                          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                            <Headphones className="h-3.5 w-3.5" />
-                            Audio
-                            {isListening && (
-                              <Badge variant="outline" className="normal-case tracking-normal font-normal ml-auto">
-                                Preview only
-                              </Badge>
-                            )}
-                          </div>
-                          {isListening ? (
-                            <SubscriberStreamPlayer
-                              key={monitorStream.id}
-                              permission={activeStreamToAdminListenPermission(
-                                monitorStream,
-                                user.uid,
+                      <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+                        <div className="grid grid-cols-1 xl:grid-cols-2 xl:divide-x divide-border">
+                          <section className="p-4 space-y-3 border-b xl:border-b-0 border-border">
+                            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                              <Headphones className="h-3.5 w-3.5" />
+                              Audio
+                              {isListening && (
+                                <Badge
+                                  variant="outline"
+                                  className="normal-case tracking-normal font-normal ml-auto"
+                                >
+                                  Preview only
+                                </Badge>
                               )}
-                              layout="mobileInline"
-                              autoJoin
-                              skipActivityAnalytics
-                            />
-                          ) : (
-                            <div className="flex-1 flex items-center justify-center rounded-md border border-dashed border-border bg-muted/20 py-10 px-4 text-center">
-                              <p className="text-sm text-muted-foreground max-w-xs">
-                                Tap <span className="text-foreground font-medium">Listen</span> to
-                                hear the same feed subscribers hear. Not counted in analytics.
-                              </p>
                             </div>
-                          )}
-                        </section>
+                            {isListening ? (
+                              <SubscriberStreamPlayer
+                                key={monitorStream.id}
+                                permission={activeStreamToAdminListenPermission(
+                                  monitorStream,
+                                  user.uid,
+                                )}
+                                layout="mobileInline"
+                                autoJoin
+                                skipActivityAnalytics
+                              />
+                            ) : (
+                              <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-6 text-center">
+                                <p className="text-sm text-muted-foreground">
+                                  Tap{" "}
+                                  <span className="text-foreground font-medium">Listen</span> above
+                                  to hear this call. Not counted in analytics.
+                                </p>
+                              </div>
+                            )}
+                          </section>
 
-                        <section className="p-4 flex flex-col gap-3 min-h-[300px]">
-                          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                            <MessageSquare className="h-3.5 w-3.5" />
-                            Chat
-                          </div>
-                          <div className="flex-1 min-h-0">
+                          <section className="p-4 space-y-3">
+                            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                              <MessageSquare className="h-3.5 w-3.5" />
+                              Chat
+                            </div>
                             <StreamChatPanel
                               streamSessionId={monitorStream.id}
                               streamTitle={monitorStream.title}
@@ -611,36 +624,36 @@ export function AdminAnalytics() {
                               isPublisher={false}
                               canChat={false}
                               isAdmin
-                              messageListClassName="h-[260px] xl:h-[320px]"
+                              messageListClassName="h-[240px]"
                               chatHistoryLimit={500}
                             />
-                          </div>
-                        </section>
-                      </div>
-
-                      {viewersOnMonitor.length > 0 && (
-                        <div className="border-t border-border px-4 py-3 shrink-0">
-                          <p className="text-xs font-medium text-muted-foreground mb-2">
-                            On this stream
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {viewersOnMonitor.map((v) => (
-                              <div
-                                key={`${v.id}-${v.streamSessionId}`}
-                                className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-xs"
-                              >
-                                <Users className="h-3 w-3 text-muted-foreground" />
-                                <span className="font-medium truncate max-w-[120px]">
-                                  {v.subscriberName}
-                                </span>
-                                <span className="font-mono text-muted-foreground truncate max-w-[100px]">
-                                  {v.ip || "—"}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
+                          </section>
                         </div>
-                      )}
+
+                        {viewersOnMonitor.length > 0 && (
+                          <div className="border-t border-border px-4 py-3">
+                            <p className="text-xs font-medium text-muted-foreground mb-2">
+                              On this stream
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {viewersOnMonitor.map((v) => (
+                                <div
+                                  key={`${v.id}-${v.streamSessionId}`}
+                                  className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-xs"
+                                >
+                                  <Users className="h-3 w-3 text-muted-foreground" />
+                                  <span className="font-medium truncate max-w-[120px]">
+                                    {v.subscriberName}
+                                  </span>
+                                  <span className="font-mono text-muted-foreground truncate max-w-[100px]">
+                                    {v.ip || "—"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </>
                   ) : (
                     <div className="flex-1 flex items-center justify-center p-8">
