@@ -260,7 +260,9 @@ export function AdminAnalytics() {
       return
     }
     if (monitorStreamId && activeStreams.some((s) => s.id === monitorStreamId)) return
-    setMonitorStreamId(activeStreams[0].id)
+    const firstId = activeStreams[0].id
+    setMonitorStreamId(firstId)
+    setAdminListeningStreamId(firstId)
   }, [activeStreams, monitorStreamId])
 
   useEffect(() => {
@@ -290,11 +292,11 @@ export function AdminAnalytics() {
 
   const detailPaneRef = useRef<HTMLDivElement>(null)
 
-  const selectStream = useCallback((streamId: string, listen = false) => {
+  /** Selecting a stream always starts listening immediately. */
+  const selectStream = useCallback((streamId: string) => {
     setMonitorStreamId(streamId)
+    setAdminListeningStreamId(streamId)
     setActiveTab("live")
-    if (listen) setAdminListeningStreamId(streamId)
-    // Keep Listen controls in view — don't leave the user scrolled down the stream list.
     requestAnimationFrame(() => {
       detailPaneRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" })
     })
@@ -536,36 +538,20 @@ export function AdminAnalytics() {
                 >
                   {monitorStream && user ? (
                     <>
-                      <div className="sticky top-0 z-10 bg-card px-4 py-3 border-b border-border flex flex-col sm:flex-row sm:items-center gap-3 shrink-0">
-                        <div className="min-w-0 flex-1">
-                          <h3 className="font-semibold truncate">
-                            {monitorStream.title || "Untitled stream"}
-                          </h3>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {monitorStream.publisherName}
-                            {monitorStream.sport ? ` · ${monitorStream.sport}` : ""}
-                            {" · "}
-                            {viewersOnMonitor.length} watching
-                            {" · "}
-                            {formatDuration(
-                              Math.floor((Date.now() - monitorStream.createdAt.getTime()) / 1000),
-                            )}
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={isListening ? "default" : "outline"}
-                          className="gap-2 shrink-0 w-full sm:w-auto"
-                          onClick={() =>
-                            setAdminListeningStreamId((prev) =>
-                              prev === monitorStream.id ? null : monitorStream.id,
-                            )
-                          }
-                        >
-                          <Headphones className="h-3.5 w-3.5" />
-                          {isListening ? "Stop" : "Listen"}
-                        </Button>
+                      <div className="sticky top-0 z-10 bg-card px-4 py-3 border-b border-border shrink-0">
+                        <h3 className="font-semibold truncate">
+                          {monitorStream.title || "Untitled stream"}
+                        </h3>
+                        <p className="text-sm text-muted-foreground truncate">
+                          {monitorStream.publisherName}
+                          {monitorStream.sport ? ` · ${monitorStream.sport}` : ""}
+                          {" · "}
+                          {viewersOnMonitor.length} watching
+                          {" · "}
+                          {formatDuration(
+                            Math.floor((Date.now() - monitorStream.createdAt.getTime()) / 1000),
+                          )}
+                        </p>
                       </div>
 
                       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
@@ -577,29 +563,38 @@ export function AdminAnalytics() {
                               {isListening && (
                                 <Badge
                                   variant="outline"
-                                  className="normal-case tracking-normal font-normal ml-auto"
+                                  className="normal-case tracking-normal font-normal"
                                 >
-                                  Preview only
+                                  Live preview
                                 </Badge>
                               )}
                             </div>
                             {isListening ? (
-                              <SubscriberStreamPlayer
-                                key={monitorStream.id}
-                                permission={activeStreamToAdminListenPermission(
-                                  monitorStream,
-                                  user.uid,
-                                )}
-                                layout="mobileInline"
-                                autoJoin
-                                skipActivityAnalytics
-                              />
+                              <div className="space-y-3">
+                                <SubscriberStreamPlayer
+                                  key={monitorStream.id}
+                                  permission={activeStreamToAdminListenPermission(
+                                    monitorStream,
+                                    user.uid,
+                                  )}
+                                  layout="mobileInline"
+                                  autoJoin
+                                  skipActivityAnalytics
+                                />
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90"
+                                  onClick={() => setAdminListeningStreamId(null)}
+                                >
+                                  <Headphones className="h-3.5 w-3.5" />
+                                  Stop
+                                </Button>
+                              </div>
                             ) : (
                               <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-6 text-center">
                                 <p className="text-sm text-muted-foreground">
-                                  Tap{" "}
-                                  <span className="text-foreground font-medium">Listen</span> above
-                                  to hear this call. Not counted in analytics.
+                                  Click a stream in the list to start listening.
                                 </p>
                               </div>
                             )}
@@ -693,7 +688,7 @@ export function AdminAnalytics() {
                         viewer={viewer}
                         onListen={
                           activeStreams.some((s) => s.id === viewer.streamSessionId)
-                            ? () => selectStream(viewer.streamSessionId, true)
+                            ? () => selectStream(viewer.streamSessionId)
                             : undefined
                         }
                       />
@@ -733,7 +728,7 @@ export function AdminAnalytics() {
                         }
                         onListen={
                           activeStreams.some((s) => s.id === viewer.streamSessionId)
-                            ? () => selectStream(viewer.streamSessionId, true)
+                            ? () => selectStream(viewer.streamSessionId)
                             : undefined
                         }
                       />
@@ -859,9 +854,6 @@ export function AdminAnalytics() {
             </div>
             <Button size="sm" variant="outline" onClick={() => setActiveTab("live")}>
               Open
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setAdminListeningStreamId(null)}>
-              Stop
             </Button>
           </div>
         </div>
