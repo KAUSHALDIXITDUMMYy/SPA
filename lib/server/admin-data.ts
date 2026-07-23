@@ -9,7 +9,7 @@
  * Dates are returned as ISO strings (JSON-safe); the client lib converts them back.
  */
 
-import { FieldValue } from "firebase-admin/firestore"
+import { FieldValue, type DocumentReference } from "firebase-admin/firestore"
 import { getAdminDb } from "@/lib/firebase-admin"
 import {
   getStreamAssignmentDocsForStreamIds,
@@ -521,6 +521,73 @@ export async function deleteStreamAssignment(assignmentId: string) {
   const db = await getAdminDb()
   await db.collection("streamAssignments").doc(assignmentId).delete()
   return { success: true }
+}
+
+/**
+ * Remove many assignments in one server call.
+ * - clearAllActiveStreams: wipe every assignment on currently live streams
+ * - streams only: clear that column (everyone on those streams)
+ * - subscribers only: clear those rows (all their stream access)
+ * - both: clear the selected cross-product only
+ */
+export async function bulkDeleteStreamAssignments(input: {
+  subscriberIds?: string[]
+  streamSessionIds?: string[]
+  clearAllActiveStreams?: boolean
+}) {
+  const db = await getAdminDb()
+  const subscriberIds = Array.from(
+    new Set((input.subscriberIds || []).map((id) => String(id || "").trim()).filter(Boolean)),
+  )
+  let streamSessionIds = Array.from(
+    new Set((input.streamSessionIds || []).map((id) => String(id || "").trim()).filter(Boolean)),
+  )
+
+  if (input.clearAllActiveStreams) {
+    const streams = await getActiveStreams()
+    streamSessionIds = streams.map((s: any) => String(s.id || "")).filter(Boolean)
+  }
+
+  if (!streamSessionIds.length && !subscriberIds.length) {
+    return { success: true, deleted: 0 }
+  }
+
+  let refs: DocumentReference[] = []
+  if (streamSessionIds.length) {
+    let docs = await getStreamAssignmentDocsForStreamIds(db, streamSessionIds)
+    if (subscriberIds.length) {
+      const allow = new Set(subscriberIds)
+      docs = docs.filter((doc) => allow.has(String(doc.data()?.subscriberId || "")))
+    }
+    refs = docs.map((doc) => doc.ref)
+  } else {
+    refs = await queryByIdChunks(db, "streamAssignments", "subscriberId", subscriberIds, (doc) => doc.ref)
+  }
+
+  let deleted = 0
+  let batch = db.batch()
+  let batchOps = 0
+  const commitBatch = async () => {
+    if (batchOps === 0) return
+    await batch.commit()
+    batch = db.batch()
+    batchOps = 0
+  }
+
+  for (const ref of refs) {
+    batch.delete(ref)
+    deleted++
+    batchOps++
+    if (batchOps >= 400) await commitBatch()
+  }
+  await commitBatch()
+
+  return {
+    success: true,
+    deleted,
+    subscriberCount: subscriberIds.length || undefined,
+    streamCount: streamSessionIds.length || undefined,
+  }
 }
 
 export async function updateStreamAssignment(assignmentId: string, updates: Record<string, any>) {

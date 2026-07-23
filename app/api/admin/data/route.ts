@@ -99,6 +99,14 @@ export async function POST(req: NextRequest) {
             streamSessionIds: payload.streamSessionIds || [],
           }),
         )
+      case "bulkDeleteStreamAssignments":
+        return NextResponse.json(
+          await adminData.bulkDeleteStreamAssignments({
+            subscriberIds: payload.subscriberIds || [],
+            streamSessionIds: payload.streamSessionIds || [],
+            clearAllActiveStreams: payload.clearAllActiveStreams === true,
+          }),
+        )
       case "getStreamAssignments":
         return NextResponse.json({ assignments: await adminData.getStreamAssignments(viewer) })
       case "getStreamAssignmentsForSubscriberIds":

@@ -26,6 +26,7 @@ import {
 import {
   createStreamAssignment,
   bulkCreateStreamAssignments,
+  bulkDeleteStreamAssignments,
   deleteStreamAssignment,
   updateStreamAssignment,
   getStreamAssignments,
@@ -50,6 +51,7 @@ import {
   Grid3x3,
   CheckSquare,
   Square,
+  Eraser,
 } from "lucide-react"
 import { useAuth } from "@/hooks/use-auth"
 import { useDebouncedUserSearch } from "@/hooks/use-debounced-user-search"
@@ -670,7 +672,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
     refreshAssignments,
   ])
 
-  // Bulk unassign
+  // Bulk unassign selected cross-product (server batch)
   const bulkUnassign = useCallback(async () => {
     if (selectedSubscribers.size === 0 || selectedStreams.size === 0) {
       setError("Please select at least one subscriber and one stream")
@@ -682,28 +684,103 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
     setSuccess("")
 
     try {
-      const promises: Promise<any>[] = []
-      selectedSubscribers.forEach((subId) => {
-        selectedStreams.forEach((streamId) => {
-          const assignment = getAssignment(subId, streamId)
-          if (assignment) {
-            promises.push(deleteStreamAssignment(assignment.id!))
-          }
-        })
+      const result = await bulkDeleteStreamAssignments({
+        subscriberIds: Array.from(selectedSubscribers),
+        streamSessionIds: Array.from(selectedStreams),
       })
-
-      await Promise.all(promises)
-      setSuccess(`Unassigned ${selectedSubscribers.size} subscriber(s) from ${selectedStreams.size} stream(s)`)
+      invalidateStreamAssignmentsBootstrap()
+      setSuccess(
+        `Removed ${result.deleted} assignment(s) for ${selectedSubscribers.size} subscriber(s) × ${selectedStreams.size} stream(s)`,
+      )
       setSelectedSubscribers(new Set())
       setSelectedStreams(new Set())
-      
       await refreshAssignments()
     } catch (e: any) {
       setError(e?.message || "Bulk unassignment failed")
     } finally {
       setBulkLoading(false)
     }
-  }, [selectedSubscribers, selectedStreams, getAssignment, refreshAssignments])
+  }, [selectedSubscribers, selectedStreams, refreshAssignments])
+
+  /** One click: revoke everyone from one live stream (clear column). */
+  const clearStreamColumn = useCallback(
+    async (streamId: string, label: string) => {
+      if (
+        !window.confirm(
+          `Remove ALL subscriber access from “${label}”?\n\nThis clears the whole stream column — no one-by-one clicks.`,
+        )
+      ) {
+        return
+      }
+      setBulkLoading(true)
+      setError("")
+      setSuccess("")
+      try {
+        const result = await bulkDeleteStreamAssignments({ streamSessionIds: [streamId] })
+        invalidateStreamAssignmentsBootstrap()
+        setSuccess(`Cleared ${result.deleted} assignment(s) from “${label}”`)
+        await refreshAssignments()
+      } catch (e: any) {
+        setError(e?.message || "Failed to clear stream")
+      } finally {
+        setBulkLoading(false)
+      }
+    },
+    [refreshAssignments],
+  )
+
+  /** One click: revoke every stream for one subscriber (clear row). */
+  const clearSubscriberRow = useCallback(
+    async (subscriberId: string, label: string) => {
+      if (
+        !window.confirm(
+          `Remove ALL stream access for “${label}”?\n\nThis clears their entire row.`,
+        )
+      ) {
+        return
+      }
+      setBulkLoading(true)
+      setError("")
+      setSuccess("")
+      try {
+        const result = await bulkDeleteStreamAssignments({ subscriberIds: [subscriberId] })
+        invalidateStreamAssignmentsBootstrap()
+        setSuccess(`Cleared ${result.deleted} assignment(s) for “${label}”`)
+        await refreshAssignments()
+      } catch (e: any) {
+        setError(e?.message || "Failed to clear subscriber")
+      } finally {
+        setBulkLoading(false)
+      }
+    },
+    [refreshAssignments],
+  )
+
+  /** Nuclear: wipe every assignment on every live stream. */
+  const clearAllAssignments = useCallback(async () => {
+    if (
+      !window.confirm(
+        "Clear ALL assignments on every live stream?\n\nEvery subscriber loses access to every live call. This cannot be undone (you can re-assign after).",
+      )
+    ) {
+      return
+    }
+    setBulkLoading(true)
+    setError("")
+    setSuccess("")
+    try {
+      const result = await bulkDeleteStreamAssignments({ clearAllActiveStreams: true })
+      invalidateStreamAssignmentsBootstrap()
+      setSuccess(`Cleared ${result.deleted} assignment(s) across all live streams`)
+      setSelectedSubscribers(new Set())
+      setSelectedStreams(new Set())
+      await refreshAssignments()
+    } catch (e: any) {
+      setError(e?.message || "Clear all failed")
+    } finally {
+      setBulkLoading(false)
+    }
+  }, [refreshAssignments])
 
   // Toggle subscriber selection
   const toggleSubscriberSelection = useCallback((id: string) => {
@@ -1041,6 +1118,21 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                 Assign all → all streams
               </Button>
               <Button
+                onClick={() => void clearAllAssignments()}
+                disabled={bulkLoading || filteredStreamIds.length === 0}
+                variant="destructive"
+                className="flex-1 sm:flex-initial"
+                size="sm"
+                title="Remove every assignment on every live stream in one click"
+              >
+                {bulkLoading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Eraser className="h-4 w-4 mr-2" />
+                )}
+                Clear all access
+              </Button>
+              <Button
                 onClick={bulkAssign}
                 disabled={bulkLoading || selectedSubscribers.size === 0 || selectedStreams.size === 0}
                 className="bg-green-600 hover:bg-green-700 flex-1 sm:flex-initial"
@@ -1056,7 +1148,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
               </Button>
 
               <Button
-                onClick={bulkUnassign}
+                onClick={() => void bulkUnassign()}
                 disabled={bulkLoading || selectedSubscribers.size === 0 || selectedStreams.size === 0}
                 variant="destructive"
                 className="flex-1 sm:flex-initial"
@@ -1075,6 +1167,41 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
         </CardContent>
       </Card>
 
+      {/* One-click revoke by live stream — faster than hunting matrix columns */}
+      {filteredStreams.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Clear by stream</CardTitle>
+            <CardDescription>
+              One button per live call — removes every subscriber from that stream. Use this instead of unchecking
+              the matrix cell by cell.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {filteredStreams.map((stream) => {
+                const label = stream.title || stream.publisherName || "Stream"
+                return (
+                  <Button
+                    key={stream.id}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={bulkLoading}
+                    className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                    onClick={() => void clearStreamColumn(stream.id!, label)}
+                    title={`Clear all access from ${label}`}
+                  >
+                    <Eraser className="h-3.5 w-3.5 mr-1.5" />
+                    <span className="max-w-[160px] truncate">{label}</span>
+                  </Button>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Collapsible Matrix View */}
       <Collapsible open={matrixExpanded} onOpenChange={setMatrixExpanded}>
         <Card>
@@ -1084,8 +1211,8 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                 <div>
                   <CardTitle>Assignment Matrix</CardTitle>
                   <CardDescription>
-                    Rows = Subscribers, Columns = Streams. Use the corner checkboxes or the bulk bar to select all
-                    subscribers or all streams; cell checkboxes toggle individual assignments.
+                    Spot-check only. Prefer Clear by stream / Clear all access for mass revoke. Each column and row
+                    also has a Clear button.
                   </CardDescription>
                 </div>
                 {matrixExpanded ? (
@@ -1174,12 +1301,31 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                                       className={MATRIX_CHECKBOX_CLASS}
                                     />
                                   </div>
-                                  <div className="text-xs text-muted-foreground">
-                                    {stream.isActive ? (
-                                      <Badge variant="destructive" className="text-xs">LIVE</Badge>
-                                    ) : (
-                                      <Badge variant="outline" className="text-xs">Ended</Badge>
-                                    )}
+                                  <div className="flex items-center justify-between gap-1">
+                                    <div className="text-xs text-muted-foreground">
+                                      {stream.isActive ? (
+                                        <Badge variant="destructive" className="text-xs">LIVE</Badge>
+                                      ) : (
+                                        <Badge variant="outline" className="text-xs">Ended</Badge>
+                                      )}
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 px-1.5 text-[10px] text-destructive hover:text-destructive"
+                                      disabled={bulkLoading}
+                                      title="Clear entire column — revoke everyone from this stream"
+                                      onClick={() =>
+                                        void clearStreamColumn(
+                                          stream.id!,
+                                          stream.title || stream.publisherName || "Stream",
+                                        )
+                                      }
+                                    >
+                                      <Eraser className="h-3 w-3 mr-0.5" />
+                                      Clear
+                                    </Button>
                                   </div>
                                 </div>
                               </th>
@@ -1200,11 +1346,26 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                                   <div className="truncate text-xs sm:text-sm" title={sub.displayName || sub.email}>
                                     {sub.displayName || sub.email}
                                   </div>
-                                  <Checkbox
-                                    checked={selectedSubscribers.has(sub.id)}
-                                    onCheckedChange={() => toggleSubscriberSelection(sub.id)}
-                                    className={MATRIX_CHECKBOX_CLASS}
-                                  />
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 px-1 text-[10px] text-destructive hover:text-destructive"
+                                      disabled={bulkLoading}
+                                      title="Clear entire row — revoke all streams for this subscriber"
+                                      onClick={() =>
+                                        void clearSubscriberRow(sub.id, sub.displayName || sub.email || "Subscriber")
+                                      }
+                                    >
+                                      <Eraser className="h-3 w-3" />
+                                    </Button>
+                                    <Checkbox
+                                      checked={selectedSubscribers.has(sub.id)}
+                                      onCheckedChange={() => toggleSubscriberSelection(sub.id)}
+                                      className={MATRIX_CHECKBOX_CLASS}
+                                    />
+                                  </div>
                                 </div>
                               </td>
                               {streamsForMatrix.map((stream) => (

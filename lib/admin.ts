@@ -272,6 +272,21 @@ export const bulkCreateStreamAssignments = async (input: {
   }
 }
 
+export const bulkDeleteStreamAssignments = async (input: {
+  subscriberIds?: string[]
+  streamSessionIds?: string[]
+  clearAllActiveStreams?: boolean
+}) => {
+  const { ok, json } = await postAdmin("bulkDeleteStreamAssignments", input)
+  if (!ok) throw new Error(json.error || "Bulk unassignment failed")
+  return json as {
+    success: boolean
+    deleted: number
+    subscriberCount?: number
+    streamCount?: number
+  }
+}
+
 export const getStreamAssignments = async () => {
   const { ok, json } = await postAdmin("getStreamAssignments")
   if (!ok) return []
