@@ -87,6 +87,8 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
   const startHeartbeat = useCallback(
     (streamSessionId: string) => {
       stopHeartbeat()
+      // Immediate pulse so a just-rejoined / tab-restored viewer shows up right away.
+      void heartbeatViewerPresence(streamSessionId, user?.uid || "")
       heartbeatRef.current = setInterval(() => {
         // Fire-and-forget; failures are swallowed inside the helper.
         void heartbeatViewerPresence(streamSessionId, user?.uid || "")
@@ -101,6 +103,19 @@ export const StreamViewer = forwardRef<StreamViewerHandle, StreamViewerProps>(fu
       isMountedRef.current = false
     }
   }, [])
+
+  // When the tab returns to foreground, refresh presence immediately (browsers throttle
+  // background timers, which used to drop viewers from "watching" after ~90s).
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return
+      const sessionId = currentPermissionRef.current?.streamSession?.id
+      if (!sessionId || skipActivityAnalytics || !user?.uid) return
+      void heartbeatViewerPresence(sessionId, user.uid)
+    }
+    document.addEventListener("visibilitychange", onVisibility)
+    return () => document.removeEventListener("visibilitychange", onVisibility)
+  }, [skipActivityAnalytics, user?.uid])
 
   const handleJoinStream = async () => {
     if (isJoiningRef.current) return // Prevent duplicate join calls

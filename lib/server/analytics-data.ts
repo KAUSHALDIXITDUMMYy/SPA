@@ -7,8 +7,10 @@ import { getAdminDb } from "@/lib/firebase-admin"
 import { resolveUserTenant, type UserTenant } from "@/lib/tenant"
 import type { RequestContext } from "@/lib/server/request-context"
 
-/** A viewer is considered gone if no heartbeat (or token renewal) landed in this window. */
-export const HEARTBEAT_STALE_MS = 90 * 1000
+/** A viewer is considered gone if no heartbeat (or token renewal) landed in this window.
+ *  Sized for mobile clients that mint a token but cannot heartbeat (background/OS kill).
+ *  Explicit leave still clears presence immediately. */
+export const HEARTBEAT_STALE_MS = 30 * 60 * 1000
 
 function toIso(value: any): string {
   if (!value) return new Date().toISOString()
@@ -190,9 +192,9 @@ export async function getAdminAnalytics(
   if (adminViewer?.role === "admin") {
     const scope = resolveUserTenant(adminViewer)
     const matchTenant = (row: { subscriberTenant?: string }) => {
-      const t = row.subscriberTenant
-      if (t === "kevionics" || t === "default") return t === scope
-      return scope !== "kevionics"
+      // Missing tenant → treat as default (token path sometimes omitted it).
+      const t = row.subscriberTenant === "kevionics" ? "kevionics" : "default"
+      return t === scope
     }
     analytics = analytics.filter(matchTenant)
     activeViewers = activeViewers.filter(matchTenant)
@@ -323,6 +325,8 @@ export interface PresenceInput {
  */
 export async function recordViewerPresence(input: PresenceInput): Promise<{
   concurrentSession: boolean
+  /** True when this mint created a new row or reactivated an inactive one (billable join). */
+  isNewOrReactivated: boolean
 }> {
   const db = await getAdminDb()
   const now = new Date()
@@ -363,31 +367,47 @@ export async function recordViewerPresence(input: PresenceInput): Promise<{
   const tenantFields =
     input.subscriberTenant !== undefined ? { subscriberTenant: input.subscriberTenant } : {}
 
-  const viewerFields = {
-    isActive: true,
-    joinedAt: now,
-    lastSeen: now,
-    heartbeatExpiresAt,
-    subscriberName: input.subscriberName,
-    publisherName: input.publisherName,
-    publisherId: input.publisherId,
-    roomId: input.roomId ?? null,
-    sessionId: input.sessionId ?? null,
-    concurrentSession,
-    ...tenantFields,
-    ...ctxFields,
-  }
+  let isNewOrReactivated = false
 
   try {
     if (sameSessionSnap.empty) {
+      isNewOrReactivated = true
       await activeViewers.add({
         streamSessionId: input.streamSessionId,
         subscriberId: input.subscriberId,
-        ...viewerFields,
+        isActive: true,
+        joinedAt: now,
+        lastSeen: now,
+        heartbeatExpiresAt,
+        subscriberName: input.subscriberName,
+        publisherName: input.publisherName,
+        publisherId: input.publisherId,
+        roomId: input.roomId ?? null,
+        sessionId: input.sessionId ?? null,
+        concurrentSession,
+        ...tenantFields,
+        ...ctxFields,
       })
     } else {
       const [primaryDoc, ...duplicateDocs] = sameSessionSnap.docs
-      await primaryDoc.ref.update(viewerFields)
+      const wasActive = primaryDoc.data()?.isActive === true
+      isNewOrReactivated = !wasActive
+      // Refresh presence but keep original joinedAt while they were continuously active.
+      const update: Record<string, unknown> = {
+        isActive: true,
+        lastSeen: now,
+        heartbeatExpiresAt,
+        subscriberName: input.subscriberName,
+        publisherName: input.publisherName,
+        publisherId: input.publisherId,
+        roomId: input.roomId ?? null,
+        sessionId: input.sessionId ?? null,
+        concurrentSession,
+        ...tenantFields,
+        ...ctxFields,
+      }
+      if (!wasActive) update.joinedAt = now
+      await primaryDoc.ref.update(update)
       await Promise.all(
         duplicateDocs.map((d: any) =>
           d.ref.update({ isActive: false, lastSeen: now, heartbeatExpiresAt: now }),
@@ -405,7 +425,7 @@ export async function recordViewerPresence(input: PresenceInput): Promise<{
     // best-effort: never fail the token mint on analytics
   }
 
-  return { concurrentSession }
+  return { concurrentSession, isNewOrReactivated }
 }
 
 /**
@@ -439,7 +459,8 @@ export async function appendStreamUsage(input: PresenceInput): Promise<void> {
 
 /**
  * Refresh a viewer's lastSeen/heartbeat on the activeViewers row. Analytics-only —
- * never touches the Agora token. A missed heartbeat just lets the row go stale.
+ * never touches the Agora token. Also reactivates a row that was reaped as stale
+ * (e.g. mobile/background missed the window) so they reappear as watching.
  */
 export async function recordViewerHeartbeat(input: {
   streamSessionId: string
@@ -454,10 +475,14 @@ export async function recordViewerHeartbeat(input: {
       .collection("activeViewers")
       .where("streamSessionId", "==", input.streamSessionId)
       .where("subscriberId", "==", input.subscriberId)
-      .where("isActive", "==", true)
       .get()
     if (snap.empty) return
-    const update: Record<string, unknown> = { lastSeen: now, heartbeatExpiresAt }
+
+    const update: Record<string, unknown> = {
+      isActive: true,
+      lastSeen: now,
+      heartbeatExpiresAt,
+    }
     if (input.context) {
       update.ip = input.context.ip
       update.userAgent = input.context.userAgent

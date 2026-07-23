@@ -7,6 +7,7 @@ import {
   recordViewerPresence,
   appendStreamUsage,
 } from "@/lib/server/analytics-data"
+import { resolveUserTenant } from "@/lib/tenant"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -98,6 +99,7 @@ export async function POST(req: NextRequest) {
         let sessionId: string | null = null
         let subscriberName: string | undefined
         let tenant: string | undefined
+        let userEmail: string | undefined
         try {
           const db = await getAdminDb()
           const userSnap = await db.collection("users").doc(verifiedUser.uid).get()
@@ -106,6 +108,7 @@ export async function POST(req: NextRequest) {
             sessionId = ud.sessionId ?? null
             subscriberName = ud.displayName || verifiedUser.email
             tenant = ud.tenant
+            userEmail = ud.email || verifiedUser.email
           }
         } catch {
           // ignore — attribution fields stay null
@@ -127,22 +130,27 @@ export async function POST(req: NextRequest) {
           subscriberName: subscriberName || verifiedUser.email || "Subscriber",
           publisherId: "", // not needed for analytics row; name is what we show
           publisherName,
-          subscriberTenant: tenant,
+          subscriberTenant: resolveUserTenant({
+            email: userEmail || verifiedUser.email,
+            tenant: tenant as "default" | "kevionics" | undefined,
+          }),
           context,
           sessionId,
           roomId: channelName,
         }
 
         // Record presence (also flags concurrent streams — informational only).
-        const { concurrentSession } = await recordViewerPresence(presenceInput)
+        const { concurrentSession, isNewOrReactivated } = await recordViewerPresence(presenceInput)
         if (concurrentSession) {
           console.log(
             `[agora/token] concurrent stream detected for subscriber=${verifiedUser.uid} session=${access.streamSessionId} (informational; no audio impact)`,
           )
         }
 
-        // Append to the immutable billing ledger (one row per join).
-        await appendStreamUsage(presenceInput)
+        // Billing ledger only on real joins / reactivations — not token renewals.
+        if (isNewOrReactivated) {
+          await appendStreamUsage(presenceInput)
+        }
       } catch (analyticsErr: any) {
         // Analytics must NEVER break a legit subscriber's join.
         console.warn("[agora/token] analytics recording failed (non-fatal):", analyticsErr?.message)

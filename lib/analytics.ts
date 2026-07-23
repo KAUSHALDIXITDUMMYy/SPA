@@ -83,8 +83,16 @@ function toViewer(o: any): StreamViewer {
     lastSeen: toDate(o.lastSeen),
     isActive: o.isActive !== false,
     subscriberTenant: o.subscriberTenant as UserTenant | undefined,
-    location: o.location as ViewerLocation | null | undefined,
-  }
+    location: (o.location ?? o.geo) as ViewerLocation | null | undefined,
+    // Enrichment from getAdminAnalytics — keep on the object for the admin UI.
+    ...(o.ip !== undefined ? { ip: o.ip } : {}),
+    ...(o.deviceClass !== undefined ? { deviceClass: o.deviceClass } : {}),
+    ...(o.origin !== undefined ? { origin: o.origin } : {}),
+    ...(o.concurrentSession !== undefined ? { concurrentSession: o.concurrentSession } : {}),
+    ...(o.foreignOrigin !== undefined ? { foreignOrigin: o.foreignOrigin } : {}),
+    ...(o.staleHeartbeat !== undefined ? { staleHeartbeat: o.staleHeartbeat } : {}),
+    ...(o.watchSeconds !== undefined ? { watchSeconds: o.watchSeconds } : {}),
+  } as StreamViewer
 }
 
 export const trackSubscriberActivity = async (data: {

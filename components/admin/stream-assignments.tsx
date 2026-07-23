@@ -835,32 +835,6 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
     [refreshAssignments],
   )
 
-  /** Nuclear: wipe every assignment on every live stream. */
-  const clearAllAssignments = useCallback(async () => {
-    if (
-      !window.confirm(
-        "Clear ALL assignments on every live stream?\n\nEvery subscriber loses access to every live call. This cannot be undone (you can re-assign after).",
-      )
-    ) {
-      return
-    }
-    setBulkLoading(true)
-    setError("")
-    setSuccess("")
-    try {
-      const result = await bulkDeleteStreamAssignments({ clearAllActiveStreams: true })
-      invalidateStreamAssignmentsBootstrap()
-      setSuccess(`Cleared ${result.deleted} assignment(s) across all live streams`)
-      setSelectedSubscribers(new Set())
-      setSelectedStreams(new Set())
-      await refreshAssignments()
-    } catch (e: any) {
-      setError(e?.message || "Clear all failed")
-    } finally {
-      setBulkLoading(false)
-    }
-  }, [refreshAssignments])
-
   // Toggle subscriber selection
   const toggleSubscriberSelection = useCallback((id: string) => {
     setSelectedSubscribers((prev) => {
@@ -1272,21 +1246,6 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                 Assign all → all streams
               </Button>
               <Button
-                onClick={() => void clearAllAssignments()}
-                disabled={bulkLoading || filteredStreamIds.length === 0}
-                variant="destructive"
-                className="flex-1 sm:flex-initial"
-                size="sm"
-                title="Remove every assignment on every live stream in one click"
-              >
-                {bulkLoading ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Eraser className="h-4 w-4 mr-2" />
-                )}
-                Clear all access
-              </Button>
-              <Button
                 onClick={() => void clearSelectedFromAllStreams()}
                 disabled={bulkLoading || selectedSubscribers.size === 0}
                 variant="destructive"
@@ -1380,7 +1339,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                 <div>
                   <CardTitle>Assignment Matrix</CardTitle>
                   <CardDescription>
-                    Spot-check only. Prefer Clear by stream / Clear all access for mass revoke. Each column and row
+                    Spot-check only. Prefer Clear by stream / Clear selected for mass revoke. Each column and row
                     also has a Clear button.
                   </CardDescription>
                 </div>

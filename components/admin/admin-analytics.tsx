@@ -38,7 +38,7 @@ import { startPoll } from "@/lib/client/poll"
 import { formatViewerLocationLabel, normalizeViewerLocation } from "@/lib/viewer-location"
 import { resolveUserTenant, type UserTenant } from "@/lib/tenant"
 import type { UserProfile } from "@/lib/auth"
-import { getUsersByRole, updateUserStatus } from "@/lib/admin"
+import { updateUserStatus } from "@/lib/admin"
 import { useAuth } from "@/hooks/use-auth"
 import { useToast } from "@/hooks/use-toast"
 import { StreamChatPanel } from "@/components/ui/stream-chat-panel"
@@ -48,21 +48,14 @@ import type { StreamSession } from "@/lib/streaming"
 
 const ADMIN_ANALYTICS_POLL_MS = 3_000
 
-function subscriberIdFromUserRow(row: { id: string; uid?: string }): string {
-  return row.uid || row.id
-}
-
 function subscriberVisibleToAdmin(
-  subscriberId: string,
   subscriberTenant: UserTenant | undefined,
   admin: UserProfile,
-  allowedSubscriberIds: Set<string>,
 ): boolean {
   const adminScope = resolveUserTenant(admin)
-  if (subscriberTenant === "kevionics" || subscriberTenant === "default") {
-    return subscriberTenant === adminScope
-  }
-  return allowedSubscriberIds.has(subscriberId)
+  // Align with server getAdminAnalytics: missing tenant counts as default.
+  const t = subscriberTenant === "kevionics" ? "kevionics" : "default"
+  return t === adminScope
 }
 
 type ActiveStreamRow = {
@@ -169,12 +162,6 @@ export function AdminAnalytics() {
           return
         }
 
-        const allowedSubscriberIds = new Set(
-          (await getUsersByRole("subscriber", userProfile)).map((s) =>
-            subscriberIdFromUserRow(s as { id: string; uid?: string }),
-          ),
-        )
-
         const dashboard = await getAdminAnalytics(100)
         if (unmountRef.current) return
 
@@ -184,7 +171,7 @@ export function AdminAnalytics() {
             location: normalizeViewerLocation(v.location ?? v.geo),
           }))
           .filter((v: any) =>
-            subscriberVisibleToAdmin(v.subscriberId, v.subscriberTenant, userProfile, allowedSubscriberIds),
+            subscriberVisibleToAdmin(v.subscriberTenant, userProfile),
           ) as EnrichedViewer[]
 
         const streams = (dashboard.activeStreams as any[]).map((s) => ({
