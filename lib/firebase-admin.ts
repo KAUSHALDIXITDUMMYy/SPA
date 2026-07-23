@@ -123,6 +123,27 @@ export interface VerifiedUserProfile extends VerifiedUser {
   isActive: boolean
 }
 
+function extractSessionId(req: Request): string | null {
+  const h = req.headers.get("x-session-id") || req.headers.get("X-Session-Id")
+  return h && h.trim() ? h.trim() : null
+}
+
+/**
+ * For subscribers, require X-Session-Id to match users/{uid}.sessionId.
+ * Used after a login takeover so the previous web/app client is rejected.
+ */
+async function subscriberSessionMatches(uid: string, clientSessionId: string | null): Promise<boolean> {
+  const db = await getAdminDb()
+  const snap = await db.collection("users").doc(uid).get()
+  if (!snap.exists) return false
+  const data = snap.data() as { role?: string; isActive?: boolean; sessionId?: string | null }
+  if (data.isActive === false) return false
+  if (data.role !== "subscriber") return true
+  const serverSid = data.sessionId
+  if (!serverSid) return false
+  return !!clientSessionId && clientSessionId === serverSid
+}
+
 /**
  * Verify a Firebase ID token sent in the Authorization: Bearer <token> header.
  * Returns the decoded user, or null when missing/invalid.
@@ -140,41 +161,55 @@ export async function verifyRequestUser(req: Request): Promise<VerifiedUser | nu
 }
 
 /** Like verifyRequestUser, but also loads the Firestore profile and rejects inactive users. */
-export async function verifyRequestUserProfile(req: Request): Promise<VerifiedUserProfile | null> {
+export async function verifyRequestUserProfile(
+  req: Request,
+  options?: { enforceSession?: boolean },
+): Promise<VerifiedUserProfile | null> {
   const idToken = extractIdToken(req)
   if (!idToken) return null
+  const enforceSession = options?.enforceSession !== false
 
   try {
     const auth = await getAdminAuth()
     const decoded = await auth.verifyIdToken(idToken, false)
     const claimRole = decoded.role as VerifiedUserProfile["role"] | undefined
 
+    let profile: VerifiedUserProfile | null = null
+
     if (claimRole === "admin" || claimRole === "publisher" || claimRole === "subscriber") {
-      return {
+      profile = {
         uid: decoded.uid,
         email: decoded.email,
         role: claimRole,
         isActive: true,
       }
+    } else {
+      const db = await getAdminDb()
+      const snap = await db.collection("users").doc(decoded.uid).get()
+      if (!snap.exists) return null
+
+      const data = snap.data() as { role?: string; isActive?: boolean }
+      if (data.isActive === false) return null
+      if (data.role !== "admin" && data.role !== "publisher" && data.role !== "subscriber") return null
+
+      profile = {
+        uid: decoded.uid,
+        email: decoded.email,
+        role: data.role,
+        isActive: true,
+      }
+
+      // Warm custom claims in the background so later token checks skip Firestore.
+      void auth.setCustomUserClaims(decoded.uid, { role: data.role }).catch(() => {})
     }
 
-    const db = await getAdminDb()
-    const snap = await db.collection("users").doc(decoded.uid).get()
-    if (!snap.exists) return null
-
-    const data = snap.data() as { role?: string; isActive?: boolean }
-    if (data.isActive === false) return null
-    if (data.role !== "admin" && data.role !== "publisher" && data.role !== "subscriber") return null
-
-    const profile: VerifiedUserProfile = {
-      uid: decoded.uid,
-      email: decoded.email,
-      role: data.role,
-      isActive: true,
+    if (
+      enforceSession &&
+      profile.role === "subscriber" &&
+      !(await subscriberSessionMatches(profile.uid, extractSessionId(req)))
+    ) {
+      return null
     }
-
-    // Warm custom claims in the background so later token checks skip Firestore.
-    void auth.setCustomUserClaims(decoded.uid, { role: data.role }).catch(() => {})
 
     return profile
   } catch {

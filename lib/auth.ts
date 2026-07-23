@@ -6,7 +6,7 @@ import {
   onAuthStateChanged,
   type User,
 } from "firebase/auth"
-import { fetchWithAuth, fetchWithAppCheck } from "@/lib/client/authenticated-fetch"
+import { fetchWithAuth, fetchWithAppCheck, setLocalSessionId, getLocalSessionId } from "@/lib/client/authenticated-fetch"
 import type { UserTenant } from "./tenant"
 
 export type UserRole = "admin" | "publisher" | "subscriber"
@@ -64,17 +64,17 @@ export const signIn = async (email: string, password: string) => {
     // 2) Establish the browser session.
     const result = await signInWithEmailAndPassword(auth, email, password)
 
-    // 3) Single-session enforcement for subscribers (server-side).
-    const localSessionId = typeof window !== "undefined" ? localStorage.getItem("sessionId") : null
+    // 3) Single-session: last login wins — mint/refresh server sessionId for subscribers.
+    const localSessionId = getLocalSessionId()
     const { ok, json } = await postAccount("establishSession", {
       localSessionId: localSessionId || undefined,
     })
-    if (ok && json.ok === false) {
+    if (!ok) {
       await firebaseSignOut(auth)
-      return { user: null, error: json.error || "This account is already logged in elsewhere." }
+      return { user: null, error: json.error || "Could not establish session." }
     }
-    if (ok && json.sessionId && typeof window !== "undefined") {
-      localStorage.setItem("sessionId", json.sessionId)
+    if (json.sessionId) {
+      setLocalSessionId(String(json.sessionId))
     }
 
     return { user: result.user, error: null }
@@ -93,25 +93,27 @@ export const signUp = async (email: string, password: string, role: UserRole, di
   }
 }
 
-export const signOut = async () => {
+export const signOut = async (options?: { clearServerSession?: boolean }) => {
   try {
-    // Clear single-session marker server-side (best-effort) while we still have a token.
-    try {
-      await postAccount("clearSession")
-    } catch {
-      // ignore; we still sign out locally
+    const clearServer = options?.clearServerSession !== false
+    // Clear single-session marker server-side only when this device still owns it.
+    // When kicked by another login, skip clear so we don't wipe the winner's session.
+    if (clearServer) {
+      try {
+        await postAccount("clearSession")
+      } catch {
+        // ignore; we still sign out locally
+      }
     }
 
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("sessionId")
-      try {
-        for (let i = sessionStorage.length - 1; i >= 0; i--) {
-          const key = sessionStorage.key(i)
-          if (key && key.startsWith("mfa_verified_")) sessionStorage.removeItem(key)
-        }
-      } catch {
-        // ignore storage access errors
+    setLocalSessionId(null)
+    try {
+      for (let i = sessionStorage.length - 1; i >= 0; i--) {
+        const key = sessionStorage.key(i)
+        if (key && key.startsWith("mfa_verified_")) sessionStorage.removeItem(key)
       }
+    } catch {
+      // ignore storage access errors
     }
 
     await firebaseSignOut(auth)
@@ -141,6 +143,11 @@ export const getUserProfile = async (uid: string, retryCount = 0): Promise<UserP
       if (json.profile) return reviveProfile(json.profile)
     }
 
+    // Another device took over this account — do not retry.
+    if (res.status === 401) {
+      return null
+    }
+
     // Handle the pending-user migration race: the doc may not exist for a moment.
     if (retryCount < 3) {
       await new Promise((resolve) => setTimeout(resolve, 300))
@@ -155,6 +162,16 @@ export const getUserProfile = async (uid: string, retryCount = 0): Promise<UserP
     }
     return null
   }
+}
+
+/** True when the local session no longer matches the server (logged in elsewhere). */
+export const isLocalSessionStale = (profile: UserProfile | null | undefined): boolean => {
+  if (!profile || profile.role !== "subscriber") return false
+  const local = getLocalSessionId()
+  // No local id yet (mid-login) — not treated as stale.
+  if (!local) return false
+  if (profile.sessionId && profile.sessionId !== local) return true
+  return false
 }
 
 export const onAuthStateChange = (callback: (user: User | null) => void) => {

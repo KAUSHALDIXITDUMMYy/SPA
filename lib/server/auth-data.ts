@@ -8,8 +8,6 @@
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin"
 import { resolveUserTenant } from "@/lib/tenant"
 
-const SESSION_TIMEOUT_MS = 5 * 60 * 1000
-
 function toIso(value: any): string | null {
   if (!value) return null
   if (typeof value?.toDate === "function") return value.toDate().toISOString()
@@ -152,8 +150,9 @@ export async function migratePendingUser(
 }
 
 /**
- * Single-session enforcement for subscribers. Returns the session id the client should
- * persist, or ok:false when the account is already active in another browser.
+ * Single-session for subscribers: last login wins.
+ * - Same device (matching localSessionId): refresh lastLoginAt, keep id.
+ * - New login / other device: mint a new sessionId (previous client is kicked on next API call).
  */
 export async function establishSession(
   uid: string,
@@ -166,41 +165,42 @@ export async function establishSession(
   const data = snap.data() as any
   if (data.role !== "subscriber") return { ok: true }
 
-  const newSession = () => {
-    const sessionId = crypto.randomUUID()
-    return ref.update({ sessionId, lastLoginAt: new Date() }).then(() => ({ ok: true, sessionId }))
+  if (data.sessionId && localSessionId && localSessionId === data.sessionId) {
+    await ref.update({ lastLoginAt: new Date() })
+    return { ok: true, sessionId: data.sessionId }
   }
 
-  if (data.sessionId) {
-    if (localSessionId && localSessionId === data.sessionId) {
-      await ref.update({ lastLoginAt: new Date() })
-      return { ok: true, sessionId: data.sessionId }
-    }
-    const last = data.lastLoginAt?.toDate?.() ?? (data.lastLoginAt ? new Date(data.lastLoginAt) : null)
-    const expired = !last || Date.now() - last.getTime() > SESSION_TIMEOUT_MS
-    if (expired) return newSession()
-    return {
-      ok: false,
-      error:
-        "This account is already logged in on another browser. Please sign out from there first or wait a few minutes if you closed the browser.",
-    }
-  }
-  return newSession()
+  const sessionId = crypto.randomUUID()
+  await ref.update({ sessionId, lastLoginAt: new Date() })
+  return { ok: true, sessionId }
 }
 
-export async function heartbeatSession(uid: string) {
-  const db = await getAdminDb()
-  await db.collection("users").doc(uid).update({ lastLoginAt: new Date() })
-  return { success: true }
-}
-
-export async function clearSession(uid: string) {
+export async function heartbeatSession(uid: string, clientSessionId?: string) {
   const db = await getAdminDb()
   const ref = db.collection("users").doc(uid)
   const snap = await ref.get()
-  if (snap.exists && (snap.data() as any)?.role === "subscriber") {
-    await ref.update({ sessionId: null })
+  if (!snap.exists) return { success: true }
+  const data = snap.data() as any
+  if (data.role !== "subscriber") return { success: true }
+  if (data.sessionId && clientSessionId && data.sessionId !== clientSessionId) {
+    return { success: false, error: "session_replaced", code: "SESSION_REPLACED" }
   }
+  await ref.update({ lastLoginAt: new Date() })
+  return { success: true }
+}
+
+export async function clearSession(uid: string, clientSessionId?: string) {
+  const db = await getAdminDb()
+  const ref = db.collection("users").doc(uid)
+  const snap = await ref.get()
+  if (!snap.exists) return { success: true }
+  const data = snap.data() as any
+  if (data.role !== "subscriber") return { success: true }
+  // Only clear if this client still owns the session (don't wipe the device that took over).
+  if (clientSessionId && data.sessionId && data.sessionId !== clientSessionId) {
+    return { success: true, skipped: true }
+  }
+  await ref.update({ sessionId: null })
   return { success: true }
 }
 

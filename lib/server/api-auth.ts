@@ -11,10 +11,17 @@ export function forbidden(message = "Forbidden") {
 
 export async function requireUserProfile(
   req: Request,
+  options?: { enforceSession?: boolean },
 ): Promise<VerifiedUserProfile | NextResponse> {
   if (!(await verifyAppCheck(req))) return forbidden("App Check failed")
-  const profile = await verifyRequestUserProfile(req)
-  if (!profile) return unauthorized()
+  const profile = await verifyRequestUserProfile(req, options)
+  if (!profile) {
+    return unauthorized(
+      options?.enforceSession === false
+        ? "Authentication required"
+        : "Authentication required — signed in on another device",
+    )
+  }
   return profile
 }
 
