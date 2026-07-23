@@ -5,7 +5,11 @@
 
 import { getAdminDb } from "@/lib/firebase-admin"
 import { resolveUserTenant, type UserTenant } from "@/lib/tenant"
-import type { RequestContext } from "@/lib/server/request-context"
+import {
+  buildViewerDeviceKey,
+  deviceDisplayLabel,
+  type RequestContext,
+} from "@/lib/server/request-context"
 
 /** A viewer is considered gone if no heartbeat (or token renewal) landed in this window.
  *  Sized for mobile clients that mint a token but cannot heartbeat (background/OS kill).
@@ -39,6 +43,8 @@ export interface TrackInput {
   duration?: number
   subscriberTenant?: string
   location?: any
+  /** When set on leave, only that device row is marked inactive. */
+  deviceKey?: string
 }
 
 export async function trackSubscriberActivity(data: TrackInput) {
@@ -49,35 +55,43 @@ export async function trackSubscriberActivity(data: TrackInput) {
   const activeViewers = db.collection("activeViewers")
 
   if (data.action === "join") {
+    // Device-aware join is owned by recordViewerPresence (token mint). This path
+    // only refreshes lastSeen for matching rows and must NOT collapse devices.
     const snap = await activeViewers
       .where("streamSessionId", "==", data.streamSessionId)
       .where("subscriberId", "==", data.subscriberId)
+      .where("isActive", "==", true)
       .get()
 
     const tenantFields =
       data.subscriberTenant !== undefined ? { subscriberTenant: data.subscriberTenant } : {}
-    const viewerFields = {
-      isActive: true,
-      joinedAt: new Date(),
-      lastSeen: new Date(),
-      subscriberName: data.subscriberName,
-      publisherName: data.publisherName,
-      ...tenantFields,
-      ...(location ? { location } : {}),
-    }
-
+    const now = new Date()
     if (snap.empty) {
       await activeViewers.add({
         streamSessionId: data.streamSessionId,
         subscriberId: data.subscriberId,
         publisherId: data.publisherId,
-        ...viewerFields,
+        isActive: true,
+        joinedAt: now,
+        lastSeen: now,
+        subscriberName: data.subscriberName,
+        publisherName: data.publisherName,
+        deviceKey: "legacy:unknown",
+        deviceLabel: "Unknown device",
+        ...tenantFields,
+        ...(location ? { location } : {}),
       })
     } else {
-      const [primaryDoc, ...duplicateDocs] = snap.docs
-      await primaryDoc.ref.update(viewerFields)
       await Promise.all(
-        duplicateDocs.map((d: any) => d.ref.update({ isActive: false, lastSeen: new Date() })),
+        snap.docs.map((d: any) =>
+          d.ref.update({
+            lastSeen: now,
+            subscriberName: data.subscriberName,
+            publisherName: data.publisherName,
+            ...tenantFields,
+            ...(location ? { location } : {}),
+          }),
+        ),
       )
     }
   } else if (data.action === "leave") {
@@ -86,9 +100,20 @@ export async function trackSubscriberActivity(data: TrackInput) {
       .where("subscriberId", "==", data.subscriberId)
       .where("isActive", "==", true)
       .get()
-    await Promise.all(
-      snap.docs.map((d: any) => d.ref.update({ isActive: false, lastSeen: new Date() })),
-    )
+    const now = new Date()
+    const deviceKey = data.deviceKey
+    let targets = snap.docs
+    if (deviceKey) {
+      const matched = snap.docs.filter((d: any) => String(d.data()?.deviceKey || "") === deviceKey)
+      if (matched.length) targets = matched
+    } else if (snap.docs.length > 1) {
+      // Don't wipe every phone when leave has no device id — only legacy rows.
+      targets = snap.docs.filter((d: any) => {
+        const key = String(d.data()?.deviceKey || "")
+        return !key || key.startsWith("legacy:")
+      })
+    }
+    await Promise.all(targets.map((d: any) => d.ref.update({ isActive: false, lastSeen: now })))
   } else if (data.action === "viewing") {
     const snap = await activeViewers
       .where("streamSessionId", "==", data.streamSessionId)
@@ -184,6 +209,10 @@ export async function getAdminAnalytics(
       ...v,
       watchSeconds: Math.max(0, Math.floor((lastSeenMs - joinedAtMs) / 1000)),
       concurrentSession: v.concurrentSession === true,
+      multiDevice: v.multiDevice === true,
+      deviceLabel:
+        v.deviceLabel ||
+        deviceDisplayLabel(v.deviceClass || "unknown", v.userAgent || null),
       foreignOrigin: v.origin ? !isOwnHost(v.origin) : false,
       staleHeartbeat,
     }
@@ -316,12 +345,12 @@ export interface PresenceInput {
  * Record (or refresh) a viewer's presence at token-mint time. Server-authoritative:
  * IP/device/origin/geo come from `context`, so web and mobile are equally accurate.
  *
+ * One activeViewers row PER DEVICE (deviceKey). Same subscriber on mobile + Windows
+ * (or two phones) keeps multiple watching rows instead of collapsing to one.
+ *
  * Also flags concurrent streams: if the same subscriber already has an active row on
  * a DIFFERENT streamSessionId, both rows get `concurrentSession: true`. This is
  * INFORMATIONAL ONLY — it never affects the Agora token or the audio stream.
- *
- * Returns { concurrentSession } so the token route can log it. It never throws into
- * the caller's join path (analytics is best-effort).
  */
 export async function recordViewerPresence(input: PresenceInput): Promise<{
   concurrentSession: boolean
@@ -334,15 +363,20 @@ export async function recordViewerPresence(input: PresenceInput): Promise<{
   const activeViewers = db.collection("activeViewers")
 
   const ctx = input.context
+  const deviceKey = buildViewerDeviceKey(ctx)
+  const deviceLabel = deviceDisplayLabel(ctx.deviceClass, ctx.userAgent)
   const ctxFields = {
     ip: ctx.ip,
     userAgent: ctx.userAgent,
     deviceClass: ctx.deviceClass,
+    deviceKey,
+    deviceLabel,
+    viewerDeviceId: ctx.viewerDeviceId ?? null,
     origin: ctx.origin,
     geo: ctx.geo ?? null,
   }
 
-  // Existing rows for this subscriber on this exact session (dedup like the legacy path).
+  // All rows for this subscriber on this stream (may include multiple devices).
   const sameSessionSnap = await activeViewers
     .where("streamSessionId", "==", input.streamSessionId)
     .where("subscriberId", "==", input.subscriberId)
@@ -369,8 +403,15 @@ export async function recordViewerPresence(input: PresenceInput): Promise<{
 
   let isNewOrReactivated = false
 
+  const matchDoc =
+    sameSessionSnap.docs.find((d: any) => String(d.data()?.deviceKey || "") === deviceKey) ||
+    // Migrate a single legacy row (no deviceKey) onto this device once.
+    (sameSessionSnap.docs.length === 1 && !sameSessionSnap.docs[0].data()?.deviceKey
+      ? sameSessionSnap.docs[0]
+      : undefined)
+
   try {
-    if (sameSessionSnap.empty) {
+    if (!matchDoc) {
       isNewOrReactivated = true
       await activeViewers.add({
         streamSessionId: input.streamSessionId,
@@ -389,10 +430,8 @@ export async function recordViewerPresence(input: PresenceInput): Promise<{
         ...ctxFields,
       })
     } else {
-      const [primaryDoc, ...duplicateDocs] = sameSessionSnap.docs
-      const wasActive = primaryDoc.data()?.isActive === true
+      const wasActive = matchDoc.data()?.isActive === true
       isNewOrReactivated = !wasActive
-      // Refresh presence but keep original joinedAt while they were continuously active.
       const update: Record<string, unknown> = {
         isActive: true,
         lastSeen: now,
@@ -407,15 +446,19 @@ export async function recordViewerPresence(input: PresenceInput): Promise<{
         ...ctxFields,
       }
       if (!wasActive) update.joinedAt = now
-      await primaryDoc.ref.update(update)
-      await Promise.all(
-        duplicateDocs.map((d: any) =>
-          d.ref.update({ isActive: false, lastSeen: now, heartbeatExpiresAt: now }),
-        ),
-      )
+      await matchDoc.ref.update(update)
     }
 
-    // Flag the other concurrent rows (best-effort; do not kick — informational only).
+    // Flag every active device row for this subscriber+stream when 2+ devices are live.
+    const liveSnap = await activeViewers
+      .where("streamSessionId", "==", input.streamSessionId)
+      .where("subscriberId", "==", input.subscriberId)
+      .where("isActive", "==", true)
+      .get()
+    if (liveSnap.size > 1) {
+      await Promise.all(liveSnap.docs.map((d: any) => d.ref.update({ multiDevice: true })))
+    }
+
     if (otherActiveDocs.length) {
       await Promise.all(
         otherActiveDocs.map((d: any) => d.ref.update({ concurrentSession: true, lastSeen: now })),
@@ -458,9 +501,8 @@ export async function appendStreamUsage(input: PresenceInput): Promise<void> {
 }
 
 /**
- * Refresh a viewer's lastSeen/heartbeat on the activeViewers row. Analytics-only —
- * never touches the Agora token. Also reactivates a row that was reaped as stale
- * (e.g. mobile/background missed the window) so they reappear as watching.
+ * Refresh a viewer's lastSeen/heartbeat on the matching device row. Analytics-only —
+ * never touches the Agora token. Also reactivates a row that was reaped as stale.
  */
 export async function recordViewerHeartbeat(input: {
   streamSessionId: string
@@ -478,6 +520,12 @@ export async function recordViewerHeartbeat(input: {
       .get()
     if (snap.empty) return
 
+    const deviceKey = input.context ? buildViewerDeviceKey(input.context) : null
+    const targets = deviceKey
+      ? snap.docs.filter((d: any) => String(d.data()?.deviceKey || "") === deviceKey)
+      : snap.docs.filter((d: any) => d.data()?.isActive !== false)
+
+    const docs = targets.length ? targets : snap.docs.slice(0, 1)
     const update: Record<string, unknown> = {
       isActive: true,
       lastSeen: now,
@@ -487,10 +535,13 @@ export async function recordViewerHeartbeat(input: {
       update.ip = input.context.ip
       update.userAgent = input.context.userAgent
       update.deviceClass = input.context.deviceClass
+      update.deviceKey = deviceKey
+      update.deviceLabel = deviceDisplayLabel(input.context.deviceClass, input.context.userAgent)
+      update.viewerDeviceId = input.context.viewerDeviceId ?? null
       update.origin = input.context.origin
       if (input.context.geo) update.geo = input.context.geo
     }
-    await Promise.all(snap.docs.map((d: any) => d.ref.update(update)))
+    await Promise.all(docs.map((d: any) => d.ref.update(update)))
   } catch {
     // best-effort
   }

@@ -102,11 +102,15 @@ function activeStreamToAdminListenPermission(stream: ActiveStreamRow, adminUid: 
 type EnrichedViewer = StreamViewer & {
   ip?: string
   deviceClass?: "mobile" | "tablet" | "desktop" | "unknown"
+  deviceLabel?: string
+  deviceKey?: string
+  multiDevice?: boolean
   origin?: string | null
   concurrentSession?: boolean
   foreignOrigin?: boolean
   staleHeartbeat?: boolean
   watchSeconds?: number
+  userAgent?: string | null
 }
 
 const DEVICE_ICON = {
@@ -243,7 +247,10 @@ export function AdminAnalytics() {
     const seen = new Set<string>()
     return activeViewers.filter((viewer) => {
       if (!activeStreamIds.has(viewer.streamSessionId) || viewer.isActive !== true) return false
-      const key = `${viewer.streamSessionId}:${viewer.subscriberId}`
+      // One row per device (not per account) so mobile + Windows both show.
+      const key =
+        viewer.id ||
+        `${viewer.streamSessionId}:${viewer.subscriberId}:${(viewer as any).deviceKey || viewer.ip || "x"}`
       if (seen.has(key)) return false
       seen.add(key)
       return true
@@ -741,7 +748,10 @@ export function AdminAnalytics() {
                   <div className="space-y-2">
                     {validActiveViewers.map((viewer) => (
                       <ViewerRow
-                        key={`${viewer.id}-${viewer.streamSessionId}`}
+                        key={
+                          viewer.id ||
+                          `${viewer.streamSessionId}:${viewer.subscriberId}:${viewer.deviceKey || viewer.ip || "x"}`
+                        }
                         viewer={viewer}
                         onListen={
                           activeStreams.some((s) => s.id === viewer.streamSessionId)
@@ -965,6 +975,14 @@ function ViewerRow({
           <div className="flex items-center gap-2 flex-wrap">
             <p className="font-medium text-sm truncate">{viewer.subscriberName}</p>
             <DeviceIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <Badge variant="outline" className="text-[10px] h-5 font-normal">
+              {viewer.deviceLabel || viewer.deviceClass || "device"}
+            </Badge>
+            {viewer.multiDevice && (
+              <Badge variant="secondary" className="text-[10px] h-5">
+                multi-device
+              </Badge>
+            )}
             {flagged && (
               <Badge variant="destructive" className="text-[10px] h-5">
                 {viewer.concurrentSession ? "concurrent" : "foreign"}

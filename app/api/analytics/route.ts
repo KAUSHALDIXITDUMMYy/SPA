@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireUserProfile, forbidden } from "@/lib/server/api-auth"
 import { resolveUserTenant } from "@/lib/tenant"
-import { getRequestContextSync } from "@/lib/server/request-context"
+import { buildViewerDeviceKey, getRequestContextSync } from "@/lib/server/request-context"
 import * as analytics from "@/lib/server/analytics-data"
 
 /**
@@ -64,6 +64,7 @@ export async function POST(request: NextRequest) {
       duration: body.duration,
       subscriberTenant: body.subscriberTenant,
       location: body.location,
+      deviceKey: buildViewerDeviceKey(getRequestContextSync(request)),
     })
     return NextResponse.json(result)
   } catch (error: any) {

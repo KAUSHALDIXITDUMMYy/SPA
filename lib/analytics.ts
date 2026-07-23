@@ -84,14 +84,17 @@ function toViewer(o: any): StreamViewer {
     isActive: o.isActive !== false,
     subscriberTenant: o.subscriberTenant as UserTenant | undefined,
     location: (o.location ?? o.geo) as ViewerLocation | null | undefined,
-    // Enrichment from getAdminAnalytics — keep on the object for the admin UI.
     ...(o.ip !== undefined ? { ip: o.ip } : {}),
     ...(o.deviceClass !== undefined ? { deviceClass: o.deviceClass } : {}),
+    ...(o.deviceLabel !== undefined ? { deviceLabel: o.deviceLabel } : {}),
+    ...(o.deviceKey !== undefined ? { deviceKey: o.deviceKey } : {}),
+    ...(o.multiDevice !== undefined ? { multiDevice: o.multiDevice } : {}),
     ...(o.origin !== undefined ? { origin: o.origin } : {}),
     ...(o.concurrentSession !== undefined ? { concurrentSession: o.concurrentSession } : {}),
     ...(o.foreignOrigin !== undefined ? { foreignOrigin: o.foreignOrigin } : {}),
     ...(o.staleHeartbeat !== undefined ? { staleHeartbeat: o.staleHeartbeat } : {}),
     ...(o.watchSeconds !== undefined ? { watchSeconds: o.watchSeconds } : {}),
+    ...(o.userAgent !== undefined ? { userAgent: o.userAgent } : {}),
   } as StreamViewer
 }
 
