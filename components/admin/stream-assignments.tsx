@@ -125,6 +125,8 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
   const [bulkEmailDialogOpen, setBulkEmailDialogOpen] = useState(false)
   const [bulkEmailSearch, setBulkEmailSearch] = useState("")
   const [bulkEmailSelectedStreams, setBulkEmailSelectedStreams] = useState<Set<string>>(new Set())
+  const [bulkEmailRevokeDialogOpen, setBulkEmailRevokeDialogOpen] = useState(false)
+  const [bulkEmailRevokeSearch, setBulkEmailRevokeSearch] = useState("")
   const [matrixRowsVisible, setMatrixRowsVisible] = useState(MATRIX_PAGE_SIZE)
   const [matrixColsVisible, setMatrixColsVisible] = useState(MATRIX_PAGE_SIZE)
   const [subscribersHasMore, setSubscribersHasMore] = useState(false)
@@ -507,15 +509,24 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
       .filter((email) => email.length > 0 && email.includes("@"))
   }, [])
 
-  // Find subscribers by emails
-  const findSubscribersByEmails = useCallback((emails: string[]): string[] => {
-    return subscribers
-      .filter((sub) => {
+  // Find subscribers by emails (searches the provided list, not just first page)
+  const findSubscribersByEmailsIn = useCallback(
+    (emails: string[], pool: (UserProfile & { id: string })[]): { ids: string[]; missing: string[] } => {
+      const emailSet = new Set(emails.map((e) => e.toLowerCase()))
+      const foundEmails = new Set<string>()
+      const ids: string[] = []
+      for (const sub of pool) {
         const email = (sub.email || "").toLowerCase()
-        return email.length > 0 && emails.includes(email)
-      })
-      .map((sub) => sub.id)
-  }, [subscribers])
+        if (email && emailSet.has(email)) {
+          ids.push(sub.id)
+          foundEmails.add(email)
+        }
+      }
+      const missing = emails.filter((e) => !foundEmails.has(e.toLowerCase()))
+      return { ids, missing }
+    },
+    [],
+  )
 
   // Bulk assign from email search
   const bulkAssignFromEmails = useCallback(async () => {
@@ -530,12 +541,6 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
       return
     }
 
-    const subscriberIds = findSubscribersByEmails(emails)
-    if (subscriberIds.length === 0) {
-      setError("No subscribers found with those email addresses")
-      return
-    }
-
     if (bulkEmailSelectedStreams.size === 0) {
       setError("Please select at least one stream")
       return
@@ -546,51 +551,125 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
     setSuccess("")
 
     try {
-      const promises: Promise<any>[] = []
-      let newAssignments = 0
-      let reactivated = 0
-      let alreadyAssigned = 0
+      const allSubs = await ensureAllSubscribersLoaded()
+      const { ids: subscriberIds, missing } = findSubscribersByEmailsIn(emails, allSubs)
+      if (subscriberIds.length === 0) {
+        setError("No subscribers found with those email addresses")
+        return
+      }
 
-      subscriberIds.forEach((subId) => {
-        bulkEmailSelectedStreams.forEach((streamId) => {
-          const assignment = getAssignment(subId, streamId)
-          if (!assignment) {
-            promises.push(
-              createStreamAssignment({
-                subscriberId: subId,
-                streamSessionId: streamId,
-                isActive: true,
-              })
-            )
-            newAssignments++
-          } else if (!assignment.isActive) {
-            promises.push(updateStreamAssignment(assignment.id!, { isActive: true }))
-            reactivated++
-          } else {
-            alreadyAssigned++
-          }
-        })
+      const result = await bulkCreateStreamAssignments({
+        subscriberIds,
+        streamSessionIds: Array.from(bulkEmailSelectedStreams),
       })
+      invalidateStreamAssignmentsBootstrap()
 
-      await Promise.all(promises)
-
-      let successMsg = `Assigned ${subscriberIds.length} subscriber(s) to ${bulkEmailSelectedStreams.size} stream(s). `
-      if (newAssignments > 0) successMsg += `Created ${newAssignments} new assignment(s). `
-      if (reactivated > 0) successMsg += `Reactivated ${reactivated} assignment(s). `
-      if (alreadyAssigned > 0) successMsg += `Skipped ${alreadyAssigned} already active assignment(s).`
+      let successMsg = `Assigned ${subscriberIds.length} subscriber(s) to ${bulkEmailSelectedStreams.size} stream(s): ${result.created} created, ${result.reactivated} reactivated, ${result.skipped} already active.`
+      if (missing.length) successMsg += ` Not found: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""}.`
 
       setSuccess(successMsg)
       setBulkEmailSearch("")
       setBulkEmailSelectedStreams(new Set())
       setBulkEmailDialogOpen(false)
-      
       await refreshAssignments()
     } catch (e: any) {
       setError(e?.message || "Bulk assignment failed")
     } finally {
       setBulkLoading(false)
     }
-  }, [bulkEmailSearch, bulkEmailSelectedStreams, parseBulkEmails, findSubscribersByEmails, getAssignment, refreshAssignments])
+  }, [
+    bulkEmailSearch,
+    bulkEmailSelectedStreams,
+    parseBulkEmails,
+    findSubscribersByEmailsIn,
+    ensureAllSubscribersLoaded,
+    refreshAssignments,
+  ])
+
+  /** Paste emails → revoke those users from every stream in one click. */
+  const bulkRevokeFromEmails = useCallback(async () => {
+    if (!bulkEmailRevokeSearch.trim()) {
+      setError("Please enter email addresses")
+      return
+    }
+    const emails = parseBulkEmails(bulkEmailRevokeSearch)
+    if (emails.length === 0) {
+      setError("No valid email addresses found")
+      return
+    }
+
+    setBulkLoading(true)
+    setError("")
+    setSuccess("")
+    try {
+      const allSubs = await ensureAllSubscribersLoaded()
+      const { ids: subscriberIds, missing } = findSubscribersByEmailsIn(emails, allSubs)
+      if (subscriberIds.length === 0) {
+        setError("No subscribers found with those email addresses")
+        return
+      }
+      if (
+        !window.confirm(
+          `Remove ALL stream access for ${subscriberIds.length} subscriber(s)?\n\nThey will lose access to every live stream.`,
+        )
+      ) {
+        return
+      }
+
+      const result = await bulkDeleteStreamAssignments({ subscriberIds })
+      invalidateStreamAssignmentsBootstrap()
+      let msg = `Cleared ${result.deleted} assignment(s) for ${subscriberIds.length} subscriber(s) across all streams.`
+      if (missing.length) msg += ` Not found: ${missing.slice(0, 5).join(", ")}${missing.length > 5 ? "…" : ""}.`
+      setSuccess(msg)
+      setBulkEmailRevokeSearch("")
+      setBulkEmailRevokeDialogOpen(false)
+      await refreshAssignments()
+    } catch (e: any) {
+      setError(e?.message || "Bulk email revoke failed")
+    } finally {
+      setBulkLoading(false)
+    }
+  }, [
+    bulkEmailRevokeSearch,
+    parseBulkEmails,
+    findSubscribersByEmailsIn,
+    ensureAllSubscribersLoaded,
+    refreshAssignments,
+  ])
+
+  /** Selected users only → revoke from every stream (no stream selection needed). */
+  const clearSelectedFromAllStreams = useCallback(async () => {
+    if (selectedSubscribers.size === 0) {
+      setError("Please select at least one subscriber")
+      return
+    }
+    if (
+      !window.confirm(
+        `Remove ALL stream access for ${selectedSubscribers.size} selected subscriber(s)?\n\nThey will lose access to every live stream.`,
+      )
+    ) {
+      return
+    }
+
+    setBulkLoading(true)
+    setError("")
+    setSuccess("")
+    try {
+      const result = await bulkDeleteStreamAssignments({
+        subscriberIds: Array.from(selectedSubscribers),
+      })
+      invalidateStreamAssignmentsBootstrap()
+      setSuccess(
+        `Cleared ${result.deleted} assignment(s) for ${selectedSubscribers.size} selected subscriber(s) across all streams.`,
+      )
+      setSelectedSubscribers(new Set())
+      await refreshAssignments()
+    } catch (e: any) {
+      setError(e?.message || "Failed to clear selected subscribers")
+    } finally {
+      setBulkLoading(false)
+    }
+  }, [selectedSubscribers, refreshAssignments])
 
   // Bulk assign selected subscribers to selected streams (server-side batch)
   const bulkAssign = useCallback(async () => {
@@ -864,7 +943,9 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
   }, [])
 
   const parsedEmails = parseBulkEmails(bulkEmailSearch)
-  const foundSubscribers = findSubscribersByEmails(parsedEmails)
+  const foundSubscribers = findSubscribersByEmailsIn(parsedEmails, subscribers).ids
+  const parsedRevokeEmails = parseBulkEmails(bulkEmailRevokeSearch)
+  const foundRevokeSubscribers = findSubscribersByEmailsIn(parsedRevokeEmails, subscribers).ids
 
   return (
     <div className="space-y-4">
@@ -896,7 +977,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
       )}
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* Bulk Email Assignment Dialog */}
         <Dialog open={bulkEmailDialogOpen} onOpenChange={setBulkEmailDialogOpen}>
           <DialogTrigger asChild>
@@ -1006,7 +1087,7 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                 Cancel
               </Button>
               <Button
-                onClick={bulkAssignFromEmails}
+                onClick={() => void bulkAssignFromEmails()}
                 disabled={bulkLoading || !bulkEmailSearch.trim() || bulkEmailSelectedStreams.size === 0}
               >
                 {bulkLoading ? (
@@ -1018,6 +1099,79 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                   <>
                     <CheckCircle2 className="h-4 w-4 mr-2" />
                     Assign {foundSubscribers.length > 0 ? `${foundSubscribers.length} ` : ""}Subscriber(s)
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Bulk Email Revoke — paste emails, remove from all streams */}
+        <Dialog open={bulkEmailRevokeDialogOpen} onOpenChange={setBulkEmailRevokeDialogOpen}>
+          <DialogTrigger asChild>
+            <Button
+              variant="outline"
+              className="w-full h-auto py-6 flex flex-col items-center gap-2 border-destructive/40"
+            >
+              <Eraser className="h-6 w-6 text-destructive" />
+              <div className="text-center">
+                <div className="font-semibold">Revoke by email</div>
+                <div className="text-xs text-muted-foreground">Paste emails → clear all stream access</div>
+              </div>
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Revoke access by email</DialogTitle>
+              <DialogDescription>
+                Paste subscriber emails (comma or new-line separated). One click removes their access from every
+                live stream — no stream picking needed.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <Label htmlFor="bulkRevokeEmails">Email Addresses</Label>
+              <Textarea
+                id="bulkRevokeEmails"
+                placeholder="user1@example.com, user2@example.com&#10;user3@example.com"
+                value={bulkEmailRevokeSearch}
+                onChange={(e) => setBulkEmailRevokeSearch(e.target.value)}
+                rows={6}
+                className="font-mono text-sm"
+              />
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>{parsedRevokeEmails.length} email(s) pasted</span>
+                {foundRevokeSubscribers.length > 0 && (
+                  <Badge variant="secondary">{foundRevokeSubscribers.length} matched in loaded list</Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Matching runs against all subscribers when you click revoke (not just the first page).
+              </p>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setBulkEmailRevokeDialogOpen(false)
+                  setBulkEmailRevokeSearch("")
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => void bulkRevokeFromEmails()}
+                disabled={bulkLoading || !bulkEmailRevokeSearch.trim()}
+              >
+                {bulkLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Revoking...
+                  </>
+                ) : (
+                  <>
+                    <Eraser className="h-4 w-4 mr-2" />
+                    Remove from all streams
                   </>
                 )}
               </Button>
@@ -1131,6 +1285,21 @@ export function StreamAssignments({ active = true }: { active?: boolean }) {
                   <Eraser className="h-4 w-4 mr-2" />
                 )}
                 Clear all access
+              </Button>
+              <Button
+                onClick={() => void clearSelectedFromAllStreams()}
+                disabled={bulkLoading || selectedSubscribers.size === 0}
+                variant="destructive"
+                className="flex-1 sm:flex-initial"
+                size="sm"
+                title="Remove selected subscribers from every stream — no stream selection needed"
+              >
+                {bulkLoading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Users className="h-4 w-4 mr-2" />
+                )}
+                Clear selected → all streams
               </Button>
               <Button
                 onClick={bulkAssign}
