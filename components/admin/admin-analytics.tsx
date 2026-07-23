@@ -697,13 +697,19 @@ export function AdminAnalytics() {
                             <div className="flex flex-wrap gap-2">
                               {viewersOnMonitor.map((v) => (
                                 <div
-                                  key={`${v.id}-${v.streamSessionId}`}
+                                  key={
+                                    v.id ||
+                                    `${v.streamSessionId}:${v.subscriberId}:${v.deviceKey || v.ip || "x"}`
+                                  }
                                   className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-xs"
                                 >
                                   <Users className="h-3 w-3 text-muted-foreground" />
                                   <span className="font-medium truncate max-w-[120px]">
                                     {v.subscriberName}
                                   </span>
+                                  <Badge variant="outline" className="text-[10px] h-5 font-normal shrink-0">
+                                    {v.deviceLabel || v.deviceClass || "device"}
+                                  </Badge>
                                   <span className="font-mono text-muted-foreground truncate max-w-[100px]">
                                     {v.ip || "—"}
                                   </span>
