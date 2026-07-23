@@ -98,7 +98,13 @@ export async function GET(request: NextRequest) {
     if (type === "usage") {
       if (profile.role !== "admin") return forbidden()
       const windowDays = Math.min(Math.max(parseInt(searchParams.get("windowDays") || "30"), 1), 365)
-      return NextResponse.json({ usage: await analytics.getSubscriberUsage(windowDays) })
+      return NextResponse.json({
+        usage: await analytics.getSubscriberUsage(windowDays, {
+          role: profile.role,
+          email: profile.email,
+          tenant: resolveUserTenant(profile),
+        }),
+      })
     }
 
     if (type === "publisher" && publisherId) {

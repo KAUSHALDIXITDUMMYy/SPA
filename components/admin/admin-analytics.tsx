@@ -214,7 +214,19 @@ export function AdminAnalytics() {
       setUsageLoading(true)
       try {
         const rows = await getSubscriberUsage(windowDays)
-        if (!unmountRef.current) setUsage(rows)
+        if (!unmountRef.current) {
+          // Client safety net: SportsMagician admins never list @kevionics users.
+          const scope = resolveUserTenant(userProfile)
+          setUsage(
+            rows.filter((r) => {
+              const t = resolveUserTenant({
+                email: r.email || undefined,
+                tenant: (r.tenant as UserTenant | undefined) || undefined,
+              })
+              return scope === "kevionics" ? t === "kevionics" : t !== "kevionics"
+            }),
+          )
+        }
       } finally {
         if (!unmountRef.current) setUsageLoading(false)
       }

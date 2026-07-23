@@ -560,8 +560,12 @@ export interface SubscriberUsageRow {
 /**
  * Per-subscriber usage rollup from the streamUsage ledger over a window.
  * Used by the admin "Usage & Billing" tab (usage-report-only model).
+ * Scoped by admin tenant: SportsMagician (default) never sees @kevionics users.
  */
-export async function getSubscriberUsage(windowDays = 30): Promise<SubscriberUsageRow[]> {
+export async function getSubscriberUsage(
+  windowDays = 30,
+  adminViewer?: { role?: string; email?: string; tenant?: UserTenant },
+): Promise<SubscriberUsageRow[]> {
   const db = await getAdminDb()
   const cutoff = new Date()
   cutoff.setDate(cutoff.getDate() - windowDays)
@@ -621,7 +625,7 @@ export async function getSubscriberUsage(windowDays = 30): Promise<SubscriberUsa
     }
   })
 
-  // Backfill email from users/{uid} so the report is admin-friendly.
+  // Backfill email + authoritative tenant from users/{uid}.
   let userDocs: any[] = []
   try {
     const ids = Array.from(bySubscriber.keys())
@@ -637,12 +641,37 @@ export async function getSubscriberUsage(windowDays = 30): Promise<SubscriberUsa
     // ignore — email stays null
   }
   for (const doc of userDocs) {
-    const data = doc.data()
+    const data = doc.data() || {}
     const row = bySubscriber.get(doc.id)
-    if (row && data.email) row.email = String(data.email)
+    if (!row) continue
+    if (data.email) row.email = String(data.email)
+    row.tenant = resolveUserTenant({
+      email: data.email || row.email || undefined,
+      tenant: data.tenant,
+    })
   }
 
+  // Rows with no user doc still resolve tenant from ledger + any known email.
+  for (const row of bySubscriber.values()) {
+    row.tenant = resolveUserTenant({
+      email: row.email || undefined,
+      tenant: (row.tenant as UserTenant | undefined) || undefined,
+    })
+  }
+
+  const adminScope =
+    adminViewer?.role === "admin" ? resolveUserTenant(adminViewer) : ("default" as UserTenant)
+
   return Array.from(bySubscriber.values())
+    .filter((r) => {
+      const t = resolveUserTenant({
+        email: r.email || undefined,
+        tenant: (r.tenant as UserTenant | undefined) || undefined,
+      })
+      // SportsMagician admins must never see kevionics / @kevionics.com users.
+      if (adminScope === "kevionics") return t === "kevionics"
+      return t !== "kevionics"
+    })
     .map((r) => {
       const { _ipSet, _devSet, _pubSet, _ssnSet, ...rest } = r
       return {
