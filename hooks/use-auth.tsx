@@ -2,17 +2,9 @@
 
 import type React from "react"
 
-import { useState, useEffect, createContext, useContext, useRef } from "react"
+import { useState, useEffect, createContext, useContext } from "react"
 import type { User } from "firebase/auth"
-import {
-  onAuthStateChange,
-  getUserProfile,
-  signOut,
-  heartbeatSession,
-  isLocalSessionStale,
-  type UserProfile,
-} from "@/lib/auth"
-import { getLocalSessionId } from "@/lib/client/authenticated-fetch"
+import { onAuthStateChange, getUserProfile, signOut, heartbeatSession, type UserProfile } from "@/lib/auth"
 import { useRouter } from "next/navigation"
 import { toast } from "@/hooks/use-toast"
 import { startPoll } from "@/lib/client/poll"
@@ -42,21 +34,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
-  const kickingRef = useRef(false)
-
-  const forceLocalSignOut = async (message: string) => {
-    if (kickingRef.current) return
-    kickingRef.current = true
-    toast({
-      title: "Signed out",
-      description: message,
-      variant: "destructive",
-    })
-    await signOut({ clearServerSession: false })
-    setUserProfile(null)
-    router.push("/")
-    kickingRef.current = false
-  }
 
   useEffect(() => {
     const unsubscribe = onAuthStateChange(async (user) => {
@@ -75,18 +52,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
 
         const profile = await getUserProfile(user.uid)
-        if (profile?.role === "subscriber") {
-          const local = getLocalSessionId()
-          // Only kick when we have a local session that no longer matches (another device won).
-          // Missing local right after Firebase sign-in is OK — establishSession is still running.
-          if (local && profile.sessionId && profile.sessionId !== local) {
-            await forceLocalSignOut(
-              "This account was signed in on another device or browser. Only one login is allowed.",
-            )
-            setLoading(false)
-            return
-          }
-        }
         setUserProfile(profile)
       } else {
         setUserProfile(null)
@@ -98,7 +63,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return unsubscribe
   }, [])
 
-  // Poll for user profile changes (isActive, session takeover). Replaces the Firestore
+  // Poll for user profile changes (isActive status, etc.). Replaces the Firestore
   // realtime listener so the browser never reads the users collection directly.
   useEffect(() => {
     if (!user) {
@@ -108,35 +73,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let active = true
     const refresh = async () => {
       const profile = await getUserProfile(user.uid)
-      if (!active) return
-
-      if (!profile) {
-        return
-      }
+      if (!active || !profile) return
 
       setUserProfile(profile)
 
+      // For subscribers - check if user is still active
       if (profile.role === "subscriber" && !profile.isActive) {
         toast({
           title: "Account Deactivated",
           description: "Your account has been deactivated by an administrator.",
           variant: "destructive",
         })
-        await signOut()
-        router.push("/")
-        return
-      }
-
-      if (isLocalSessionStale(profile)) {
-        await forceLocalSignOut(
-          "This account was signed in on another device or browser. Only one login is allowed.",
-        )
+        signOut().then(() => {
+          router.push("/")
+        })
       }
     }
 
     // Visibility-aware: pauses while the tab is hidden (background tabs were
     // multiplying the users-collection read cost). Refreshes on return.
-    const stop = startPoll(() => void refresh(), 15000)
+    const stop = startPoll(() => void refresh(), 30000)
     return () => {
       active = false
       stop()
@@ -149,11 +105,47 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return
     }
 
+    // Keep the single-session marker alive via the backend (no direct Firestore writes).
     const interval = setInterval(() => {
       void heartbeatSession()
     }, 3 * 60 * 1000)
 
     return () => clearInterval(interval)
+  }, [user, userProfile])
+
+  // Auto-logout when tab is closed (for subscribers)
+  useEffect(() => {
+    if (!user || !userProfile || userProfile.role !== "subscriber") {
+      return
+    }
+
+    // On tab close we can only reliably clear local state. The backend single-session
+    // logic treats a session with no recent heartbeat as expired (~5 min), so another
+    // browser can take over shortly after — matching the existing behavior/message.
+    const handleBeforeUnload = (_event: BeforeUnloadEvent) => {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("sessionId")
+      }
+    }
+
+    const handlePageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        // Page is being cached (e.g., back/forward navigation)
+        return
+      }
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("sessionId")
+      }
+    }
+
+    // Add both event listeners for maximum compatibility
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    window.addEventListener("pagehide", handlePageHide)
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+      window.removeEventListener("pagehide", handlePageHide)
+    }
   }, [user, userProfile])
 
   return <AuthContext.Provider value={{ user, userProfile, loading }}>{children}</AuthContext.Provider>
