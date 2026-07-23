@@ -1,0 +1,41 @@
+# Revert target: single-login / multi-device lock (last-login-wins)
+#
+# When the user asks to revert "one login per account" / multi-device login lock:
+# restore BOTH repos to the commits BELOW (parent of the session-enforcement commits),
+# then redeploy VPS + Vercel (web) and ship a mobile build if the app was released.
+#
+# WEB (SPA web/SPA) — feature branch feat/accurate-analytics-antirestream-billing
+#   Session lock commit: c1d4af4  Enforce one login per subscriber...
+#   REVERT TO (keep everything else): 5e843b4  Hide kevionics users from SportsMagician usage billing.
+#
+#   Files touched by the lock (safe to revert commit only):
+#     lib/server/auth-data.ts
+#     lib/firebase-admin.ts
+#     lib/server/api-auth.ts
+#     app/api/auth/account/route.ts
+#     app/api/auth/profile/route.ts
+#     lib/client/authenticated-fetch.ts
+#     lib/auth.ts
+#     hooks/use-auth.tsx
+#
+#   Suggested git command (web repo):
+#     git revert c1d4af4 --no-edit
+#     # then push + deploy VPS + Vercel
+#
+# MOBILE (SPA app/spa-app) — branch feat/accurate-analytics-antirestream-billing
+#   Session lock commit: 920a74b  Send session id on API calls...
+#   REVERT TO: cb77787  fix: add retries to mobile token renewal...
+#
+#   Files touched:
+#     lib/services/api_client.dart
+#     lib/services/auth_service.dart
+#     lib/state/auth_notifier.dart
+#
+#   Suggested git command (app repo):
+#     git revert 920a74b --no-edit
+#     # then push + release a new app build
+#
+# Notes:
+# - Prefer `git revert` (not hard reset) so analytics/usage fixes after 5e843b4 stay intact if more commits land.
+# - Admins/publishers were never locked; only subscribers.
+# - After revert, web+app can be logged in at the same time again.
